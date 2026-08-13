@@ -330,38 +330,193 @@ def _checkout_to_print(data):
     return doc, fac, rent, payments, util, settle
 
 
+def _checkout_form_from(src, today=None):
+    if today is None:
+        today = date.today().isoformat()
+    return {
+        "out_dt": (src.get("out_dt") or today).strip()[:10],
+        "bunji1": _pad_bunji(src.get("bunji1")),
+        "bunji2": _pad_bunji(src.get("bunji2")),
+        "hosu": (src.get("hosu") or "").strip().upper(),
+        "ipju_seq": (src.get("ipju_seq") or "").strip(),
+        "suri": (src.get("suri") or "0").strip(),
+        "elec": (src.get("elec") or "0").strip(),
+        "water": (src.get("water") or "0").strip(),
+        "restore": (src.get("restore") or "0").strip(),
+        "gas": (src.get("gas") or "0").strip(),
+        "etc": (src.get("etc") or "0").strip(),
+    }
+
+
+def _checkout_extra(form):
+    return {
+        "suri": form["suri"],
+        "elec": form["elec"],
+        "water": form["water"],
+        "restore": form["restore"],
+        "gas": form["gas"],
+        "etc": form["etc"],
+    }
+
+
+def _save_checkout(data, uid):
+    """퇴실 정산 저장 + 입주 이력 퇴실일 반영. 성공 시 None, 실패 시 메시지."""
+    out_d = data["out_dt"]
+    mx = db.query_one(
+        """
+        SELECT MAX(CAST(out_seq AS UNSIGNED)) AS m FROM bd07_out
+        WHERE out_dt=%s AND bunji1=%s AND bunji2=%s AND hosu=%s AND ipju_seq=%s
+        """,
+        (out_d, data["bunji1"], data["bunji2"], data["hosu"], data["ipju_seq"]),
+    )
+    out_seq = str(int((mx or {}).get("m") or 0) + 1).zfill(2)
+    try:
+        exists = db.query_one(
+            """
+            SELECT out_seq FROM bd07_out
+            WHERE bunji1=%s AND bunji2=%s AND hosu=%s AND ipju_seq=%s
+              AND out_dt=%s
+            ORDER BY out_seq DESC LIMIT 1
+            """,
+            (
+                data["bunji1"],
+                data["bunji2"],
+                data["hosu"],
+                data["ipju_seq"],
+                out_d,
+            ),
+        )
+        if exists:
+            out_seq = exists["out_seq"]
+            db.execute(
+                """
+                UPDATE bd07_out SET
+                  gijun_dt=%s, ipju_mm_cnt=%s, ipju_dd_cnt=%s,
+                  ipkum_gijun=%s, sukum_tot=%s, h_amt=%s,
+                  elec_amt=%s, sudo_amt=%s, sisul_amt=%s, gas_amt=%s, gita_amt=%s,
+                  jungsan_amt=%s, g_suri_tot=%s,
+                  g_napbu_gb=%s, g_ipju_dt=%s, g_ipju_nm=%s,
+                  g_ipju_jumin_no=%s, g_ipju_tel=%s,
+                  g_bojung_amt=%s, g_yechi_amt=%s, g_rent_amt=%s, g_manage_amt=%s,
+                  uid=%s, sys_dt=NOW()
+                WHERE out_dt=%s AND out_seq=%s AND bunji1=%s AND bunji2=%s
+                  AND hosu=%s AND ipju_seq=%s
+                """,
+                (
+                    out_d,
+                    data["mm"],
+                    data["dd"],
+                    data["ipkum_gijun"],
+                    data["sukum_tot"],
+                    data["h_amt"],
+                    data["elec_amt"],
+                    data["sudo_amt"],
+                    data["sisul_amt"],
+                    data["gas_amt"],
+                    data["gita_amt"],
+                    data["jungsan_amt"],
+                    data["suri_amt"],
+                    data["napbu_gb"],
+                    data["ipju_dt"] or None,
+                    data["ipju_nm"],
+                    data["jumin"][:15],
+                    data["tel"][:50],
+                    data["bojung_amt"],
+                    data["yechi_amt"],
+                    data["rent_amt"],
+                    data["manage_amt"],
+                    uid,
+                    out_d,
+                    out_seq,
+                    data["bunji1"],
+                    data["bunji2"],
+                    data["hosu"],
+                    data["ipju_seq"],
+                ),
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO bd07_out (
+                  out_dt, out_seq, gijun_dt, bunji1, bunji2, hosu, ipju_seq,
+                  ipju_mm_cnt, ipju_dd_cnt, ipkum_gijun, sukum_tot, h_amt,
+                  elec_amt, sudo_amt, sisul_amt, gas_amt, gita_amt, jungsan_amt,
+                  g_suri_tot, g_napbu_gb, g_ipju_dt, g_ipju_nm, g_ipju_jumin_no,
+                  g_ipju_tel, g_bojung_amt, g_yechi_amt, g_rent_amt, g_manage_amt,
+                  uid, sys_dt
+                ) VALUES (
+                  %s,%s,%s,%s,%s,%s,%s,
+                  %s,%s,%s,%s,%s,
+                  %s,%s,%s,%s,%s,%s,
+                  %s,%s,%s,%s,%s,
+                  %s,%s,%s,%s,%s,
+                  %s,NOW()
+                )
+                """,
+                (
+                    out_d,
+                    out_seq,
+                    out_d,
+                    data["bunji1"],
+                    data["bunji2"],
+                    data["hosu"],
+                    data["ipju_seq"],
+                    data["mm"],
+                    data["dd"],
+                    data["ipkum_gijun"],
+                    data["sukum_tot"],
+                    data["h_amt"],
+                    data["elec_amt"],
+                    data["sudo_amt"],
+                    data["sisul_amt"],
+                    data["gas_amt"],
+                    data["gita_amt"],
+                    data["jungsan_amt"],
+                    data["suri_amt"],
+                    data["napbu_gb"],
+                    data["ipju_dt"] or None,
+                    data["ipju_nm"],
+                    data["jumin"][:15],
+                    data["tel"][:50],
+                    data["bojung_amt"],
+                    data["yechi_amt"],
+                    data["rent_amt"],
+                    data["manage_amt"],
+                    uid,
+                ),
+            )
+        db.execute(
+            """
+            UPDATE bd03_det
+            SET out_dt=%s, out_seq=%s, out_jungsan_end=%s, sys_dt=NOW(), uid=%s
+            WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+            """,
+            (
+                out_d,
+                out_seq,
+                data["jungsan_amt"],
+                uid,
+                data["bunji1"],
+                data["bunji2"],
+                data["hosu"],
+                data["ipju_seq"],
+            ),
+        )
+    except Exception as e:
+        return str(e)
+    return None
+
+
 @app.route("/checkout", methods=["GET", "POST"])
 @login_required
 def checkout():
     """퇴실 정산 관리 (XP). 조회·저장·인쇄."""
     today = date.today().isoformat()
 
-    def _form_from_req(src):
-        return {
-            "out_dt": (src.get("out_dt") or today).strip()[:10],
-            "bunji1": _pad_bunji(src.get("bunji1")),
-            "bunji2": _pad_bunji(src.get("bunji2")),
-            "hosu": (src.get("hosu") or "").strip().upper(),
-            "ipju_seq": (src.get("ipju_seq") or "").strip(),
-            "suri": (src.get("suri") or "0").strip(),
-            "elec": (src.get("elec") or "0").strip(),
-            "water": (src.get("water") or "0").strip(),
-            "restore": (src.get("restore") or "0").strip(),
-            "gas": (src.get("gas") or "0").strip(),
-            "etc": (src.get("etc") or "0").strip(),
-        }
-
     if request.method == "POST":
         action = (request.form.get("action") or "calc").strip()
-        f = _form_from_req(request.form)
-        extra = {
-            "suri": f["suri"],
-            "elec": f["elec"],
-            "water": f["water"],
-            "restore": f["restore"],
-            "gas": f["gas"],
-            "etc": f["etc"],
-        }
+        f = _checkout_form_from(request.form, today)
+        extra = _checkout_extra(f)
 
         if action == "new":
             return redirect(url_for("checkout"))
@@ -374,157 +529,14 @@ def checkout():
             return redirect(url_for("checkout", **{k: v for k, v in f.items() if v}))
 
         if action == "save":
-            uid = session.get("sabun") or ""
-            out_d = data["out_dt"]
-            # out_seq
-            mx = db.query_one(
-                """
-                SELECT MAX(CAST(out_seq AS UNSIGNED)) AS m FROM bd07_out
-                WHERE out_dt=%s AND bunji1=%s AND bunji2=%s AND hosu=%s AND ipju_seq=%s
-                """,
-                (out_d, data["bunji1"], data["bunji2"], data["hosu"], data["ipju_seq"]),
-            )
-            out_seq = str(int((mx or {}).get("m") or 0) + 1).zfill(2)
-            try:
-                # 기존 건 있으면 갱신
-                exists = db.query_one(
-                    """
-                    SELECT out_seq FROM bd07_out
-                    WHERE bunji1=%s AND bunji2=%s AND hosu=%s AND ipju_seq=%s
-                      AND out_dt=%s
-                    ORDER BY out_seq DESC LIMIT 1
-                    """,
-                    (
-                        data["bunji1"],
-                        data["bunji2"],
-                        data["hosu"],
-                        data["ipju_seq"],
-                        out_d,
-                    ),
-                )
-                if exists:
-                    out_seq = exists["out_seq"]
-                    db.execute(
-                        """
-                        UPDATE bd07_out SET
-                          gijun_dt=%s, ipju_mm_cnt=%s, ipju_dd_cnt=%s,
-                          ipkum_gijun=%s, sukum_tot=%s, h_amt=%s,
-                          elec_amt=%s, sudo_amt=%s, sisul_amt=%s, gas_amt=%s, gita_amt=%s,
-                          jungsan_amt=%s, g_suri_tot=%s,
-                          g_napbu_gb=%s, g_ipju_dt=%s, g_ipju_nm=%s,
-                          g_ipju_jumin_no=%s, g_ipju_tel=%s,
-                          g_bojung_amt=%s, g_yechi_amt=%s, g_rent_amt=%s, g_manage_amt=%s,
-                          uid=%s, sys_dt=NOW()
-                        WHERE out_dt=%s AND out_seq=%s AND bunji1=%s AND bunji2=%s
-                          AND hosu=%s AND ipju_seq=%s
-                        """,
-                        (
-                            out_d,
-                            data["mm"],
-                            data["dd"],
-                            data["ipkum_gijun"],
-                            data["sukum_tot"],
-                            data["h_amt"],
-                            data["elec_amt"],
-                            data["sudo_amt"],
-                            data["sisul_amt"],
-                            data["gas_amt"],
-                            data["gita_amt"],
-                            data["jungsan_amt"],
-                            data["suri_amt"],
-                            data["napbu_gb"],
-                            data["ipju_dt"] or None,
-                            data["ipju_nm"],
-                            data["jumin"][:15],
-                            data["tel"][:50],
-                            data["bojung_amt"],
-                            data["yechi_amt"],
-                            data["rent_amt"],
-                            data["manage_amt"],
-                            uid,
-                            out_d,
-                            out_seq,
-                            data["bunji1"],
-                            data["bunji2"],
-                            data["hosu"],
-                            data["ipju_seq"],
-                        ),
-                    )
-                else:
-                    db.execute(
-                        """
-                        INSERT INTO bd07_out (
-                          out_dt, out_seq, gijun_dt, bunji1, bunji2, hosu, ipju_seq,
-                          ipju_mm_cnt, ipju_dd_cnt, ipkum_gijun, sukum_tot, h_amt,
-                          elec_amt, sudo_amt, sisul_amt, gas_amt, gita_amt, jungsan_amt,
-                          g_suri_tot, g_napbu_gb, g_ipju_dt, g_ipju_nm, g_ipju_jumin_no,
-                          g_ipju_tel, g_bojung_amt, g_yechi_amt, g_rent_amt, g_manage_amt,
-                          uid, sys_dt
-                        ) VALUES (
-                          %s,%s,%s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,
-                          %s,NOW()
-                        )
-                        """,
-                        (
-                            out_d,
-                            out_seq,
-                            out_d,
-                            data["bunji1"],
-                            data["bunji2"],
-                            data["hosu"],
-                            data["ipju_seq"],
-                            data["mm"],
-                            data["dd"],
-                            data["ipkum_gijun"],
-                            data["sukum_tot"],
-                            data["h_amt"],
-                            data["elec_amt"],
-                            data["sudo_amt"],
-                            data["sisul_amt"],
-                            data["gas_amt"],
-                            data["gita_amt"],
-                            data["jungsan_amt"],
-                            data["suri_amt"],
-                            data["napbu_gb"],
-                            data["ipju_dt"] or None,
-                            data["ipju_nm"],
-                            data["jumin"][:15],
-                            data["tel"][:50],
-                            data["bojung_amt"],
-                            data["yechi_amt"],
-                            data["rent_amt"],
-                            data["manage_amt"],
-                            uid,
-                        ),
-                    )
-                # 입주 이력 퇴실일 반영
-                db.execute(
-                    """
-                    UPDATE bd03_det
-                    SET out_dt=%s, out_seq=%s, out_jungsan_end=%s, sys_dt=NOW(), uid=%s
-                    WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-                    """,
-                    (
-                        out_d,
-                        out_seq,
-                        data["jungsan_amt"],
-                        uid,
-                        data["bunji1"],
-                        data["bunji2"],
-                        data["hosu"],
-                        data["ipju_seq"],
-                    ),
-                )
+            err = _save_checkout(data, session.get("sabun") or "")
+            if err:
+                flash(f"저장 실패: {err}", "err")
+            else:
                 flash(
                     f"퇴실 정산을 저장했습니다. ({data['ipju_nm']} · 정산 {money(data['jungsan_amt'])}원)",
                     "ok",
                 )
-            except Exception as e:
-                flash(f"저장 실패: {e}", "err")
             return redirect(
                 url_for(
                     "checkout",
@@ -555,19 +567,12 @@ def checkout():
         )
 
     # GET
-    f = _form_from_req(request.args)
+    f = _checkout_form_from(request.args, today)
     if not f["out_dt"]:
         f["out_dt"] = today
     data = None
     if f["bunji1"] and f["bunji2"] and f["hosu"]:
-        extra = {
-            "suri": f["suri"],
-            "elec": f["elec"],
-            "water": f["water"],
-            "restore": f["restore"],
-            "gas": f["gas"],
-            "etc": f["etc"],
-        }
+        extra = _checkout_extra(f)
         data = _checkout_build(
             f["bunji1"], f["bunji2"], f["hosu"], f["ipju_seq"], f["out_dt"], extra
         )

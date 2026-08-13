@@ -70,15 +70,30 @@ python -m unittest tests.test_tenant_form -v
 
 ## 지금 상태 (2026-08-14)
 
-구조 분리 **끝**. 남은 할 일 없음 — 다음 화면/버그는 주인 지시 대기.
+화면별 파일 분리 **끝**. `routes/` `services/` 폴더로 한 번에 재설계하지 말 것.
 
-최근 작업:
-- Copilot: building/repair/misu/jungsan/jungke/tenants + nav/utils 분리 (커밋됨)
-- Grok: 남은 users/search/payments/checkout 분리, 검색 페이징, `build_pager` → utils
-- 검색 템플릿 `has_filter` 누락 수정, payments `fmt_bunji_pair` import 수정
+구조는 “나쁜 편 아님 / 더 정리할 여지는 있음”.
+약점: 큰 파일 안에 조회+등록+SQL이 같이 있음. SQL을 지금 빼지 말 것.
 
-## 주인 말투 / 작업 방식
+파일 크기(대략): `payments.py` 1093 · `checkout.py` 835 · `tenants.py` 748 · `building.py` 615 · `app.py` 125.
 
-- “딴넘이 구조 바꿨다 / 이어 받아” = git log + 이 파일 + `git status` 보고 이어서.
-- 리밋 걸리면 다른 AI가 이 파일만 읽고 재개해야 함. 장황한 계획서 쓰지 말고 바로 고치기.
-- 웹 UI 바꾸면 브라우저로 동작 확인.
+### 소규모 구조 정리 (한 파일 안 함수 분리만)
+
+새 폴더·Blueprint 금지. SQL은 화면 파일에 유지.
+
+1. **`payments.py` 완료 (2026-08-14)** — `payments()` 목록/이름검색/기간을 헬퍼로 올림. 등록 화면 렌더 중복 제거.
+2. **`checkout.py` 완료** — 폼 추출 + `_save_checkout` 분리.
+3. 다음 후보: `tenants.py` (입주 등록 라우트가 큼). `.tr-*` CSS/간격은 건드리지 말 것.
+4. `building.py`는 폼 헬퍼 이미 있음. `app.py`는 더 쪼갤 것 없음.
+
+## 크레딧 절약 · 로컬 모델
+
+Grok 한도 아낄 때: 로컬 Ollama **`deepseek-r1:8b`**.
+
+- 켜져 있는지: `http://127.0.0.1:11434/api/tags`
+- 프로젝트에서: `python ask_local.py -p "질문" -f tenants.py -o LOCAL_PLAN.md`
+- Grok TUI: `/model deepseek-local` (Ollama 켜 둔 상태)
+- **로컬에 맡길 것:** 읽기, 함수 쪼개 계획, 중복 찾기
+- **로컬에 맡기지 말 것:** 파일 직접 패치, 입주 폼 HTML/CSS `.tr-*`, DB 쓰기, 커밋
+
+결과 파일이 있으면 Grok은 그걸 읽고 적용만 한다.
