@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}퇴실(예정)자 조회 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">호수 퇴실자 내역 조회</span>
+    {% if ran and pager.total %}<span class="muted">{{ pager.total }}건</span>{% endif %}
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('checkout') }}">퇴실 정산</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body">
+  <form method="get" autocomplete="off">
+    <input type="hidden" name="q" value="1">
+    {# 새 조회 시 1페이지부터 #}
+    <input type="hidden" name="page" value="1">
+    <div class="ls-row">
+      <label class="ls-lab" for="bunji1">주소</label>
+      <div class="ls-val ls-val-inline">
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+        </div>
+        <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
+          {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
+        </span>
+        <label class="ls-lab" for="hosu" style="min-width:auto;width:auto;margin:0 0 0 4px">호수</label>
+        <input type="text" name="hosu" id="hosu" class="hosu-input ls-box" value="{{ filters.hosu or '' }}"
+               maxlength="3" placeholder="101" style="text-transform:uppercase" autocomplete="off" title="호수">
+        <label class="ls-lab" for="name" style="min-width:auto;width:auto;margin:0 0 0 8px">이름</label>
+        <input type="text" name="name" id="name" class="ls-box ls-name" value="{{ filters.name or '' }}"
+               maxlength="20" placeholder="성명" autocomplete="off" title="이름(부분 일치)">
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab">구분</label>
+      <div class="ls-val">
+        <div class="tenant-status-row" role="radiogroup" aria-label="퇴실 구분">
+          <label class="tenant-status-opt">
+            <input type="radio" name="mode" value="all" {% if filters.mode == 'all' %}checked{% endif %}>
+            <span>전체</span>
+          </label>
+          <label class="tenant-status-opt">
+            <input type="radio" name="mode" value="out" {% if filters.mode == 'out' %}checked{% endif %}>
+            <span>퇴실</span>
+          </label>
+          <label class="tenant-status-opt">
+            <input type="radio" name="mode" value="plan" {% if filters.mode == 'plan' %}checked{% endif %}>
+            <span>퇴실예정</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <p class="muted" style="margin:0 0 8px;font-size:0.85rem">※ 주소 · 호수 · 이름 중 하나 이상 입력 후 조회</p>
+    <div class="ls-actions">
+      <button type="submit" class="btn">조회</button>
+      <a class="btn secondary" href="{{ url_for('checkout_list') }}">초기화</a>
+    </div>
+  </form>
+
+  {% if flash_messages %}
+  <ul class="flash flash-below-form">
+    {% for cat, msg in flash_messages %}
+    <li class="{{ cat }}">{{ msg }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <div class="panel-section-lab">
+    퇴실 · 예정 목록
+    {% if ran and pager.total %}
+    <span class="muted">
+      전체 {{ pager.total }}건
+      · {{ pager.page }}/{{ pager.total_pages }}페이지
+      (페이지당 {{ pager.per_page }}건)
+    </span>
+    {% endif %}
+  </div>
+  <div class="panel-table-wrap table-scroll">
+    {% if ran and results %}
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th class="tc">선택</th>
+          <th class="tc">주소</th>
+          <th class="tc">호수</th>
+          <th class="tc">순번</th>
+          <th>성명</th>
+          <th class="tc">구분</th>
+          <th class="tc">주민번호</th>
+          <th class="tc">입주일자</th>
+          {% if filters.mode != 'plan' %}
+          <th class="tc">퇴실일</th>
+          {% endif %}
+          {% if filters.mode != 'out' %}
+          <th class="tc">퇴실예정일</th>
+          {% endif %}
+          <th class="num">보증금</th>
+          <th class="num">임대료</th>
+          <th class="tc">처리</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td class="tc">
+            <input type="radio" name="pick" form="restore-form" class="pick-radio"
+                   value="{{ r.bunji1 }}|{{ r.bunji2 }}|{{ r.hosu }}|{{ r.ipju_seq }}"
+                   data-b1="{{ r.bunji1 }}" data-b2="{{ r.bunji2 }}"
+                   data-hosu="{{ r.hosu }}" data-seq="{{ r.ipju_seq }}">
+          </td>
+          <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+          <td class="tc">{{ r.hosu }}</td>
+          <td class="tc">{{ r.ipju_seq }}</td>
+          <td>{{ r.ipju_nm or '' }}</td>
+          <td class="tc">
+            {% if r.kind == '퇴실예정' %}
+            <span class="badge empty">{{ r.kind }}</span>
+            {% else %}
+            <span class="badge out">{{ r.kind }}</span>
+            {% endif %}
+          </td>
+          <td class="tc col-nowrap">{{ r.jumin_disp }}</td>
+          <td class="tc col-nowrap">{{ r.ipju_dt|fmt_date }}</td>
+          {% if filters.mode != 'plan' %}
+          <td class="tc col-nowrap">{{ r.out_dt_disp }}</td>
+          {% endif %}
+          {% if filters.mode != 'out' %}
+          <td class="tc col-nowrap">{{ r.plan_out_dt_disp }}</td>
+          {% endif %}
+          <td class="num">{{ r.bojung_amt|money }}</td>
+          <td class="num">{{ r.rent_amt|money }}</td>
+          <td class="tc">
+            <a href="{{ url_for('checkout', bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, ipju_seq=r.ipju_seq, out_dt=r.kind_dt|fmt_date) }}">정산</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <form method="post" id="restore-form" class="ls-actions" style="margin-top:12px" autocomplete="off">
+      <input type="hidden" name="action" value="restore">
+      <input type="hidden" name="bunji1" id="rf_b1" value="">
+      <input type="hidden" name="bunji2" id="rf_b2" value="">
+      <input type="hidden" name="hosu" id="rf_hosu" value="">
+      <input type="hidden" name="ipju_seq" id="rf_seq" value="">
+      <input type="hidden" name="q_bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}">
+      <input type="hidden" name="q_bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}">
+      <input type="hidden" name="q_hosu" value="{{ filters.hosu or '' }}">
+      <input type="hidden" name="q_name" value="{{ filters.name or '' }}">
+      <input type="hidden" name="mode" value="{{ filters.mode }}">
+      <span class="muted" id="pick-hint">목록에서 선택 후 변환</span>
+      <button type="submit" class="btn" id="btn-restore"
+              onclick="return confirm('선택 건을 현입주자로 변환할까요?\\n(퇴실일·예정일이 지워집니다)');"
+              disabled>현입주자로 변환</button>
+    </form>
+
+    {% if pager.total_pages > 1 %}
+    {% set pq = {
+      'q': 1,
+      'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+      'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+      'hosu': filters.hosu or none,
+      'name': filters.name or none,
+      'mode': filters.mode
+    } %}
+    <nav class="pager" aria-label="목록 페이지">
+      {# 이전/다음 = 6페이지 블록 단위 점프 (1–6 → 7–12) #}
+      {% if pager.has_prev %}
+      <a class="pager-btn" href="{{ url_for('checkout_list', page=pager.prev_page, **pq) }}">‹ 이전</a>
+      {% else %}
+      <span class="pager-btn is-disabled">‹ 이전</span>
+      {% endif %}
+
+      {% for p in pager.page_window %}
+        {% if p == pager.page %}
+        <span class="pager-num is-current" aria-current="page">{{ p }}</span>
+        {% else %}
+        <a class="pager-num" href="{{ url_for('checkout_list', page=p, **pq) }}">{{ p }}</a>
+        {% endif %}
+      {% endfor %}
+
+      {% if pager.has_next %}
+      <a class="pager-btn" href="{{ url_for('checkout_list', page=pager.next_page, **pq) }}">다음 ›</a>
+      {% else %}
+      <span class="pager-btn is-disabled">다음 ›</span>
+      {% endif %}
+    </nav>
+    {% endif %}
+
+    {% elif want_query or ran %}
+    <ul class="flash flash-below-form">
+      <li class="err">{{ empty_msg or '조건에 맞는 퇴실·예정 이력이 없습니다.' }}</li>
+    </ul>
+    {% else %}
+    <p class="empty">주소 · 호수 · 이름 중 하나 이상 입력한 뒤 「조회」하세요.</p>
+    {% endif %}
+  </div>
+  </div>
+</div>
+
+<script>
+function clearPick() {
+  document.getElementById('rf_b1').value = '';
+  document.getElementById('rf_b2').value = '';
+  document.getElementById('rf_hosu').value = '';
+  document.getElementById('rf_seq').value = '';
+  var btn = document.getElementById('btn-restore');
+  if (btn) btn.disabled = true;
+  var h = document.getElementById('pick-hint');
+  if (h) h.textContent = '목록에서 선택 후 변환';
+}
+function applyPick(el) {
+  if (!el) return;
+  document.getElementById('rf_b1').value = el.getAttribute('data-b1') || '';
+  document.getElementById('rf_b2').value = el.getAttribute('data-b2') || '';
+  document.getElementById('rf_hosu').value = el.getAttribute('data-hosu') || '';
+  document.getElementById('rf_seq').value = el.getAttribute('data-seq') || '';
+  var btn = document.getElementById('btn-restore');
+  if (btn) btn.disabled = false;
+  var h = document.getElementById('pick-hint');
+  if (h) h.textContent = '선택됨 · 변환 가능 (다시 클릭 시 해제)';
+}
+(function () {
+  /* 라디오 한 번 더 클릭하면 체크 해제 */
+  document.querySelectorAll('input.pick-radio').forEach(function (radio) {
+    radio.addEventListener('click', function () {
+      if (this.getAttribute('data-was-checked') === '1') {
+        this.checked = false;
+        this.setAttribute('data-was-checked', '0');
+        clearPick();
+        return;
+      }
+      document.querySelectorAll('input.pick-radio').forEach(function (r) {
+        r.setAttribute('data-was-checked', r === radio && radio.checked ? '1' : '0');
+      });
+      if (this.checked) applyPick(this);
+      else clearPick();
+    });
+  });
+})();
+</script>
+{% endblock %}
+{% block flash %}{% endblock %}

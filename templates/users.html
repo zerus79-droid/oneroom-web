@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}사용자관리 · 주택관리 시스템{% endblock %}
+{% block content %}
+
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">사용자 관리{% if form.mode == 'edit' %} (수정){% endif %}</span>
+    <span class="muted">{{ users|length }}명</span>
+  </div>
+  <div class="legacy-sukum-body">
+  <form method="post" id="user-form" autocomplete="off">
+    <input type="hidden" name="action" id="form_action" value="save">
+    <input type="hidden" name="mode" value="{{ form.mode }}">
+    <input type="hidden" name="orig_sabun" value="{{ form.orig_sabun }}">
+
+    <div class="ls-row">
+      <label class="ls-lab star">사용자 ID</label>
+      <div class="ls-val">
+        <input type="text" name="sabun" id="sabun" class="ls-box" required
+               value="{{ form.sabun }}" maxlength="5" placeholder="예: 10004"
+               autocomplete="off" {% if form.mode == 'edit' %}{% endif %}>
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab star">사용자명</label>
+      <div class="ls-val">
+        <input type="text" name="s_name" id="s_name" class="ls-box" required
+               value="{{ form.s_name }}" maxlength="50" autocomplete="off">
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab star">등급</label>
+      <div class="ls-val">
+        <div class="tenant-status-row" role="radiogroup" aria-label="등급">
+          {% for code, label in grade_options %}
+          <label class="tenant-status-opt">
+            <input type="radio" name="grade" value="{{ code }}"
+                   {% if form.grade == code %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab{% if form.mode != 'edit' %} star{% endif %}">비밀번호</label>
+      <div class="ls-val">
+        <input type="password" name="password" id="password" class="ls-box"
+               value="" maxlength="10" autocomplete="new-password"
+               placeholder="{% if form.mode == 'edit' %}변경 시에만 입력{% else %}필수 (10자 이내){% endif %}"
+               {% if form.mode != 'edit' %}required{% endif %}>
+      </div>
+    </div>
+
+    <div class="ls-actions">
+      <button type="submit" class="btn" data-action="save">저장</button>
+      <button type="submit" class="btn secondary" data-action="delete"
+              onclick="return confirm('이 사용자를 삭제할까요?');">삭제</button>
+      <button type="submit" class="btn secondary" data-action="new">신규</button>
+    </div>
+  </form>
+
+  <div class="panel-section-lab">사용자 목록 <span class="muted">{{ users|length }}명</span></div>
+  <div class="panel-table-wrap table-scroll">
+    {% if users %}
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th class="tc">ID</th>
+          <th>이름</th>
+          <th class="tc">등급</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr class="click-row"
+            onclick="location.href='{{ url_for('users', sabun=u.sabun) }}'">
+          <td class="tc col-nowrap"><strong>{{ u.sabun }}</strong></td>
+          <td>{{ u.s_name or '' }}</td>
+          <td class="tc">{{ u.grade_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">등록된 사용자가 없습니다.</p>
+    {% endif %}
+  </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('user-form');
+  if (!form) return;
+  form.querySelectorAll('button[data-action]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('form_action').value = btn.getAttribute('data-action') || 'save';
+    });
+  });
+})();
+</script>
+{% endblock %}

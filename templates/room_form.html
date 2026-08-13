@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}호수 등록 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">호수 등록</span>
+    <span class="muted">
+      {{ building.bunji1|bunji_pair(building.bunji2) }}
+      {% if building.juso %} · {{ building.juso }}{% endif %}
+    </span>
+  </div>
+  <form method="post" class="legacy-sukum-body" autocomplete="off">
+    <div class="ls-row">
+      <label class="ls-lab star">호수</label>
+      <div class="ls-val">
+        <input type="text" name="hosu" value="{{ form.hosu }}" maxlength="3" required
+               placeholder="예: 201 또는 B01" style="text-transform:uppercase" class="ls-box">
+      </div>
+      <label class="ls-lab">임대구분</label>
+      <div class="ls-val">
+        <select name="rent_gb" class="ls-select">
+          <option value="A" {% if form.rent_gb=='A' %}selected{% endif %}>A</option>
+          <option value="B" {% if form.rent_gb=='B' %}selected{% endif %}>B</option>
+        </select>
+      </div>
+    </div>
+    <p class="panel-inline-note">※ 호수는 저장 시 대문자로 등록됩니다. (b01 → B01)</p>
+    <div class="ls-actions">
+      <button type="submit">등록</button>
+      <a class="btn secondary" href="{{ url_for('building_rooms', bunji1=building.bunji1, bunji2=building.bunji2) }}">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

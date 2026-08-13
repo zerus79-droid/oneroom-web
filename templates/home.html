@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}메뉴 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-home">
+  <div class="legacy-title-bar">주택관리 시스템</div>
+
+  {# ── 집사 PC 메인 대응: 현황 바 + KPI 박스 + 즐겨찾기 ── #}
+  <div class="dash-panel">
+    <div class="dash-head">
+      <div>
+        <h2>종합 현황</h2>
+      </div>
+    </div>
+
+    <div class="dash-bar-wrap">
+      <span class="dash-bar-label">호실 점유현황</span>
+      <div class="dash-bar" title="입주 {{ stats.occupied_total }} / 공실 {{ stats.vacant_total }}">
+        {% if stats.room_total > 0 %}
+        <div class="dash-bar-seg occ" style="width:{{ stats.occ_pct }}%">
+          {% if stats.occ_pct >= 18 %}입주 {{ stats.occ_pct }}%{% endif %}
+        </div>
+        <div class="dash-bar-seg vac" style="width:{{ stats.vac_pct }}%">
+          {% if stats.vac_pct >= 18 %}공실 {{ stats.vac_pct }}%{% endif %}
+        </div>
+        {% else %}
+        <div class="dash-bar-seg vac" style="width:100%">데이터 없음</div>
+        {% endif %}
+      </div>
+      <span class="dash-bar-total">
+        전체 {{ stats.room_total }}호 · 입주 {{ stats.occupied_total }} · 공실 {{ stats.vacant_total }}
+      </span>
+    </div>
+
+    <div class="dash-kpi-row">
+      <a class="dash-kpi" href="{{ url_for('buildings') }}">
+        <span class="dash-kpi-circle st-navy">{{ stats.building_total }}</span>
+        <span class="dash-kpi-lab">건물</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('buildings', next='rooms') }}">
+        <span class="dash-kpi-circle st-info">{{ stats.room_total }}</span>
+        <span class="dash-kpi-lab">전체 호수</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('search') }}">
+        <span class="dash-kpi-circle st-paid">{{ stats.occupied_total }}</span>
+        <span class="dash-kpi-lab">입주</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('vacancies') }}">
+        <span class="dash-kpi-circle st-empty">{{ stats.vacant_total }}</span>
+        <span class="dash-kpi-lab">공실</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('misu') }}">
+        <span class="dash-kpi-circle st-overdue">!</span>
+        <span class="dash-kpi-lab">미수조회</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('checkout_list') }}">
+        <span class="dash-kpi-circle st-wait">퇴</span>
+        <span class="dash-kpi-lab">퇴실예정</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('payments', fresh=1) }}">
+        <span class="dash-kpi-circle st-info">수</span>
+        <span class="dash-kpi-lab">수금현황</span>
+      </a>
+      <a class="dash-kpi" href="{{ url_for('repairs') }}">
+        <span class="dash-kpi-circle st-wait">수</span>
+        <span class="dash-kpi-lab">수리</span>
+      </a>
+    </div>
+
+    <div class="dash-quick">
+      <span class="dash-quick-lab">즐겨찾는 메뉴</span>
+      <a class="dash-chip primary" href="{{ url_for('payment_new') }}">수금 등록</a>
+      <a class="dash-chip" href="{{ url_for('jungsan') }}">정산서 작성</a>
+      <a class="dash-chip" href="{{ url_for('tenant_manage') }}">입주자 등록·수정</a>
+      <a class="dash-chip warn" href="{{ url_for('misu') }}">미수금 현황</a>
+      <a class="dash-chip" href="{{ url_for('checkout') }}">퇴실 정산</a>
+      <a class="dash-chip" href="{{ url_for('repair_new') }}">수리 등록</a>
+      <a class="dash-chip" href="{{ url_for('vacancies') }}">공실 현황</a>
+    </div>
+  </div>
+
+  <div class="legacy-menu-tree">
+    <div class="legacy-group">
+      <div class="legacy-group-title">기초 내역 관리</div>
+      <ul>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('buildings') }}">건물 내역 조회</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('buildings', next='rooms') }}">호수 내역 조회</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('vacancies') }}">공실 현황 조회</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('users') }}">사용자관리</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('password_change') }}">비밀번호변경</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="legacy-group">
+      <div class="legacy-group-title">입주자관리</div>
+      <ul>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('search') }}">입주자 이력 조회 / 검색</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('tenant_manage') }}">입주자 이력 관리(등록·수정)</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="legacy-group">
+      <div class="legacy-group-title">월정기보고</div>
+      <ul>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('jungsan') }}">주소별 정산서 작성</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('jungsan_list') }}">월별 정산서 조회</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="legacy-group">
+      <div class="legacy-group-title">퇴실 정산 관리</div>
+      <ul>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('checkout') }}">퇴실 정산 관리</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('checkout_list') }}">퇴실(예정)자 조회 및 변경처리</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="legacy-group">
+      <div class="legacy-group-title">수리</div>
+      <ul>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('repair_new') }}">수리내역등록</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('repairs') }}">수리내역조회</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="legacy-group">
+      <div class="legacy-group-title">수금관리</div>
+      <ul>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('payment_new') }}">수금(대체) 등록</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('payments', fresh=1) }}">기간별 수금(대체) 현황</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('jungke', reset=1) }}">중개수수료등록</a>
+        </li>
+        <li class="menu-row is-link">
+          <a href="{{ url_for('misu') }}">미수금 현황 조회</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="legacy-note">
+    ※ 메뉴 구성은 기존 주택관리(신비) 프로그램 기준입니다.
+  </p>
+</div>
+{% endblock %}

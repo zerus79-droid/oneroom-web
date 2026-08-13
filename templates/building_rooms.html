@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}호수 내역 조회 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card table-scroll">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">
+      호수 내역 · {{ building.bunji1|bunji_pair(building.bunji2) }}
+      {% if building.juso %} · {{ building.juso }}{% endif %}
+    </span>
+    <span class="muted">{% if building.owner_nm %}{{ building.owner_nm }}{% endif %}</span>
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('room_new', bunji1=building.bunji1, bunji2=building.bunji2) }}">신규 등록</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body">
+  {% if rooms %}
+  <table class="legacy-grid">
+    <thead>
+      <tr>
+        <th>◈ 호수</th>
+        <th>현재입주자</th>
+        <th>순번</th>
+        <th>전화</th>
+        <th>▶입주일</th>
+        <th class="num">▶보증금</th>
+        <th class="num">▶임대료</th>
+        <th class="num">▶▶관리수수료</th>
+        <th class="num">▶예치금</th>
+        <th>상태</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rooms %}
+      {% if r.ipju_nm %}
+      <tr class="click-row" onclick="location.href='{{ url_for('payments', bunji1=building.bunji1, bunji2=building.bunji2, hosu=r.hosu) }}'">
+      {% else %}
+      <tr>
+      {% endif %}
+        <td><strong>{{ r.hosu }}</strong></td>
+        <td>{{ r.ipju_nm or '' }}</td>
+        <td>{{ r.ipju_seq or '' }}</td>
+        <td>{{ (r.ipju_tel1 or r.ipju_tel2 or '')|mask_phone }}</td>
+        <td>{{ r.ipju_dt|fmt_date }}</td>
+        <td class="num">{% if r.ipju_nm %}{{ r.bojung_amt|money }}{% endif %}</td>
+        <td class="num">{% if r.ipju_nm %}{{ r.rent_amt|money }}{% endif %}</td>
+        <td class="num">{% if r.ipju_nm %}{{ r.manage_amt|money }}{% endif %}</td>
+        <td class="num">{% if r.ipju_nm %}{{ r.yechi_amt|money }}{% endif %}</td>
+        <td>
+          {% if r.ipju_nm %}
+          <span class="badge">현재입주자</span>
+          {% else %}
+          <span class="badge empty">공실</span>
+          {% endif %}
+        </td>
+        <td onclick="event.stopPropagation()">
+          {% if r.ipju_nm %}
+          <a href="{{ url_for('payment_new', bunji1=building.bunji1, bunji2=building.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}">수금</a>
+          ·
+          <a href="{{ url_for('payments', bunji1=building.bunji1, bunji2=building.bunji2, hosu=r.hosu) }}">내역</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">등록된 호수가 없습니다. (내용 미등록 건물)</p>
+  {% endif %}
+  </div>
+</div>
+{% endblock %}

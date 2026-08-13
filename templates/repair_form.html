@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}수리내역등록 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">수리 이력 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('repairs') }}">수리내역조회</a>
+    </span>
+  </div>
+  <form method="post" class="legacy-sukum-body xp-form" id="repair-form" autocomplete="off">
+    <input type="hidden" name="action" id="form_action" value="save">
+    <input type="hidden" name="mode" value="{{ form.mode }}">
+    <input type="hidden" name="orig_dt" value="{{ form.orig_dt }}">
+    <input type="hidden" name="orig_seq" value="{{ form.orig_seq }}">
+    <input type="hidden" name="orig_b1" value="{{ form.orig_b1 }}">
+    <input type="hidden" name="orig_b2" value="{{ form.orig_b2 }}">
+    <input type="hidden" name="orig_hosu" value="{{ form.orig_hosu }}">
+    <input type="hidden" name="ipju_seq" id="ipju_seq" value="{{ form.ipju_seq }}">
+
+    <div class="xp-key-row">
+      <label class="ls-lab star">수리일자</label>
+      <div class="date-with-cal">
+        <div class="date-parts" id="suri_dt_parts">
+          <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+          <span class="dp-sep">-</span>
+          <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+          <span class="dp-sep">-</span>
+          <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+          <input type="hidden" name="suri_dt" id="suri_dt" value="{{ form.suri_dt }}">
+        </div>
+      </div>
+    </div>
+
+    <fieldset class="xp-section">
+      <legend>수리 대상</legend>
+      <div class="xp-grid">
+        <div class="xp-field">
+          <label class="ls-lab star" for="bunji1">주소</label>
+          <div class="ls-val xp-inline">
+            <div class="bunji-pair-input">
+              <input type="text" name="bunji1" id="bunji1" required class="ls-box"
+                     value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+                     inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+              <span class="bunji-sep">-</span>
+              <input type="text" name="bunji2" id="bunji2" required class="ls-box"
+                     value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+                     inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+            </div>
+            {% if building_label %}
+            <span class="ls-building"><strong>{{ building_label }}</strong></span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab star" for="hosu">호수</label>
+          <div class="xp-inline">
+            <input type="text" name="hosu" id="hosu" class="hosu-input ls-box" required
+                   value="{{ form.hosu }}" maxlength="3" placeholder="201"
+                   style="text-transform:uppercase" autocomplete="off">
+            <label class="ls-lab" for="suri_seq_disp">순번</label>
+            <input type="text" id="suri_seq_disp" class="ls-box ls-narrow ls-ro" readonly tabindex="-1"
+                   value="{{ form.suri_seq or '자동' }}" style="max-width:4.5em" title="수리 순번">
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">성명</label>
+          <input type="text" class="ls-box ls-ro ls-name" readonly tabindex="-1"
+                 value="{{ form.ipju_nm }}" placeholder="호수 조회 시 표시">
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">연락처</label>
+          <input type="text" class="ls-box ls-ro" readonly tabindex="-1"
+                 value="{{ form.ipju_tel }}" placeholder="—">
+        </div>
+        <div class="xp-field xp-field-wide">
+          <label class="ls-lab star">수리내역</label>
+          <input type="text" name="suri_desc" class="ls-box" required
+                 value="{{ form.suri_desc }}" maxlength="50"
+                 placeholder="예: 에어컨가스보충" autocomplete="off">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="xp-section">
+      <legend>금액 · 부담</legend>
+      <div class="xp-grid">
+        <div class="xp-field">
+          <label class="ls-lab star">수리총액</label>
+          <div class="xp-inline">
+            <input type="text" name="suri_won_amt" id="suri_won_amt" class="ls-box money-input ls-money-in"
+                   value="{{ form.suri_won_amt }}" inputmode="numeric" required>
+            <span class="ls-unit">원</span>
+          </div>
+        </div>
+        <div class="xp-spacer"></div>
+        <div class="xp-field">
+          <label class="ls-lab">건물주</label>
+          <div class="xp-inline">
+            <input type="text" name="owner_budam" id="owner_budam" class="ls-box money-input ls-money-in"
+                   value="{{ form.owner_budam }}" inputmode="numeric">
+            <span class="ls-unit">원</span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">입주자</label>
+          <div class="xp-inline">
+            <input type="text" name="ipjuja_budam" class="ls-box money-input ls-money-in"
+                   value="{{ form.ipjuja_budam }}" inputmode="numeric">
+            <span class="ls-unit">원</span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">관리실</label>
+          <div class="xp-inline">
+            <input type="text" name="manage_budam" class="ls-box money-input ls-money-in"
+                   value="{{ form.manage_budam }}" inputmode="numeric">
+            <span class="ls-unit">원</span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">동시수금</label>
+          <div class="tenant-status-row" role="radiogroup">
+            <label class="tenant-status-opt">
+              <input type="radio" name="ipju_su_churi" value="N"
+                     {% if form.ipju_su_churi != 'Y' %}checked{% endif %}>
+              <span>미수</span>
+            </label>
+            <label class="tenant-status-opt">
+              <input type="radio" name="ipju_su_churi" value="Y"
+                     {% if form.ipju_su_churi == 'Y' %}checked{% endif %}>
+              <span>수금</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <p class="panel-inline-note">호수 저장 시 현재 입주자 연결 · 건물주 부담 비우면 수리총액과 동일</p>
+    <div class="xp-actions">
+      <button type="submit" class="btn" data-action="save">저장</button>
+      <button type="submit" class="btn secondary" data-action="delete" id="btn-repair-delete"
+              {% if form.mode != 'edit' or not form.orig_dt or not form.orig_seq %}
+              disabled title="저장된 수리 내역만 삭제할 수 있습니다"
+              {% endif %}>삭제</button>
+      <button type="submit" class="btn secondary" data-action="new">신규</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('repair-form');
+  if (!form) return;
+  form.querySelectorAll('button[data-action]').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      var act = btn.getAttribute('data-action') || 'save';
+      document.getElementById('form_action').value = act;
+      if (act === 'delete') {
+        var mode = (form.querySelector('input[name="mode"]') || {}).value || '';
+        var od = (form.querySelector('input[name="orig_dt"]') || {}).value || '';
+        var os = (form.querySelector('input[name="orig_seq"]') || {}).value || '';
+        if (mode !== 'edit' || !od || !os) {
+          e.preventDefault();
+          if (window.appAlert) window.appAlert('신규(미저장) 상태에서는 삭제할 항목이 없습니다.');
+          else alert('신규(미저장) 상태에서는 삭제할 항목이 없습니다.');
+          return false;
+        }
+        if (!confirm('이 수리 내역을 삭제할까요?')) {
+          e.preventDefault();
+          return false;
+        }
+      }
+    });
+  });
+  var won = document.getElementById('suri_won_amt');
+  var owner = document.getElementById('owner_budam');
+  var desc = form.querySelector('input[name="suri_desc"]');
+  var saveBtn = form.querySelector('button[data-action="save"]');
+
+  function copyWonToOwnerIfEmpty() {
+    if (!won || !owner) return;
+    var o = (owner.value || '').replace(/[^\d]/g, '');
+    if (!o || o === '0') owner.value = won.value;
+  }
+
+  if (won && owner) {
+    won.addEventListener('blur', copyWonToOwnerIfEmpty);
+  }
+
+  function focusEl(el) {
+    if (!el) return;
+    try { el.focus(); el.select && el.select(); } catch (err) {
+      try { el.focus(); } catch (err2) {}
+    }
+  }
+
+  /*
+   * 주소·호수 검증/Tab·Enter 는 base.html 전역 게이트 사용.
+   * 여기서는 수리 전용 Enter 흐름만:
+   *  수리내역 → 수리총액 → 건물주 → 저장
+   */
+  form.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var t = e.target;
+    if (!t) return;
+    var tag = (t.tagName || '').toUpperCase();
+    var typ = (t.type || '').toLowerCase();
+    if (tag === 'TEXTAREA' || tag === 'BUTTON' || typ === 'submit' || typ === 'radio') return;
+
+    var name = t.name || t.id || '';
+    if (name === 'bunji1' || name === 'bunji2' || name === 'hosu' ||
+        t.id === 'bunji1' || t.id === 'bunji2' || t.id === 'hosu') return;
+
+    if (t === desc && won) {
+      e.preventDefault();
+      focusEl(won);
+      return;
+    }
+    if (t === won && owner) {
+      e.preventDefault();
+      copyWonToOwnerIfEmpty();
+      focusEl(owner);
+      return;
+    }
+    if (t === owner && saveBtn) {
+      e.preventDefault();
+      copyWonToOwnerIfEmpty();
+      document.getElementById('form_action').value = 'save';
+      if (typeof form.requestSubmit === 'function') form.requestSubmit(saveBtn);
+      else saveBtn.click();
+      return;
+    }
+    if (tag === 'INPUT') {
+      e.preventDefault();
+      var list = form.querySelectorAll(
+        'input.ls-box:not([readonly]):not([disabled]):not([type="hidden"]), input.money-input:not([disabled])'
+      );
+      var i, found = -1;
+      for (i = 0; i < list.length; i++) {
+        if (list[i] === t) { found = i; break; }
+      }
+      if (found >= 0 && found < list.length - 1) focusEl(list[found + 1]);
+    }
+  });
+
+  /* 주소·호수 제출 검사는 base 전역 form 게이트 사용 */
+})();
+</script>
+{% endblock %}

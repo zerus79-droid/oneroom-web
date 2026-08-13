@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}입주자 이력 조회 · 원룸 관리{% endblock %}
+{% block content %}
+{% set has_filter = q or bunji1 or bunji2 or hosu or ipju_seq or tenant_status != 'all' %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">입주자 이력 조회</span>
+    {% if results %}
+    <span class="muted">{{ results|length }}건</span>
+    {% endif %}
+  </div>
+  <div class="legacy-sukum-body">
+    <form method="get" autocomplete="off">
+      <div class="ls-row">
+        <label class="ls-lab">이름 또는 전화번호</label>
+        <div class="ls-val">
+          <input id="q" name="q" value="{{ q }}" placeholder="예: 김 / 010-1234" autofocus autocomplete="off" class="ls-box">
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab" for="bunji1">주소</label>
+        <div class="ls-val">
+          <div class="bunji-pair-input">
+            <input type="text" name="bunji1" id="bunji1" value="{{ bunji1|bunji if bunji1 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+            <span class="bunji-sep">-</span>
+            <input type="text" name="bunji2" id="bunji2" value="{{ bunji2|bunji if bunji2 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+          </div>
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab">호실</label>
+        <div class="ls-val">
+          <input name="hosu" value="{{ hosu }}" placeholder="예: 201" autocomplete="off" class="ls-box">
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab">순번</label>
+        <div class="ls-val">
+          <input name="ipju_seq" value="{{ ipju_seq }}" placeholder="예: 01" autocomplete="off" class="ls-box">
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab">상태</label>
+        <div class="ls-val">
+          <select name="tenant_status" id="tenant_status" onchange="this.form.submit()">
+            <option value="all" {% if tenant_status == 'all' %}selected{% endif %}>전체</option>
+            <option value="current" {% if tenant_status == 'current' %}selected{% endif %}>거주</option>
+            <option value="past" {% if tenant_status == 'past' %}selected{% endif %}>퇴실</option>
+          </select>
+        </div>
+      </div>
+      <div class="ls-actions">
+        <button type="submit">검색</button>
+        <a class="btn secondary" href="{{ url_for('search') }}">초기화</a>
+      </div>
+    </form>
+
+    <div class="panel-section-lab">검색 결과{% if results %} <span class="muted">{{ results|length }}건</span>{% endif %}</div>
+    <div class="panel-table-wrap table-scroll">
+      {% if results %}
+      <table class="legacy-grid">
+        <thead>
+          <tr>
+            <th>상태</th>
+            <th>이름</th>
+            <th>전화</th>
+            <th>주소</th>
+            <th>호실</th>
+            <th>순번</th>
+            <th>입주</th>
+            <th>퇴실</th>
+            <th class="num">보증금</th>
+            <th class="num">임대료</th>
+            <th class="num">관리수수료</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td>
+              {% if r.out_dt %}
+              <span class="badge out">퇴실</span>
+              {% else %}
+              <span class="badge">거주</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ url_for('tenant_manage', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}">{{ r.ipju_nm or '' }}</a>
+            </td>
+            <td>{{ (r.ipju_tel1 or r.ipju_tel2 or '')|mask_phone }}</td>
+            <td><a href="{{ url_for('building_detail', bunji1=r.bunji1, bunji2=r.bunji2) }}">{{ r.bunji1|bunji_pair(r.bunji2) }}</a></td>
+            <td>{{ r.hosu }}</td>
+            <td>{{ r.ipju_seq }}</td>
+            <td>{{ r.ipju_dt|fmt_date }}</td>
+            <td>{{ r.out_dt|fmt_date }}</td>
+            <td class="num">{{ r.bojung_amt|money }}</td>
+            <td class="num">{{ r.rent_amt|money }}</td>
+            <td class="num">{{ r.manage_amt|money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% elif has_filter %}
+      <p class="empty">검색 결과가 없습니다.</p>
+      {% else %}
+      <p class="empty">검색어를 입력하거나 상태를 선택하세요.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}주소별 정산서 · 주택관리 시스템{% endblock %}
+{% block content %}
+{# ── 조회 조건 (화면 전용, 인쇄 시 숨김) ── #}
+<div class="legacy-sukum-panel card no-print">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">주소별 정산서 조회</span>
+    <span class="caption-actions">
+      {% if data and not data.error and data.rows %}
+      <a class="btn secondary" target="_blank"
+         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}">
+        결산현황 인쇄 (PDF)
+      </a>
+      {% endif %}
+    </span>
+  </div>
+  <form method="get" class="legacy-sukum-body" autocomplete="off">
+    <input type="hidden" name="q" value="1">
+    <div class="ls-row">
+      <label class="ls-lab star" for="bunji1">주소</label>
+      <div class="ls-val">
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" required
+                 value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" required
+                 value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+        </div>
+        {% if building_label %}
+        <span class="ls-building"><strong>{{ building_label }}</strong></span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="ls-row ls-date-bottom">
+      <label class="ls-lab star">기준일자</label>
+      <div class="ls-val">
+        <div class="date-with-cal">
+          <div class="date-parts" id="as_of_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+            <input type="hidden" name="as_of" id="as_of" value="{{ filters.as_of }}">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ls-actions">
+      <button type="submit" class="btn">조회</button>
+      <a class="btn secondary" href="{{ url_for('jungsan') }}">초기화</a>
+    </div>
+  </form>
+</div>
+
+{% if ran and data and data.error %}
+<p class="flash"><li class="err" style="list-style:none;display:block;padding:10px 12px;background:var(--err-bg);color:var(--err);border-radius:8px;">{{ data.error }}</li></p>
+{% endif %}
+
+{% if ran and data and not data.error and data.building %}
+{# ── 조회 결과: 화면에서 바로 읽기 (XP 좁은 그리드 대신 전체 폭) ── #}
+<div class="jungsan-sheet card">
+  <div class="jungsan-sheet-head">
+    <div class="jungsan-title">{{ data.bunji_label }} 결산현황</div>
+    <div class="jungsan-meta">
+      <div class="jungsan-meta-line">
+        <strong>{{ data.building.bunji1|bunji_pair(data.building.bunji2) }}</strong>
+        {% if data.building.juso %} · {{ data.building.juso }}{% endif %}
+        {% if data.building.owner_nm %} · {{ data.building.owner_nm }}{% endif %}
+      </div>
+      <div class="jungsan-meta-line">
+        기준일 <strong>{{ data.as_of }}</strong>
+        · 대상월 <strong>{{ data.month_start[:7] }}</strong>
+      </div>
+    </div>
+  </div>
+
+  {# 요약 (XP 상단 필드) #}
+  <div class="jungsan-summary">
+    <div class="js-item"><span class="js-lab">최초보증금</span><span class="js-val">{{ data.summary.first_amt|money }}</span></div>
+    <div class="js-item"><span class="js-lab">관리수수료</span><span class="js-val">{{ data.summary.man_cost|money }}</span></div>
+    <div class="js-item"><span class="js-lab">수리비</span><span class="js-val">{{ data.summary.owner_suri|money }}</span></div>
+    <div class="js-item"><span class="js-lab">중개수수료</span><span class="js-val">{{ data.summary.jungke_cost|money }}</span></div>
+    <div class="js-item highlight"><span class="js-lab">당월지급액</span><span class="js-val">{{ data.summary.pay_amt|money }}</span></div>
+    <div class="js-item"><span class="js-lab">임대료대체·입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
+    <div class="js-item warn"><span class="js-lab">미수 합계</span><span class="js-val">{{ data.summary.misu_tot|money }}</span></div>
+    {% if data.summary.note %}
+    <div class="js-item wide"><span class="js-lab">특기사항</span><span class="js-val left">{{ data.summary.note }}</span></div>
+    {% endif %}
+  </div>
+
+  <div class="table-scroll">
+    <table class="legacy-grid jungsan-grid">
+      <thead>
+        <tr>
+          <th class="tc">호수</th>
+          <th>성명</th>
+          <th class="tc">입주일자</th>
+          <th class="num">보증금</th>
+          <th class="num">임대료</th>
+          <th class="num">관리비</th>
+          <th class="num">입금액</th>
+          <th>관리지시</th>
+          <th class="tc">대체</th>
+          <th class="num">미수금</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in data.rows %}
+        <tr class="{% if r.is_empty %}row-empty{% elif r.misu_amt > 0 %}row-misu{% endif %}">
+          <td class="tc col-nowrap"><strong>{{ r.hosu }}</strong></td>
+          <td>{% if r.is_empty %}<span class="muted">공실</span>{% else %}{{ r.ipju_nm }}{% endif %}</td>
+          <td class="tc col-nowrap">{% if not r.is_empty %}{{ r.ipju_dt|fmt_date }}{% endif %}</td>
+          <td class="num">{% if not r.is_empty %}{{ r.bojung_amt|money }}{% endif %}</td>
+          <td class="num">{% if not r.is_empty %}{{ r.rent_amt|money }}{% endif %}</td>
+          <td class="num">{% if not r.is_empty %}{{ r.manage_amt|money }}{% endif %}</td>
+          <td class="num">{% if not r.is_empty %}{{ r.ipkum_amt|money }}{% endif %}</td>
+          <td class="left">{% if not r.is_empty %}{{ r.manage_desc or '' }}{% endif %}</td>
+          <td class="tc">{% if r.dache_gb %}{{ r.dache_gb }}{% endif %}</td>
+          <td class="num {% if r.misu_amt > 0 %}text-warn{% endif %}">
+            {% if not r.is_empty %}{{ r.misu_amt|money }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th class="tc">합</th>
+          <th>{{ data.totals.tenant_cnt }}세대</th>
+          <th></th>
+          <th class="num">{{ data.totals.bojung_amt|money }}</th>
+          <th class="num">{{ data.totals.rent_amt|money }}</th>
+          <th class="num">{{ data.totals.manage_amt|money }}</th>
+          <th class="num">{{ data.totals.ipkum_amt|money }}</th>
+          <th></th>
+          <th></th>
+          <th class="num">{{ data.totals.misu_amt|money }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <p class="muted jungsan-note no-print">
+    {% if data.source == 'saved' %}
+    저장된 정산서 기준입니다. 입금액은 해당 월 수금(월세+관리)으로 보강 표시합니다.
+    {% else %}
+    실시간 미리보기입니다. (확정 저장·일괄대체는 이후 단계에서 연결)
+    당월지급액 = 입금합 − 관리수수료 − 수리 − 중개 (참고용 추정)
+    {% endif %}
+  </p>
+</div>
+{% elif ran and not data %}
+<p class="empty">조회 결과가 없습니다.</p>
+{% elif not ran %}
+<p class="empty no-print">주소와 기준일자를 넣고 「조회」하면 정산 내용이 <strong>화면 전체</strong>에 표시됩니다. (인쇄 없이도 확인 가능)</p>
+{% endif %}
+
+<style>
+@media print {
+  .no-print, .topbar, .page-head-row { display: none !important; }
+  .wrap { max-width: none; padding: 0; margin: 0; }
+  body { background: #fff; }
+}
+</style>
+{% endblock %}

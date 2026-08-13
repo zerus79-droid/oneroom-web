@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로그인 · 주택관리 시스템</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>주택관리 시스템</h1>
+    <p class="sub">웹 · 주택관리 메뉴 구성</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <ul class="flash">
+        {% for cat, msg in messages %}
+        <li class="{{ cat }}">{{ msg }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    {% endwith %}
+    <form method="post" autocomplete="off">
+      <div class="field">
+        <label for="sabun">사번</label>
+        <input id="sabun" name="sabun" required autofocus placeholder="예: 10001" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="password">비밀번호</label>
+        <input id="password" type="password" name="password" required autocomplete="new-password">
+      </div>
+      <button type="submit">로그인</button>
+    </form>
+    <p class="hint">기존 직원 계정(sawon_m)을 사용합니다.<br>예: 10001 / 해당 비밀번호</p>
+  </div>
+</div>
+</body>
+</html>

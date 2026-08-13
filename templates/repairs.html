@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}수리내역조회 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">수리내역조회</span>
+    {% if ran %}
+    <span class="muted">
+      {{ filters.date_from }} ~ {{ filters.date_to }}
+      {% if results %} · {{ results|length }}건{% endif %}
+    </span>
+    {% endif %}
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('repair_new') }}">수리 등록</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body">
+    <form method="get" id="repairs-filter" autocomplete="off">
+      <div class="ls-row">
+        <label class="ls-lab" for="bunji1">주소</label>
+        <div class="ls-val">
+          <div class="bunji-pair-input">
+            <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="1139" autocomplete="off" title="주소">
+            <span class="bunji-sep">-</span>
+            <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="4" autocomplete="off" title="주소2" aria-label="주소2">
+          </div>
+        </div>
+        <label class="ls-lab">호수</label>
+        <div class="ls-val">
+          <input type="text" name="hosu" value="{{ filters.hosu }}" class="ls-box hosu-input"
+                 maxlength="3" placeholder="예: 707" style="text-transform:uppercase" autocomplete="off">
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab">성명</label>
+        <div class="ls-val">
+          <input type="text" name="name" value="{{ filters.name }}" class="ls-box"
+                 placeholder="입주자 이름" autocomplete="off">
+        </div>
+      </div>
+      <div class="ls-row ls-date-bottom">
+        <label class="ls-lab star">기준일자</label>
+        <div class="ls-val">
+          <div class="date-with-cal">
+            <div class="date-parts" id="date_from_parts" data-next="date_to_parts">
+              <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="시작 년">
+              <span class="dp-sep">-</span>
+              <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="시작 월">
+              <span class="dp-sep">-</span>
+              <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="시작 일">
+              <input type="hidden" name="date_from" id="date_from" value="{{ filters.date_from }}">
+            </div>
+            <span class="bunji-sep" style="margin:0 4px;">~</span>
+            <div class="date-parts" id="date_to_parts">
+              <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="종료 년">
+              <span class="dp-sep">-</span>
+              <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="종료 월">
+              <span class="dp-sep">-</span>
+              <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="종료 일">
+              <input type="hidden" name="date_to" id="date_to" value="{{ filters.date_to }}">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ls-actions">
+        <button type="submit" class="btn">조회</button>
+        <a class="btn secondary" href="{{ url_for('repairs') }}">초기화</a>
+      </div>
+    </form>
+
+    <div class="panel-section-lab">
+      수리 목록
+      {% if ran and results %}<span class="muted">{{ results|length }}건</span>{% endif %}
+    </div>
+    <div class="panel-table-wrap table-scroll">
+      {% if ran and results %}
+      <table class="legacy-grid">
+        <thead>
+          <tr>
+            <th class="tc">수리일자</th>
+            <th class="tc">주소</th>
+            <th class="tc">호수</th>
+            <th>성명</th>
+            <th class="tc">입주일</th>
+            <th>수리내역</th>
+            <th class="num">수리총액</th>
+            <th class="num">입주자부담</th>
+            <th class="num">건물주부담</th>
+            <th class="num">관리실부담</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr class="click-row"
+              title="수정"
+              onclick="location.href='{{ url_for('repair_new', suri_dt=r.suri_dt|fmt_date, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, suri_seq=r.suri_seq) }}'">
+            <td class="tc col-nowrap">{{ r.suri_dt|fmt_date }}</td>
+            <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+            <td class="tc">{{ r.hosu }}</td>
+            <td>{{ r.ipju_nm or '' }}</td>
+            <td class="tc col-nowrap">{{ r.ipju_dt|fmt_date }}</td>
+            <td class="left">{{ r.suri_desc or '' }}</td>
+            <td class="num">{{ r.suri_won_amt|money }}</td>
+            <td class="num">{{ r.ipjuja_budam|money }}</td>
+            <td class="num">{{ r.owner_budam|money }}</td>
+            <td class="num">{{ r.manage_budam|money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% elif ran %}
+      <p class="empty">조건에 맞는 수리 내역이 없습니다.</p>
+      {% else %}
+      <p class="empty">조건을 입력한 뒤 「조회」하세요.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

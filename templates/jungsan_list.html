@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}월별 정산서 조회 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">정산 현황 조회</span>
+    {% if ran %}
+    <span class="muted">
+      {{ month_label }}
+      {% if results %} · {{ results|length }}건 · 당월지급 합 {{ sum_pay|money }}원{% endif %}
+    </span>
+    {% endif %}
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('jungsan') }}">주소별 작성</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body">
+  <form method="get" autocomplete="off">
+    <input type="hidden" name="q" value="1">
+    <div class="ls-row">
+      <label class="ls-lab star">기준년월</label>
+      <div class="ls-val">
+        <div class="ym-row">
+          <select name="year" id="ym_year">
+            {% for y in years %}
+            <option value="{{ y }}" {% if filters.year == y %}selected{% endif %}>{{ y }}년</option>
+            {% endfor %}
+          </select>
+          <select name="month" id="ym_month">
+            {% for mo in range(1, 13) %}
+            <option value="{{ mo }}" {% if filters.month == mo %}selected{% endif %}>{{ mo }}월</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab" for="bunji1">주소</label>
+      <div class="ls-val">
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+        </div>
+      </div>
+    </div>
+    <div class="ls-actions">
+      <button type="submit" class="btn">조회</button>
+      <a class="btn secondary" href="{{ url_for('jungsan_list') }}">초기화</a>
+    </div>
+  </form>
+
+  <div class="panel-section-lab">
+    정산 목록
+    {% if ran and results %}<span class="muted">{{ results|length }}건</span>{% endif %}
+  </div>
+  <div class="panel-table-wrap table-scroll">
+    {% if ran and results %}
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th class="tc">주소</th>
+          <th>건물명</th>
+          <th class="num">당월지급액</th>
+          <th class="num">최초보증금</th>
+          <th class="num">보증금총액</th>
+          <th class="num">월세총액</th>
+          <th class="num">관리비총액</th>
+          <th class="num">입금총액</th>
+          <th class="num">수리비</th>
+          <th class="num">중개수수료</th>
+          <th class="num">미수총액</th>
+          <th class="tc">상세</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr class="click-row"
+            title="결산현황 화면"
+            onclick="location.href='{{ url_for('jungsan', q=1, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, as_of=r.as_of) }}'">
+          <td class="tc col-nowrap"><strong>{{ r.bunji1|bunji_pair(r.bunji2) }}</strong></td>
+          <td>{{ r.juso or '' }}</td>
+          <td class="num" style="font-weight:700">{{ r.pay_amt|money }}</td>
+          <td class="num">{{ r.first_amt|money }}</td>
+          <td class="num">{{ r.bojung_tot|money }}</td>
+          <td class="num">{{ r.rent_tot|money }}</td>
+          <td class="num">{{ r.manage_tot|money }}</td>
+          <td class="num">{{ r.ipkum_tot|money }}</td>
+          <td class="num">{{ r.owner_suri|money }}</td>
+          <td class="num">{{ r.jungke_cost|money }}</td>
+          <td class="num" style="{% if r.misu_tot and r.misu_tot > 0 %}color:#b45309;font-weight:700{% endif %}">
+            {{ r.misu_tot|money }}
+          </td>
+          <td class="tc" onclick="event.stopPropagation()">
+            <a href="{{ url_for('jungsan', q=1, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, as_of=r.as_of) }}">화면</a>
+            ·
+            <a href="{{ url_for('jungsan_print', q=1, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, as_of=r.as_of) }}"
+               target="_blank">인쇄</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2" class="tc">합계 {{ results|length }}건</th>
+          <th class="num">{{ sum_pay|money }}</th>
+          <th colspan="9"></th>
+        </tr>
+      </tfoot>
+    </table>
+    {% elif ran %}
+    <p class="empty">{{ month_label }} 에 저장된 정산서가 없습니다. (주소별 작성에서 확정 저장한 건만 표시)</p>
+    {% else %}
+    <p class="empty">기준년월을 선택하고 「조회」하세요.</p>
+    {% endif %}
+  </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}퇴실 정산 관리 · 주택관리 시스템{% endblock %}
+{% block content %}
+{# flash_messages 는 base 에서 로드. 폼 아래 배치 + 하단 기본 flash 비움 #}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">퇴실 정산 관리</span>
+    <span class="caption-actions">
+      {% if data %}
+      <a class="btn secondary" target="_blank"
+         href="{{ url_for('checkout_print', bunji1=form.bunji1|bunji, bunji2=form.bunji2|bunji, hosu=form.hosu, ipju_seq=form.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}">
+        계약 해지 인쇄
+      </a>
+      {% endif %}
+      <a class="btn secondary" href="{{ url_for('checkout_list') }}">퇴실자 조회</a>
+    </span>
+  </div>
+  <form method="get" class="legacy-sukum-body xp-form" id="checkout-form" autocomplete="off">
+    <div class="xp-grid">
+      <div class="xp-field">
+        <label class="ls-lab star">퇴실일자</label>
+        <div class="date-with-cal">
+          <div class="date-parts" id="out_dt_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+            <input type="hidden" name="out_dt" id="out_dt" value="{{ form.out_dt }}">
+          </div>
+        </div>
+      </div>
+      <div class="xp-spacer"></div>
+      <div class="xp-field">
+        <label class="ls-lab star" for="bunji1">주소</label>
+        <div class="xp-inline">
+          <div class="bunji-pair-input">
+            <input type="text" name="bunji1" id="bunji1" required class="ls-box"
+                   value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+            <span class="bunji-sep">-</span>
+            <input type="text" name="bunji2" id="bunji2" required class="ls-box"
+                   value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+          </div>
+          {% if building_label %}
+          <span class="ls-building"><strong>{{ building_label }}</strong></span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab star" for="hosu">호수</label>
+        <input type="text" name="hosu" id="hosu" class="hosu-input ls-box" required
+               value="{{ form.hosu }}" maxlength="3" placeholder="201"
+               style="text-transform:uppercase" autocomplete="off">
+        {# 조회 폼에는 순번을 넣지 않음 — 이전 조회 순번이 남아 과거 퇴실자가 잡히던 문제 방지.
+           퇴실자 목록「정산」링크는 URL ?ipju_seq= 로만 지정. #}
+      </div>
+    </div>
+    <div class="xp-actions">
+      <button type="submit" class="btn">조회</button>
+      <a class="btn secondary" href="{{ url_for('checkout') }}">신규</a>
+    </div>
+  </form>
+</div>
+
+{# 조회 결과 위치: 성공 시 아래 패널 / 실패 시 빨간 메시지 #}
+{% if flash_messages %}
+<ul class="flash flash-below-form">
+  {% for cat, msg in flash_messages %}
+  <li class="{{ cat }}">{{ msg }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if data %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    계약 · {{ data.ipju_nm }} · {{ data.addr }} {{ data.hosu }}호
+    · 순번 {{ data.ipju_seq }}
+    {% if data.is_current %}
+    · <span class="caption-status" data-status="current">현재입주</span>
+    {% else %}
+    · <span class="caption-status" data-status="past">퇴실완료{% if data.tenant_out_dt %} {{ data.tenant_out_dt }}{% endif %}</span>
+    {% endif %}
+  </div>
+  <div class="legacy-sukum-body">
+    <div class="jungsan-summary" style="margin-bottom:14px">
+      <div class="js-item"><span class="js-lab">입주일</span><span class="js-val">{{ data.ipju_dt }}</span></div>
+      <div class="js-item"><span class="js-lab">성명</span><span class="js-val left">{{ data.ipju_nm }}</span></div>
+      <div class="js-item"><span class="js-lab">연락처</span><span class="js-val left">{{ data.tel }}</span></div>
+      <div class="js-item"><span class="js-lab">보증금</span><span class="js-val">{{ data.bojung_amt|money }}</span></div>
+      <div class="js-item"><span class="js-lab">예치금</span><span class="js-val">{{ data.yechi_amt|money }}</span></div>
+      <div class="js-item"><span class="js-lab">임대/관리</span><span class="js-val">{{ data.rent_manage_label }}</span></div>
+      <div class="js-item"><span class="js-lab">입주기간</span><span class="js-val">{{ data.period_label }}</span></div>
+    </div>
+
+    <h2 style="font-size:1rem;margin:12px 0 8px">①~⑥ 정산 요약</h2>
+    <div class="jungsan-summary">
+      <div class="js-item"><span class="js-lab">① 입주기간</span><span class="js-val">{{ data.period_label }}</span></div>
+      <div class="js-item"><span class="js-lab">② 수리비(입주자)</span><span class="js-val">{{ data.suri_amt|money }}</span></div>
+      <div class="js-item"><span class="js-lab">③ 입금총액(기준)</span><span class="js-val">{{ data.ipkum_gijun|money }}</span></div>
+      <div class="js-item"><span class="js-lab">④ 수금총액</span><span class="js-val">{{ data.sukum_tot|money }}</span></div>
+      <div class="js-item"><span class="js-lab">⑤ 환불성수금</span><span class="js-val">{{ data.h_amt|money }}</span></div>
+      <div class="js-item warn"><span class="js-lab">⑥ 미수총액</span><span class="js-val">{{ data.misu_amt|money }}</span></div>
+      <div class="js-item highlight"><span class="js-lab">♧ 정산금액 (⑤−⑥−⑦)</span><span class="js-val">{{ data.jungsan_amt|money }}</span></div>
+    </div>
+
+    <h2 style="font-size:1rem;margin:16px 0 8px">납부현황</h2>
+    <div class="table-scroll">
+      <table class="legacy-grid">
+        <thead>
+          <tr>
+            <th class="tc">일자</th>
+            <th class="num">금액</th>
+            <th class="num">실입</th>
+            <th class="num">대체</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in data.payments %}
+          <tr>
+            <td class="tc">{{ p.dt_full or p.dt }}</td>
+            <td class="num">{{ p.amt_disp }}</td>
+            <td class="num">{{ p.sil|money }}</td>
+            <td class="num">{{ p.dache|money }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">수금 내역 없음</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <form method="post" class="legacy-sukum-body" style="padding:12px 0 0;border-top:1px solid var(--line);margin-top:14px" autocomplete="off">
+      <input type="hidden" name="out_dt" value="{{ form.out_dt }}">
+      <input type="hidden" name="bunji1" value="{{ form.bunji1 }}">
+      <input type="hidden" name="bunji2" value="{{ form.bunji2 }}">
+      <input type="hidden" name="hosu" value="{{ form.hosu }}">
+      <input type="hidden" name="ipju_seq" value="{{ data.ipju_seq }}">
+      <input type="hidden" name="action" id="co_action" value="save">
+
+      <h2 style="font-size:1rem;margin:0 0 8px">⑦ 공과 · 공제 (원)</h2>
+      <div class="ls-row">
+        <label class="ls-lab">수리비</label>
+        <div class="ls-val">
+          <input type="text" name="suri" class="ls-box money-input ls-money-in"
+                 value="{{ form.suri|money if form.suri else data.suri_amt|money }}" inputmode="numeric">
+        </div>
+        <label class="ls-lab">전기</label>
+        <div class="ls-val">
+          <input type="text" name="elec" class="ls-box money-input ls-money-in"
+                 value="{{ form.elec|money if form.elec else '0' }}" inputmode="numeric">
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab">수도</label>
+        <div class="ls-val">
+          <input type="text" name="water" class="ls-box money-input ls-money-in"
+                 value="{{ form.water|money if form.water else '0' }}" inputmode="numeric">
+        </div>
+        <label class="ls-lab">시설복구</label>
+        <div class="ls-val">
+          <input type="text" name="restore" class="ls-box money-input ls-money-in"
+                 value="{{ form.restore|money if form.restore else '0' }}" inputmode="numeric">
+        </div>
+      </div>
+      <div class="ls-row">
+        <label class="ls-lab">도시가스</label>
+        <div class="ls-val">
+          <input type="text" name="gas" class="ls-box money-input ls-money-in"
+                 value="{{ form.gas|money if form.gas else '0' }}" inputmode="numeric">
+        </div>
+        <label class="ls-lab">기타</label>
+        <div class="ls-val">
+          <input type="text" name="etc" class="ls-box money-input ls-money-in"
+                 value="{{ form.etc|money if form.etc else '0' }}" inputmode="numeric">
+        </div>
+      </div>
+
+      <div class="ls-actions">
+        <button type="submit" class="btn" data-action="save"
+                onclick="document.getElementById('co_action').value='save'">저장 (퇴실 확정)</button>
+        <button type="submit" class="btn secondary" data-action="calc"
+                onclick="document.getElementById('co_action').value='calc'">다시 계산</button>
+        <a class="btn secondary" target="_blank"
+           href="{{ url_for('checkout_print', bunji1=form.bunji1|bunji, bunji2=form.bunji2|bunji, hosu=form.hosu, ipju_seq=data.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}">인쇄</a>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% elif form.bunji1 and form.hosu %}
+  {# flash 에 이미 원인 메시지가 있으면 중복 empty 문구 생략 #}
+  {% if not flash_messages %}
+  <p class="empty">조회 결과가 없습니다. 주소·호수를 확인하세요.</p>
+  {% endif %}
+{% else %}
+<p class="empty">퇴실일·주소·호수를 넣고 「조회」하세요.</p>
+{% endif %}
+
+{% endblock %}
+{% block flash %}{% endblock %}

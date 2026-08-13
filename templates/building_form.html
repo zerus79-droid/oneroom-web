@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}{% if mode=='new' %}건물 등록{% else %}건물 수정{% endif %} · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    {% if mode=='new' %}건물 내역 (신규){% else %}건물 내역 (수정){% endif %}
+  </div>
+  <form method="post" class="legacy-sukum-body" id="building-form" autocomplete="off">
+    <div class="ls-row">
+      <label class="ls-lab star">주소</label>
+      <div class="ls-val">
+        {% if mode=='edit' %}
+        <input type="text" value="{{ form.bunji1|bunji }}" readonly class="ls-ro ls-box">
+        <input type="hidden" name="bunji1" value="{{ form.bunji1 }}">
+        {% else %}
+        <input type="text" name="bunji1" value="{{ form.bunji1|bunji if form.bunji1 else '' }}" maxlength="4" required placeholder="예: 508" class="ls-box">
+        {% endif %}
+      </div>
+      <label class="ls-lab star">주소2</label>
+      <div class="ls-val">
+        {% if mode=='edit' %}
+        <input type="text" value="{{ form.bunji2|bunji }}" readonly class="ls-ro ls-box">
+        <input type="hidden" name="bunji2" value="{{ form.bunji2 }}">
+        {% else %}
+        <input type="text" name="bunji2" value="{{ form.bunji2|bunji if form.bunji2 else '' }}" maxlength="4" required placeholder="예: 88" class="ls-box">
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="ls-row">
+      <label class="ls-lab star">건물명</label>
+      <div class="ls-val">
+        <input type="text" name="juso" value="{{ form.juso }}" maxlength="30" required placeholder="예: 간석동" class="ls-box">
+      </div>
+    </div>
+
+    <div class="ls-row">
+      <label class="ls-lab">건물주명</label>
+      <div class="ls-val">
+        <input type="text" name="owner_nm" value="{{ form.owner_nm }}" maxlength="50" class="ls-box">
+      </div>
+      <label class="ls-lab">전화</label>
+      <div class="ls-val">
+        <input type="text" name="owner_tel" value="{{ form.owner_tel }}" maxlength="25" placeholder="010-1234-5678" class="ls-box">
+      </div>
+    </div>
+
+    <div class="ls-row">
+      <label class="ls-lab">건축일</label>
+      <div class="ls-val">
+        <div class="date-with-cal">
+          <div class="date-parts" id="building_dt_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+            <input type="hidden" name="building_dt" value="{{ form.building_dt }}">
+          </div>
+        </div>
+      </div>
+      <label class="ls-lab">층수</label>
+      <div class="ls-val">
+        <input type="number" name="floor_no" value="{{ form.floor_no }}" min="0" max="99" class="ls-box">
+      </div>
+    </div>
+
+    <div class="ls-row">
+      <label class="ls-lab">은행계좌</label>
+      <div class="ls-val">
+        <input type="text" name="bank_cd" value="{{ form.bank_cd }}" maxlength="30" class="ls-box">
+      </div>
+      <label class="ls-lab">전기료납부</label>
+      <div class="ls-val">
+        <select name="elec_gb" class="ls-select">
+          {% for code, name in elec_options %}
+          <option value="{{ code }}" {% if form.elec_gb==code %}selected{% endif %}>{{ name }}{% if code %} ({{ code }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="ls-row">
+      <label class="ls-lab">최초보증금</label>
+      <div class="ls-val">
+        <input type="text" name="first_amt" value="{{ form.first_amt|money }}" inputmode="numeric" placeholder="예: 39,000,000" class="money-input ls-money-in">
+      </div>
+      <label class="ls-lab">관리수수료</label>
+      <div class="ls-val">
+        <input type="text" name="man_cost" value="{{ form.man_cost|money }}" inputmode="numeric" placeholder="예: 250,000" class="money-input ls-money-in">
+      </div>
+    </div>
+
+    <p class="panel-inline-note">
+      전기료납부: 각세대별(B) / 관리비에 포함(A) · 주소는 화면 앞 0 없이, 저장 시 4자리
+    </p>
+    <div class="ls-actions">
+      <button type="submit">{% if mode=='new' %}등록{% else %}수정 저장{% endif %}</button>
+      {% if mode=='edit' %}
+      <a class="btn secondary" href="{{ url_for('building_detail', bunji1=form.bunji1, bunji2=form.bunji2) }}">취소</a>
+      {% else %}
+      <a class="btn secondary" href="{{ url_for('buildings') }}">취소</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+{% if mode=='edit' %}
+<div class="confirm-overlay" id="edit-confirm" hidden>
+  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-confirm-title">
+    <div class="confirm-dialog-head" id="edit-confirm-title">수정 확인</div>
+    <div class="confirm-dialog-body">
+      <p>아래 내용으로 수정하시겠습니까?</p>
+      <div id="edit-confirm-list"></div>
+    </div>
+    <div class="confirm-dialog-actions">
+      <button type="button" class="btn secondary" id="edit-confirm-cancel">취소</button>
+      <button type="button" class="btn" id="edit-confirm-ok">수정</button>
+    </div>
+  </div>
+</div>
+<script type="application/json" id="building-orig">{{ orig_js|tojson }}</script>
+<script>
+(function () {
+  var form = document.getElementById("building-form");
+  var overlay = document.getElementById("edit-confirm");
+  var listEl = document.getElementById("edit-confirm-list");
+  var origEl = document.getElementById("building-orig");
+  if (!form || !overlay || !origEl) return;
+
+  var orig = JSON.parse(origEl.textContent || "{}");
+  var allowSubmit = false;
+
+  function moneyNorm(v) {
+    return String(v == null ? "" : v).replace(/,/g, "").trim();
+  }
+  function moneyDisp(v) {
+    var s = moneyNorm(v);
+    if (s === "") return "(없음)";
+    var n = Number(s);
+    if (!isFinite(n)) return s;
+    return n.toLocaleString("ko-KR");
+  }
+  function elecLabel(code) {
+    var map = { "B": "각세대별 (B)", "A": "관리비에 포함 (A)", "": "미지정" };
+    var k = String(code == null ? "" : code).trim().toUpperCase();
+    return map[k] != null ? map[k] : k;
+  }
+  function dateNorm(v) {
+    return String(v == null ? "" : v).trim().slice(0, 10);
+  }
+  function disp(v) {
+    var s = String(v == null ? "" : v).trim();
+    return s === "" ? "(없음)" : s;
+  }
+
+  var fields = [
+    { name: "juso", label: "건물명" },
+    { name: "owner_nm", label: "건물주명" },
+    { name: "owner_tel", label: "전화" },
+    { name: "building_dt", label: "건축일", normalize: dateNorm },
+    { name: "floor_no", label: "층수" },
+    { name: "bank_cd", label: "은행계좌" },
+    { name: "elec_gb", label: "전기료납부", display: elecLabel },
+    { name: "first_amt", label: "최초보증금", normalize: moneyNorm, display: moneyDisp },
+    { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp }
+  ];
+  function syncDateHidden() {
+    var root = document.getElementById("building_dt_parts");
+    if (!root) return;
+    var y = root.querySelector(".dp-y");
+    var m = root.querySelector(".dp-m");
+    var d = root.querySelector(".dp-d");
+    var hidden = root.querySelector('input[name="building_dt"]');
+    if (!y || !m || !d || !hidden) return;
+    var yy = (y.value || "").replace(/\D/g, "").slice(0, 4);
+    var mm = (m.value || "").replace(/\D/g, "").slice(0, 2);
+    var dd = (d.value || "").replace(/\D/g, "").slice(0, 2);
+    if (yy.length === 4 && mm.length === 2 && dd.length === 2) {
+      hidden.value = yy + "-" + mm + "-" + dd;
+    }
+  }
+  function getVal(name) {
+    var el = form.elements[name];
+    if (!el) return "";
+    return el.value == null ? "" : String(el.value);
+  }
+  function same(a, b, normalize) {
+    var x = normalize ? normalize(a) : String(a == null ? "" : a).trim();
+    var y = normalize ? normalize(b) : String(b == null ? "" : b).trim();
+    return x === y;
+  }
+  function buildDiff() {
+    syncDateHidden();
+    var rows = [];
+    fields.forEach(function (f) {
+      var before = orig[f.name];
+      var after = getVal(f.name);
+      if (same(before, after, f.normalize)) return;
+      var show = f.display || disp;
+      rows.push({
+        label: f.label,
+        before: show(before),
+        after: show(after)
+      });
+    });
+    return rows;
+  }
+  function showConfirm(diff) {
+    if (!diff.length) {
+      listEl.innerHTML = '<p class="confirm-empty">변경된 항목이 없습니다. 그래도 저장하시겠습니까?</p>';
+    } else {
+      var html = '<table class="confirm-diff"><thead><tr><th>항목</th><th>변경 전</th><th>변경 후</th></tr></thead><tbody>';
+      diff.forEach(function (r) {
+        html += "<tr><th>" + escapeHtml(r.label) + "</th>"
+          + '<td class="was">' + escapeHtml(r.before) + "</td>"
+          + '<td class="now">' + escapeHtml(r.after) + "</td></tr>";
+      });
+      html += "</tbody></table>";
+      listEl.innerHTML = html;
+    }
+    overlay.hidden = false;
+  }
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function hideConfirm() {
+    overlay.hidden = true;
+  }
+
+  form.addEventListener("submit", function (e) {
+    if (allowSubmit) return;
+    e.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    showConfirm(buildDiff());
+  });
+  document.getElementById("edit-confirm-cancel").addEventListener("click", hideConfirm);
+  document.getElementById("edit-confirm-ok").addEventListener("click", function () {
+    allowSubmit = true;
+    hideConfirm();
+    form.submit();
+  });
+  overlay.addEventListener("click", function (e) {
+    if (e.target === overlay) hideConfirm();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !overlay.hidden) hideConfirm();
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

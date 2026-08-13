@@ -1,0 +1,1132 @@
+{% extends "base.html" %}
+{% block title %}수금 입력 · 원룸 관리{% endblock %}
+{% block content %}
+{# 레거시 「수금 관리」 창 레이아웃에 맞춤 #}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">수금 관리</span>
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('payments', fresh=1) }}">수금 현황</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body xp-form">
+  <form method="post" id="payment-form" autocomplete="off">
+    <input type="hidden" name="manage_desc" value="">
+
+    {# 1행: 수금일자 … 달력 까지 / 2행: ★주소 … #}
+    <div class="xp-key-row">
+      <label class="ls-lab star">수금일자</label>
+      <div class="date-with-cal">
+        <div class="date-parts" id="sukum_dt_parts">
+          <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년" tabindex="-1">
+          <span class="dp-sep">-</span>
+          <input type="text" class="dp-m" id="sukum_m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+          <span class="dp-sep">-</span>
+          <input type="text" class="dp-d" id="sukum_d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+          <input type="hidden" name="sukum_dt" id="sukum_dt_hidden" value="{{ form.sukum_dt }}" required>
+        </div>
+        <button type="button" class="btn secondary today-btn" id="sukum_today_btn" title="오늘" tabindex="-1">오늘</button>
+        <button type="button" class="btn secondary cal-btn" id="sukum_cal_btn" title="달력" tabindex="-1">📅</button>
+        <input type="date" id="sukum_cal" class="cal-native" tabindex="-1" aria-label="달력">
+      </div>
+    </div>
+    <div class="xp-key-row xp-key-end">
+      <label class="ls-lab star" for="bunji1">주소</label>
+      <div class="bunji-pair-input">
+        <input type="text" name="bunji1" id="bunji1" required class="ls-box"
+               value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+               inputmode="numeric" pattern="[0-9]*" maxlength="4"
+               placeholder="508" autocomplete="off" title="주소 · 휠: 건물 순환">
+        <span class="bunji-sep">-</span>
+        <input type="text" name="bunji2" id="bunji2" required class="ls-box"
+               value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+               inputmode="numeric" pattern="[0-9]*" maxlength="4"
+               placeholder="88" autocomplete="off" title="주소2 · 휠: 건물 순환" aria-label="주소2">
+      </div>
+      <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
+        {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
+      </span>
+      <label class="ls-lab star" for="hosu">호수</label>
+      <input type="text" name="hosu" id="hosu" class="hosu-input ls-box ls-narrow" value="{{ form.hosu }}" required
+             placeholder="201" style="text-transform:uppercase"
+             autocomplete="off" title="호실 · 휠: 등록 호실 순환">
+      <label class="ls-lab">입주순번</label>
+      <input type="text" name="ipju_seq" id="ipju_seq" value="{{ form.ipju_seq }}"
+             required readonly tabindex="-1" placeholder="—"
+             autocomplete="off" class="seq-field ls-ro ls-box ls-narrow"
+             title="호실 조회 시 자동 표시">
+    </div>
+
+    <fieldset class="xp-section">
+      <legend>세입자 정보 (조회)</legend>
+      <div class="xp-grid">
+        <div class="xp-field">
+          <label class="ls-lab">성명</label>
+          <div class="xp-inline">
+            <input type="text" id="ipju_nm_view" class="ls-ro ls-name ls-box" readonly tabindex="-1"
+                   value="" placeholder="호실 선택 시 표시">
+            <span class="tenant-badge" id="tenant-hint" hidden></span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">입주일</label>
+          <input type="text" id="ipju_dt_view" class="ls-ro ls-box" readonly tabindex="-1" value="" placeholder="—">
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">연락처</label>
+          <input type="text" id="ipju_tel_view" class="ls-ro ls-box" readonly tabindex="-1" value="">
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">보증금</label>
+          <input type="text" id="bojung_view" class="ls-ro ls-money ls-box" readonly tabindex="-1" value="">
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">예치금</label>
+          <input type="text" id="yechi_view" class="ls-ro ls-money ls-box" readonly tabindex="-1" value="">
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">월/관</label>
+          <input type="text" id="monthly_view" class="ls-ro ls-box ls-rent-mg" readonly tabindex="-1" value=""
+                 title="월세/관리비 (만원)">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="xp-section">
+      <legend>수금 입력</legend>
+      <div class="xp-grid">
+        <div class="xp-field">
+          <label class="ls-lab" for="sukum_gb">수금종류</label>
+          <select name="sukum_gb" id="sukum_gb" class="ls-select ls-box">
+            {% for g in gbs %}
+            <option value="{{ g.g_sub_cd }}" {% if form.sukum_gb==g.g_sub_cd %}selected{% endif %}>
+              {{ g.g_sub_cd }} · {{ g.g_cd_nm }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab" for="sukum_char">수금성격</label>
+          <select name="sukum_char" id="sukum_char" class="ls-select ls-box">
+            {% for c in chars %}
+            <option value="{{ c.g_sub_cd }}" {% if form.sukum_char==c.g_sub_cd %}selected{% endif %}>
+              {{ c.g_sub_cd }} · {{ c.g_cd_nm }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">미수총액</label>
+          <div class="xp-inline">
+            <div class="misu-display misu-inline" id="prev_misu_display" data-amt="">—</div>
+            <span class="ls-unit">원</span>
+            <span class="muted ls-hint" id="prev_misu_hint">누적 미수(추정)</span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab">금월미수</label>
+          <div class="xp-inline">
+            <div class="misu-display misu-inline" id="month_misu_display" data-amt="">—</div>
+            <span class="ls-unit">원</span>
+            <span class="muted ls-hint" id="month_misu_hint">이번 달 미입금액</span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab star" for="su_sil_amt">실입금액</label>
+          <div class="xp-inline">
+            <input name="su_sil_amt" id="su_sil_amt" value="{{ form.su_sil_amt|money }}" required
+                   inputmode="numeric" placeholder="0" class="money-input ls-money-in ls-box">
+            <span class="ls-unit">원</span>
+          </div>
+        </div>
+        <div class="xp-field">
+          <label class="ls-lab" for="su_dache_amt">대체금액</label>
+          <div class="xp-inline">
+            <input name="su_dache_amt" id="su_dache_amt" value="{{ form.su_dache_amt|money if form.su_dache_amt else '0' }}"
+                   inputmode="numeric" placeholder="0" class="money-input ls-money-in ls-ro dache-off ls-box"
+                   readonly title="실입금이 부족할 때만 입력 (기본 0, 월정산 시 기입)">
+            <span class="ls-unit">원</span>
+            <span class="muted ls-hint" id="dache_hint">기본 0 · 부족 시 입력</span>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    {# 하위 호환 id (기존 JS) #}
+    <div class="misu-display" id="misu_display" hidden data-amt=""></div>
+    <p class="muted bunji-hint" id="misu_hint" hidden></p>
+
+    <div class="xp-actions">
+      <button type="submit" class="btn">저장</button>
+      <button type="button" class="btn secondary" id="btn-new-clear" title="입력 초기화">신규</button>
+    </div>
+  </form>
+
+  <div class="panel-section-lab">
+    오늘 등록한 수금 내역
+    <span class="muted">{% if recent_payments %}{{ recent_payments|length }}건{% else %}0건{% endif %}</span>
+  </div>
+  <div class="panel-table-wrap table-scroll">
+  {% if recent_payments is defined and recent_payments %}
+  <table class="legacy-grid">
+    <thead>
+      <tr>
+        <th>수금일</th>
+        <th>순번</th>
+        <th>주소</th>
+        <th>호</th>
+        <th>입주순번</th>
+        <th>세입자</th>
+        <th>성격</th>
+        <th>종류</th>
+        <th class="num">실수금액</th>
+        <th class="num">대체금액</th>
+        <th>비고</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in recent_payments %}
+      {% set hist_from = p.hist_from or '2000-01-01' %}
+      {% set hist_to = p.hist_to or (p.sukum_dt|string)[:10] %}
+      <tr class="click-row"
+          title="클릭: {{ p.ipju_nm or '이 세입자' }} 전체 수금(대체) 현황 ({{ hist_from }} ~ {{ hist_to }})"
+          onclick="location.href='{{ url_for('payments', bunji1=p.bunji1, bunji2=p.bunji2, hosu=p.hosu, ipju_seq=p.ipju_seq, date_from=hist_from, date_to=hist_to, all_hist=1) }}'">
+        <td class="col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
+        <td>{{ p.sukum_seq }}</td>
+        <td class="col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
+        <td>{{ p.hosu }}</td>
+        <td>{{ p.ipju_seq }}</td>
+        <td>{{ p.ipju_nm or '' }}</td>
+        <td>{{ p.char_nm or p.sukum_char }}</td>
+        <td>{{ p.gb_nm or p.sukum_gb }}</td>
+        <td class="num">{{ p.su_sil_amt|money }}</td>
+        <td class="num">{{ p.su_dache_amt|money }}</td>
+        <td>{{ p.manage_desc or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty" style="margin:0;">오늘 등록한 수금이 없습니다. 저장하면 여기에 표시됩니다.</p>
+  {% endif %}
+  </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var bunji1El = document.getElementById('bunji1');
+  var bunji2El = document.getElementById('bunji2');
+  var hosuEl = document.getElementById('hosu');
+  var seqEl = document.getElementById('ipju_seq');
+  var hintEl = document.getElementById('tenant-hint');
+  var form = document.getElementById('payment-form');
+  var buildingHintEl = document.getElementById('building-hint');
+  var looking = false;
+  var lastKey = '';
+  var lastPopupKey = ''; // 같은 미등록 주소 연속 팝업 방지
+
+  // 서버에서 내려준 등록 건물·호실 목록 (API 없이 즉시 검사)
+  var BUILDINGS = {{ buildings|default([])|tojson }};
+  var ROOMS = {{ rooms|default([])|tojson }};
+  var buildingMap = {};
+  var bunji1Set = {}; // 등록된 주소 집합
+  var roomMap = {};   // "0508-0088|201" → true
+  var lastHosuPopupKey = '';
+  function pad4(v) {
+    var s = String(v == null ? '' : v).replace(/\D/g, '');
+    if (!s) return '';
+    while (s.length < 4) s = '0' + s;
+    return s.slice(-4);
+  }
+  function dispBunji(v) {
+    var s = String(v == null ? '' : v).replace(/\D/g, '');
+    if (!s) return '';
+    return String(parseInt(s, 10));
+  }
+  (BUILDINGS || []).forEach(function (b) {
+    var p1 = pad4(b.bunji1);
+    var p2 = pad4(b.bunji2);
+    buildingMap[p1 + '-' + p2] = (b.juso || '').trim();
+    bunji1Set[p1] = true;
+  });
+  (ROOMS || []).forEach(function (r) {
+    var h = String(r.hosu || '').trim().toUpperCase();
+    if (!h) return;
+    roomMap[pad4(r.bunji1) + '-' + pad4(r.bunji2) + '|' + h] = true;
+  });
+  // 건물·호실 휠 + 기본값(최소 주소·최소 호실)
+  if (typeof window.registerBuildingWheelData === 'function') {
+    window.registerBuildingWheelData(BUILDINGS, ROOMS);
+  } else {
+    window.__pendingBuildingData = { buildings: BUILDINGS, rooms: ROOMS };
+  }
+  if (typeof window.applyDefaultBuildingHosu === 'function') {
+    window.applyDefaultBuildingHosu();
+  }
+
+  function padSeq(seq) {
+    var s = String(seq == null ? '' : seq).replace(/\D/g, '');
+    if (!s) return '';
+    return s.length >= 2 ? s.slice(-2) : ('0' + s);
+  }
+
+  function onlyDigits(el, max) {
+    if (!el) return '';
+    var s = (el.value || '').replace(/\D/g, '').slice(0, max);
+    if (el.value !== s) el.value = s;
+    return s;
+  }
+
+  function bunjiRaw() {
+    var a = onlyDigits(bunji1El, 4);
+    var b = onlyDigits(bunji2El, 4);
+    if (!a || !b) return '';
+    // API/서버 파싱용: 하이픈 연결
+    return a + '-' + b;
+  }
+
+  function hasBunji() {
+    return !!(onlyDigits(bunji1El, 4) && onlyDigits(bunji2El, 4));
+  }
+
+  function setBuildingHint(text, ok) {
+    if (!buildingHintEl) return;
+    if (!text) {
+      buildingHintEl.hidden = true;
+      buildingHintEl.innerHTML = '';
+      buildingHintEl.classList.remove('is-ok', 'is-warn');
+      return;
+    }
+    buildingHintEl.hidden = false;
+    buildingHintEl.innerHTML = '<strong>' + text + '</strong>';
+    buildingHintEl.classList.toggle('is-ok', !!ok);
+    buildingHintEl.classList.toggle('is-warn', !ok);
+  }
+
+  function focusBunji1() {
+    setTimeout(function () {
+      if (bunji1El) {
+        bunji1El.focus();
+        bunji1El.select();
+      }
+    }, 0);
+  }
+  function focusBunji2() {
+    setTimeout(function () {
+      if (bunji2El) {
+        bunji2El.focus();
+        bunji2El.select();
+      }
+    }, 0);
+  }
+
+  /**
+   * 주소만 검사 (예: 111 입력 후 Tab/- 시).
+   * 등록된 건물 중 해당 주소가 하나도 없으면 팝업.
+   */
+  function checkBunji1(opts) {
+    opts = opts || {};
+    var showPopup = opts.showPopup !== false;
+    // 알림 열려 있거나 방금 닫은 직후면 재팝업·포커스 이동 금지
+    if (window.shouldSkipAlert && window.shouldSkipAlert()) {
+      showPopup = false;
+    }
+    var a = onlyDigits(bunji1El, 4);
+    if (!a) return { found: null };
+    var p1 = pad4(a);
+    var display = dispBunji(a);
+    var key = 'b1:' + p1;
+    if (bunji1Set[p1]) {
+      if (lastPopupKey === key) lastPopupKey = '';
+      return { found: true, display: display };
+    }
+    setBuildingHint('주소 ' + display + ' (미등록)', false);
+    if (showPopup) {
+      if (lastPopupKey !== key) {
+        lastPopupKey = key;
+        window.alert(
+          '주소 「' + display + '」 은(는) 등록된 건물이 없습니다.\n' +
+          '주소를 다시 확인해 주세요.'
+        );
+      }
+      // 알림 뜬 뒤 즉시 focus 하면 blur 루프로 창이 안 닫히는 것처럼 보임 → 생략
+      return { found: false, reenter: true, display: display };
+    }
+    return { found: false, reenter: false, display: display };
+  }
+
+  /**
+   * 주소-주소2 전체 검사.
+   * 없으면 alert (닫은 직후 재팝업 안 함).
+   */
+  function checkBuilding(opts) {
+    opts = opts || {};
+    var showPopup = opts.showPopup !== false;
+    if (window.shouldSkipAlert && window.shouldSkipAlert()) {
+      showPopup = false;
+    }
+    if (!hasBunji()) {
+      // 주소만 있으면 주소 검사
+      if (onlyDigits(bunji1El, 4)) return checkBunji1(opts);
+      return { found: null };
+    }
+    // 먼저 주소
+    var b1res = checkBunji1({ showPopup: showPopup });
+    if (b1res.found === false) return b1res;
+
+    var a = onlyDigits(bunji1El, 4);
+    var b = onlyDigits(bunji2El, 4);
+    var key = pad4(a) + '-' + pad4(b);
+    var display = dispBunji(a) + '-' + dispBunji(b);
+    if (Object.prototype.hasOwnProperty.call(buildingMap, key)) {
+      lastPopupKey = '';
+      var juso = buildingMap[key];
+      setBuildingHint(juso || '이름 없음', true);
+      return { found: true, reenter: false, display: display, juso: juso };
+    }
+    setBuildingHint('미등록 주소', false);
+    if (showPopup && lastPopupKey !== key) {
+      lastPopupKey = key;
+      window.alert(
+        '주소 「' + display + '」 은(는) 등록된 건물이 없습니다.\n' +
+        '주소를 다시 확인해 주세요.'
+      );
+      return { found: false, reenter: true, display: display };
+    }
+    return { found: false, reenter: showPopup, display: display };
+  }
+
+  /** 주소 확인 통과 시에만 주소2로 이동 */
+  function goBunji2IfOk() {
+    // 건물 휠 조작 중에는 포커스 이동 금지
+    if (window.__suppressBunjiAutoJump) return false;
+    var res = checkBunji1({ showPopup: true });
+    if (res && res.found === false) return false;
+    bunji2El.focus();
+    bunji2El.select();
+    return true;
+  }
+
+  function normHosu(h) {
+    return String(h == null ? '' : h).trim().toUpperCase();
+  }
+
+  function focusHosu() {
+    setTimeout(function () {
+      if (hosuEl) {
+        hosuEl.focus();
+        hosuEl.select();
+      }
+    }, 0);
+  }
+
+  /**
+   * 현재 주소에 등록된 호실인지 검사 (bd03_m).
+   * 없으면 alert 후 호실 칸으로 포커스.
+   */
+  function checkHosu(opts) {
+    opts = opts || {};
+    var showPopup = opts.showPopup !== false;
+    if (!hosuEl) return { found: null };
+    var h = normHosu(hosuEl.value);
+    hosuEl.value = h;
+    if (!h) return { found: null };
+
+    if (!hasBunji()) {
+      if (showPopup) {
+        window.alert('호실을 확인하려면 먼저 주소·주소2를 입력하세요.');
+        focusBunji1();
+      }
+      return { found: false, reenter: true, needBunji: true };
+    }
+
+    // 주소가 등록 건물인지 먼저
+    var bres = checkBuilding({ showPopup: showPopup });
+    if (bres && bres.found === false) {
+      return { found: false, reenter: true, badBuilding: true };
+    }
+
+    var a = onlyDigits(bunji1El, 4);
+    var b = onlyDigits(bunji2El, 4);
+    var bkey = pad4(a) + '-' + pad4(b);
+    var key = bkey + '|' + h;
+    var display = dispBunji(a) + '-' + dispBunji(b);
+
+    if (roomMap[key]) {
+      lastHosuPopupKey = '';
+      return { found: true, hosu: h, display: display };
+    }
+
+    if (showPopup) {
+      if (lastHosuPopupKey !== key) {
+        lastHosuPopupKey = key;
+        window.alert(
+          '호실 「' + h + '」 은(는) 주소 ' + display + ' 건물에 등록되어 있지 않습니다.\n' +
+          '호실을 다시 확인해 주세요.'
+        );
+      }
+      focusHosu();
+      return { found: false, reenter: true, hosu: h, display: display };
+    }
+    return { found: false, reenter: false, hosu: h, display: display };
+  }
+
+  function focusSukumDate() {
+    // 년도는 오늘 날짜로 이미 들어 있으므로 월부터 입력
+    var m = document.getElementById('sukum_m');
+    if (!m) return;
+    setTimeout(function () {
+      m.focus();
+      m.select();
+    }, 30);
+  }
+
+  // 수금일 전용: 월(2) → 일(2) → 실수금액 (일 건너뛰기 방지)
+  (function bindSukumDateFlow() {
+    var root = document.getElementById('sukum_dt_parts');
+    var m = document.getElementById('sukum_m');
+    var d = document.getElementById('sukum_d');
+    var amt = document.getElementById('su_sil_amt');
+    if (!root || !m || !d) return;
+
+    var mTyping = false;
+    var dTyping = false;
+
+    m.addEventListener('focus', function () {
+      mTyping = false;
+    });
+    d.addEventListener('focus', function () {
+      dTyping = false;
+    });
+
+    m.addEventListener('keydown', function (e) {
+      if (e.key >= '0' && e.key <= '9') mTyping = true;
+    });
+    d.addEventListener('keydown', function (e) {
+      if (e.key >= '0' && e.key <= '9') dTyping = true;
+    });
+
+    m.addEventListener('input', function () {
+      m.value = (m.value || '').replace(/\D/g, '').slice(0, 2);
+      if (mTyping && m.value.length === 2) {
+        d.focus();
+        d.select();
+      }
+    });
+
+    d.addEventListener('input', function () {
+      d.value = (d.value || '').replace(/\D/g, '').slice(0, 2);
+      // 일을 직접 2자리 입력했을 때만 실수금액으로 (미리 채워진 일로 바로 점프 안 함)
+      if (dTyping && d.value.length === 2 && amt) {
+        setTimeout(function () {
+          amt.focus();
+          if (typeof amt.select === 'function') amt.select();
+        }, 0);
+      }
+    });
+
+    // Tab: 월에서 Tab → 일, 일에서 Tab → 실수금액
+    m.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        d.focus();
+        d.select();
+      }
+    });
+    d.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+        if (e.key === 'Enter') e.preventDefault();
+        if (e.key === 'Tab' && amt) {
+          e.preventDefault();
+          amt.focus();
+          if (typeof amt.select === 'function') amt.select();
+        } else if (e.key === 'Enter' && amt) {
+          amt.focus();
+          if (typeof amt.select === 'function') amt.select();
+        }
+      }
+    });
+
+    // 오늘 / 달력 버튼: 년·월·일 반영
+    var todayBtn = document.getElementById('sukum_today_btn');
+    var calBtn = document.getElementById('sukum_cal_btn');
+    var cal = document.getElementById('sukum_cal');
+    var y = root.querySelector('.dp-y');
+    var hidden = document.getElementById('sukum_dt_hidden');
+    function syncCalFromParts() {
+      if (!cal || !hidden) return;
+      var v = (hidden.value || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) cal.value = v;
+    }
+    function applyIso(iso) {
+      if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      var p = iso.split('-');
+      if (y) y.value = p[0];
+      m.value = p[1];
+      d.value = p[2];
+      if (hidden) hidden.value = iso;
+      if (window.setDateParts) window.setDateParts('sukum_dt_parts', iso);
+    }
+    function todayIso() {
+      var n = new Date();
+      var yy = n.getFullYear();
+      var mm = String(n.getMonth() + 1).padStart(2, '0');
+      var dd = String(n.getDate()).padStart(2, '0');
+      return yy + '-' + mm + '-' + dd;
+    }
+    if (todayBtn) {
+      todayBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        applyIso(todayIso());
+        if (amt) {
+          amt.focus();
+          if (typeof amt.select === 'function') amt.select();
+        }
+      });
+    }
+    if (calBtn && cal) {
+      syncCalFromParts();
+      calBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        syncCalFromParts();
+        try {
+          if (typeof cal.showPicker === 'function') cal.showPicker();
+          else cal.click();
+        } catch (err) {
+          cal.focus();
+          cal.click();
+        }
+      });
+      cal.addEventListener('change', function () {
+        if (!cal.value) return;
+        applyIso(cal.value);
+        if (amt) {
+          amt.focus();
+          if (typeof amt.select === 'function') amt.select();
+        }
+      });
+    }
+  })();
+
+  var misuEl = document.getElementById('misu_display');
+  var misuHintEl = document.getElementById('misu_hint');
+  var prevMisuEl = document.getElementById('prev_misu_display');
+  var monthMisuEl = document.getElementById('month_misu_display');
+  var prevMisuHint = document.getElementById('prev_misu_hint');
+  var monthMisuHint = document.getElementById('month_misu_hint');
+  var ipjuNmView = document.getElementById('ipju_nm_view');
+  var ipjuDtView = document.getElementById('ipju_dt_view');
+  var ipjuTelView = document.getElementById('ipju_tel_view');
+  var bojungView = document.getElementById('bojung_view');
+  var yechiView = document.getElementById('yechi_view');
+  var monthlyView = document.getElementById('monthly_view');
+
+  function fmtMoneyNum(n) {
+    if (n === null || n === undefined || n === '') return '';
+    var x = parseInt(String(n).replace(/[^\d-]/g, ''), 10);
+    if (isNaN(x)) return '';
+    return String(x).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  /** 원 → 만원 표기 (350000 → 35, 25000 → 2.5) */
+  function fmtManwon(n) {
+    var x = parseInt(String(n == null ? '' : n).replace(/[^\d-]/g, ''), 10);
+    if (isNaN(x)) return '0';
+    var man = x / 10000;
+    if (Math.abs(man - Math.round(man)) < 1e-9) return String(Math.round(man));
+    return String(parseFloat(man.toFixed(2)));
+  }
+  /** 월세/관리비 → "35/7" (만원) */
+  function fmtRentManage(rent, manage) {
+    return fmtManwon(rent) + '/' + fmtManwon(manage);
+  }
+
+  function setHint(text, ok) {
+    // 성명 필드에 반영 (배지는 숨김 유지 가능)
+    if (ipjuNmView && text && text.indexOf('입주자:') === 0) {
+      ipjuNmView.value = text.replace(/^입주자:\s*/, '');
+    }
+    if (!hintEl) return;
+    if (!text) {
+      hintEl.hidden = true;
+      hintEl.textContent = '';
+      hintEl.classList.remove('is-ok', 'is-warn');
+      return;
+    }
+    // 성명 input 사용 시 배지는 숨김
+    hintEl.hidden = true;
+    hintEl.textContent = text;
+    hintEl.classList.toggle('is-ok', !!ok);
+    hintEl.classList.toggle('is-warn', !ok);
+  }
+
+  function setOneMisu(el, amt, display, hintEl2, labels) {
+    labels = labels || {};
+    if (!el) return;
+    var n = parseInt(String(amt == null ? '' : amt).replace(/[^\d-]/g, ''), 10);
+    if (isNaN(n)) n = null;
+    if (n === null && !display) {
+      el.textContent = '—';
+      el.dataset.amt = '';
+      el.classList.remove('has-misu', 'no-misu');
+      if (hintEl2) hintEl2.textContent = labels.empty || '';
+      return;
+    }
+    var text = display || (n !== null ? fmtMoneyNum(n) : '—');
+    el.textContent = text;
+    el.dataset.amt = n !== null ? String(n) : '';
+    el.classList.toggle('has-misu', n !== null && n > 0);
+    el.classList.toggle('no-misu', n === 0);
+    if (hintEl2) {
+      if (n > 0) hintEl2.textContent = labels.has || '';
+      else if (n === 0) hintEl2.textContent = labels.zero || '';
+      else hintEl2.textContent = labels.empty || '';
+    }
+  }
+
+  function setMisuDisplay(amt, display) {
+    // 하위 호환: 전월미수에 매핑
+    setOneMisu(prevMisuEl, amt, display, prevMisuHint, {
+      empty: '누적 미수(추정)',
+      has: '누적 미수 있음',
+      zero: '누적 미수 없음'
+    });
+    if (misuEl) {
+      var n = parseInt(String(amt == null ? '' : amt).replace(/[^\d-]/g, ''), 10);
+      misuEl.dataset.amt = isNaN(n) ? '' : String(n);
+    }
+    updateDacheState();
+  }
+
+  function setMonthMisuDisplay(amt, display) {
+    setOneMisu(monthMisuEl, amt, display, monthMisuHint, {
+      empty: '이번 달 미입금액',
+      has: '이번 달 미입금 있음',
+      zero: '이번 달 완납'
+    });
+    updateDacheState();
+  }
+
+  /** 필요액: 금월미수 우선, 없으면 누적미수 */
+  function getNeedAmt() {
+    var m = parseInt((monthMisuEl && monthMisuEl.dataset.amt) || '', 10);
+    var p = parseInt((prevMisuEl && prevMisuEl.dataset.amt) || '', 10);
+    if (!isNaN(m) && m > 0) return m;
+    if (!isNaN(p) && p > 0) return p;
+    return 0;
+  }
+
+  function parseMoneyField(el) {
+    if (!el) return 0;
+    var n = parseInt(String(el.value || '').replace(/[^\d]/g, ''), 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  /**
+   * 실입금 &lt; 필요액 → 대체금액 입력 가능 (값은 기본 0, 자동 채움 없음)
+   * 월정산 때 보고 입력. 충분하면 비활성 + 0
+   */
+  function updateDacheState() {
+    var sil = document.getElementById('su_sil_amt');
+    var dac = document.getElementById('su_dache_amt');
+    var hint = document.getElementById('dache_hint');
+    if (!dac) return;
+    var silN = parseMoneyField(sil);
+    var need = getNeedAmt();
+    var short = need > 0 ? Math.max(0, need - silN) : 0;
+
+    if (short > 0) {
+      dac.readOnly = false;
+      dac.classList.remove('ls-ro', 'dache-off');
+      dac.placeholder = '0';
+      dac.title = '실입 부족 약 ' + fmtMoneyNum(short) + '원 — 월정산 시 대체금액 입력 (기본 0)';
+      // 비활성→활성 전환 시에만 0으로 (이미 입력한 값은 유지)
+      if (dac.dataset.wasOff === '1' || dac.value === '' || dac.value === '—') {
+        dac.value = '0';
+      }
+      dac.dataset.wasOff = '0';
+      if (hint) {
+        hint.textContent = '부족 약 ' + fmtMoneyNum(short) + ' · 기본 0';
+        hint.classList.add('text-warn');
+      }
+    } else {
+      dac.readOnly = true;
+      dac.classList.add('ls-ro', 'dache-off');
+      dac.placeholder = '0';
+      dac.value = '0';
+      dac.dataset.wasOff = '1';
+      dac.title = '실입금이 충분하면 대체금액은 0입니다';
+      if (hint) {
+        hint.textContent = need > 0 ? '실입 충분 · 0' : '기본 0 · 부족 시 입력';
+        hint.classList.remove('text-warn');
+      }
+    }
+  }
+
+  function clearTenantViews() {
+    if (ipjuNmView) ipjuNmView.value = '';
+    if (ipjuDtView) ipjuDtView.value = '';
+    if (ipjuTelView) ipjuTelView.value = '';
+    if (bojungView) bojungView.value = '';
+    if (yechiView) yechiView.value = '';
+    if (monthlyView) monthlyView.value = '';
+    setMisuDisplay(null, '');
+    setMonthMisuDisplay(null, '');
+  }
+
+  function applyTenant(hosu, seq, name, doFocus, misuAmt, misuDisplay, extra) {
+    extra = extra || {};
+    if (hosuEl) hosuEl.value = normHosu(hosu);
+    if (seqEl) {
+      seqEl.value = padSeq(seq);
+      seqEl.setCustomValidity('');
+    }
+    if (name) {
+      setHint('입주자: ' + name, true);
+      if (ipjuNmView) ipjuNmView.value = name;
+    } else if (seq) {
+      setHint('순번 ' + padSeq(seq), true);
+      if (ipjuNmView) ipjuNmView.value = '';
+    }
+    if (ipjuDtView) ipjuDtView.value = extra.ipju_dt || '';
+    if (ipjuTelView) ipjuTelView.value = extra.ipju_tel || '';
+    if (bojungView) bojungView.value = fmtMoneyNum(extra.bojung_amt);
+    if (yechiView) yechiView.value = fmtMoneyNum(extra.yechi_amt);
+    if (monthlyView) {
+      monthlyView.value = fmtRentManage(extra.rent_amt, extra.manage_amt);
+      monthlyView.title = '월세 ' + fmtMoneyNum(extra.rent_amt) + '원 / 관리비 ' +
+        fmtMoneyNum(extra.manage_amt) + '원';
+    }
+    if (misuAmt !== undefined || misuDisplay !== undefined) {
+      setMisuDisplay(
+        extra.prev_misu_amt !== undefined ? extra.prev_misu_amt : misuAmt,
+        extra.prev_misu_display || misuDisplay
+      );
+    }
+    if (extra.month_misu_amt !== undefined || extra.month_misu_display !== undefined) {
+      setMonthMisuDisplay(extra.month_misu_amt, extra.month_misu_display);
+    }
+    if (doFocus) focusSukumDate();
+  }
+
+  function tenantVisible() {
+    return hintEl && !hintEl.hidden && (hintEl.textContent || '').trim().length > 0;
+  }
+
+  var resolveGen = 0;
+  var hosuResolveTimer = null;
+
+  /** 호실 존재 확인 후, 서버에서 현재 입주 순번·이름 조회 */
+  function resolveHosu(doFocus, opts) {
+    opts = opts || {};
+    var quiet = !!opts.quiet; // 휠 등: 팝업 없이 조용히 조회
+    if (!hosuEl || !hasBunji()) return Promise.resolve(false);
+    var bunji = bunjiRaw();
+    var hosu = normHosu(hosuEl.value);
+    hosuEl.value = hosu;
+    if (!bunji || !hosu) {
+      setHint('', true);
+      setMisuDisplay(null, '');
+      if (seqEl && quiet) seqEl.value = '';
+      return Promise.resolve(false);
+    }
+
+    // 미등록 호실 (조용 모드면 팝업 없음)
+    var hres = checkHosu({ showPopup: !quiet });
+    if (hres && hres.found === false) {
+      if (ipjuNmView) ipjuNmView.value = quiet ? '' : '';
+      setHint(quiet ? '' : '', false);
+      clearTenantViews();
+      if (seqEl && quiet) seqEl.value = '';
+      return Promise.resolve(false);
+    }
+
+    var key = bunji + '|' + hosu;
+    var gen = ++resolveGen;
+    looking = true;
+    lastKey = key;
+
+    var url = '/api/current_tenant?bunji=' + encodeURIComponent(bunji) +
+              '&hosu=' + encodeURIComponent(hosu);
+
+    return fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        // 더 최근 조회가 있으면 이 응답 무시 (휠 빠르게 돌릴 때)
+        if (gen !== resolveGen) return false;
+        looking = false;
+        if (data && data.ok && data.ipju_seq) {
+          applyTenant(
+            data.hosu || hosu,
+            data.ipju_seq,
+            data.ipju_nm || '',
+            !!doFocus,
+            data.misu_amt,
+            data.misu_display,
+            data
+          );
+          return true;
+        }
+        setHint('입주자 없음', false);
+        if (ipjuNmView) ipjuNmView.value = '';
+        clearTenantViews();
+        if (seqEl) seqEl.value = '';
+        if (doFocus) focusSukumDate();
+        return false;
+      })
+      .catch(function () {
+        if (gen !== resolveGen) return false;
+        looking = false;
+        setHint('입주자 조회 실패', false);
+        clearTenantViews();
+        return false;
+      });
+  }
+
+  /** 호실 값 변경 시(휠·입력) 입주자 이름 실시간 갱신 */
+  function scheduleResolveHosu() {
+    if (!hosuEl) return;
+    clearTimeout(hosuResolveTimer);
+    var h = normHosu(hosuEl.value);
+    if (!h || !hasBunji()) {
+      setHint('', true);
+      clearTenantViews();
+      if (seqEl) seqEl.value = '';
+      return;
+    }
+    if (ipjuNmView) ipjuNmView.value = '조회 중…';
+    setHint('입주자: 조회 중…', true);
+    hosuResolveTimer = setTimeout(function () {
+      resolveHosu(false, { quiet: true });
+    }, 60);
+  }
+  // base.html 호실/건물 휠에서 호출
+  window.onHosuValueChanged = function () {
+    lastKey = '';
+    looking = false;
+    lastHosuPopupKey = '';
+    scheduleResolveHosu();
+  };
+
+  /** 입주자 뱃지가 비어 있으면 조회 (포커스 이동 없음) */
+  function ensureTenantBadge() {
+    if (!hosuEl) return;
+    if (!hasBunji() || !normHosu(hosuEl.value)) return;
+    if (tenantVisible() && (hintEl.textContent || '').indexOf('입주자:') === 0) return;
+    resolveHosu(false);
+  }
+
+  // 주소 / 주소2 분리 입력 — 포커스 시 전체 선택
+  function selectAllOnFocus(el) {
+    if (!el) return;
+    el.addEventListener('focus', function () {
+      setTimeout(function () { el.select(); }, 0);
+    });
+    el.addEventListener('click', function () {
+      setTimeout(function () { el.select(); }, 0);
+    });
+  }
+  function isBunjiSepKey(e) {
+    // 일반/넘패드/전각 하이픈
+    return e.key === '-' || e.key === 'Subtract' || e.key === '－' || e.code === 'Minus';
+  }
+  if (bunji1El && bunji2El) {
+    selectAllOnFocus(bunji1El);
+    selectAllOnFocus(bunji2El);
+    // 주소에서 - / Enter → 주소 검사 후 통과 시만 주소2
+    bunji1El.addEventListener('keydown', function (e) {
+      if (isBunjiSepKey(e) || e.key === 'Enter') {
+        e.preventDefault();
+        if (!onlyDigits(bunji1El, 4)) return;
+        goBunji2IfOk();
+      }
+    });
+    bunji1El.addEventListener('input', function () {
+      if (window.__suppressBunjiAutoJump) return;
+      lastKey = '';
+      lastPopupKey = '';
+      var raw = bunji1El.value || '';
+      var hadSep = /[-－]/.test(raw);
+      var s = onlyDigits(bunji1El, 4);
+      // - 입력 또는 4자리 채움 → 주소 검사 후 주소2
+      // (키보드 입력만. 휠로 건물 바꿀 때는 이동하지 않음)
+      if (hadSep || s.length === 4) {
+        goBunji2IfOk();
+      }
+    });
+    // Tab 등으로 주소를 벗어날 때 검사 (주소2로 갈 때도)
+    bunji1El.addEventListener('blur', function () {
+      if (window.__suppressBunjiAutoJump) return;
+      if (!onlyDigits(bunji1El, 4)) return;
+      setTimeout(function () {
+        if (window.__suppressBunjiAutoJump) return;
+        // 이미 팝업으로 다시 포커스된 경우 스킵
+        if (document.activeElement === bunji1El) return;
+        var res = checkBunji1({ showPopup: true });
+        if (res && res.found === false) return;
+      }, 0);
+    });
+    bunji2El.addEventListener('input', function () {
+      if (window.__suppressBunjiAutoJump) return;
+      lastKey = '';
+      lastPopupKey = '';
+      onlyDigits(bunji2El, 4);
+    });
+    function leaveBunjiToHosu() {
+      var res = checkBuilding({ showPopup: true });
+      if (res && res.found === false) return; // 미등록 → 팝업 후 유지
+      if (hosuEl) {
+        hosuEl.focus();
+        hosuEl.select();
+      }
+    }
+    bunji2El.addEventListener('keydown', function (e) {
+      if (e.key === 'Backspace' && !bunji2El.value) {
+        bunji1El.focus();
+        bunji1El.select();
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        leaveBunjiToHosu();
+      }
+    });
+    // 주소 쌍 영역을 완전히 벗어나면 검사
+    var pairEl = bunji1El.closest('.bunji-pair-input') || bunji1El.parentElement;
+    if (pairEl) {
+      pairEl.addEventListener('focusout', function (e) {
+        var to = e.relatedTarget;
+        if (to && pairEl.contains(to)) return;
+        setTimeout(function () {
+          var active = document.activeElement;
+          if (active && pairEl.contains(active)) return;
+          if (hasBunji()) {
+            checkBuilding({ showPopup: true });
+          } else if (onlyDigits(bunji1El, 4)) {
+            checkBunji1({ showPopup: true });
+          }
+        }, 0);
+      });
+    }
+  }
+
+  // 호실: 휠/입력 시 입주자 실시간 조회 · Enter·blur
+  if (hosuEl) {
+    selectAllOnFocus(hosuEl);
+    hosuEl.addEventListener('input', function () {
+      lastKey = '';
+      lastHosuPopupKey = '';
+      looking = false;
+      scheduleResolveHosu();
+    });
+    hosuEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        hosuEl.value = normHosu(hosuEl.value);
+        if (!hosuEl.value) return;
+        clearTimeout(hosuResolveTimer);
+        resolveHosu(true, { quiet: false });
+      }
+    });
+    hosuEl.addEventListener('blur', function (e) {
+      var h = normHosu(hosuEl.value);
+      hosuEl.value = h;
+      if (!h) return;
+      var to = e.relatedTarget;
+      setTimeout(function () {
+        if (document.activeElement === hosuEl) return;
+        var toAmt = to && (to.id === 'su_sil_amt' || (to.classList && to.classList.contains('money-input')));
+        clearTimeout(hosuResolveTimer);
+        resolveHosu(!toAmt, { quiet: false });
+      }, 0);
+    });
+  }
+
+  // 실수금액 포커스 시에도 입주자 표시 보장 + 대체금액 활성 갱신
+  var amtEl = document.getElementById('su_sil_amt');
+  if (amtEl) {
+    amtEl.addEventListener('focus', function () {
+      ensureTenantBadge();
+    });
+    amtEl.addEventListener('input', function () {
+      updateDacheState();
+    });
+    amtEl.addEventListener('blur', function () {
+      updateDacheState();
+    });
+  }
+  updateDacheState();
+
+  // 저장 직전: 미등록 주소·호실이면 저장 차단 + 순번 확인
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      if (bunji1El) onlyDigits(bunji1El, 4);
+      if (bunji2El) onlyDigits(bunji2El, 4);
+      if (hosuEl) hosuEl.value = normHosu(hosuEl.value);
+      if (seqEl) seqEl.value = padSeq(seqEl.value);
+
+      // 1) 미등록 주소 → 팝업 후 저장 막기
+      if (hasBunji()) {
+        lastPopupKey = ''; // 저장 시에는 항상 알림
+        var bres = checkBuilding({ showPopup: true });
+        if (bres && bres.found === false) {
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // 2) 미등록 호실 → 팝업 후 저장 막기
+      if (hosuEl && hosuEl.value) {
+        lastHosuPopupKey = '';
+        var hres = checkHosu({ showPopup: true });
+        if (hres && hres.found === false) {
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // 3) 순번 비어 있으면 호실로 조회 후 재제출
+      if (seqEl && !seqEl.value) {
+        e.preventDefault();
+        resolveHosu(false).then(function (ok) {
+          if (ok && seqEl.value) {
+            if (typeof form.requestSubmit === 'function') form.requestSubmit();
+            else form.submit();
+          } else {
+            seqEl.setCustomValidity('입주 순번이 없습니다. 등록된 호실·입주자를 확인해 주세요.');
+            seqEl.reportValidity();
+          }
+        });
+      }
+    });
+  }
+
+  // 신규: 금액·입주자 표시 초기화 (주소·호실은 기본 건물 유지)
+  var btnNew = document.getElementById('btn-new-clear');
+  if (btnNew) {
+    btnNew.addEventListener('click', function () {
+      var sil = document.getElementById('su_sil_amt');
+      var dac = document.getElementById('su_dache_amt');
+      if (sil) sil.value = '';
+      if (dac) {
+        dac.value = '0';
+        dac.dataset.wasOff = '1';
+      }
+      if (seqEl) seqEl.value = '';
+      clearTenantViews();
+      setHint('', true);
+      updateDacheState();
+      if (typeof window.applyDefaultBuildingHosu === 'function') {
+        window.applyDefaultBuildingHosu();
+      }
+      scheduleResolveHosu();
+      focusSukumDate();
+    });
+  }
+
+  // 페이지 로드 시 건물·호실 있으면 입주자 표시
+  if (hosuEl && hosuEl.value && hasBunji()) {
+    resolveHosu(false, { quiet: true });
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}미수금 현황 조회 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card no-print-filter">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">미수 현황 조회</span>
+    {% if ran and results %}
+    <span class="muted">기준 {{ filters.as_of }} · {{ results|length }}건 · 합계 {{ total_misu|money }}원</span>
+    {% endif %}
+    <span class="caption-actions no-print-filter">
+      {% if ran and results %}
+      <button type="button" class="btn secondary" onclick="window.print()">인쇄</button>
+      {% endif %}
+    </span>
+  </div>
+  <div class="legacy-sukum-body xp-form">
+  <form method="get" id="misu-filter" autocomplete="off">
+    <input type="hidden" name="q" value="1">
+
+    <div class="xp-grid">
+      <div class="xp-field">
+        <label class="ls-lab" for="bunji1">주소</label>
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                 class="ls-box" inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                 class="ls-box" inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" aria-label="주소2">
+        </div>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab" for="misu_hosu">호수</label>
+        <input type="text" name="hosu" id="misu_hosu" value="{{ filters.hosu }}" class="ls-box hosu-input"
+               maxlength="3" placeholder="201" style="text-transform:uppercase" autocomplete="off">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab" for="misu_name">성명</label>
+        <input type="text" name="name" id="misu_name" value="{{ filters.name }}" class="ls-box"
+               placeholder="입주자 이름" autocomplete="off">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab" for="as_of">기준일자</label>
+        <div class="date-with-cal">
+          <div class="date-parts" id="as_of_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+            <input type="hidden" name="as_of" id="as_of" value="{{ filters.as_of }}">
+          </div>
+        </div>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">옵션</label>
+        <label class="ls-check">
+          <input type="checkbox" name="only_misu" value="1"
+                 {% if filters.only_misu %}checked{% endif %}>
+          <span>미수 있는 건만</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="xp-actions">
+      <button type="submit" class="btn">조회</button>
+      <a class="btn secondary" href="{{ url_for('misu') }}">초기화</a>
+    </div>
+  </form>
+
+  <div class="panel-section-lab">
+    미수 목록
+    {% if ran and results %}<span class="muted">{{ results|length }}건</span>{% endif %}
+  </div>
+  <div class="panel-table-wrap table-scroll">
+    {% if ran and results %}
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th class="tc">주소</th>
+          <th class="tc">호수</th>
+          <th class="tc">순번</th>
+          <th>성명</th>
+          <th class="tc">입주일자</th>
+          <th class="num">미수잔액</th>
+          <th class="tc">개월</th>
+          <th class="num">입금기준총액</th>
+          <th class="num">수금총액</th>
+          <th class="num">보증금</th>
+          <th class="tc">임대/관리</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr class="click-row"
+            title="수금 등록으로 이동"
+            onclick="location.href='{{ url_for('payment_new', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}'">
+          <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+          <td class="tc">{{ r.hosu }}</td>
+          <td class="tc">{{ r.ipju_seq }}</td>
+          <td>{{ r.ipju_nm or '' }}</td>
+          <td class="tc col-nowrap">{{ r.ipju_dt|fmt_date }}</td>
+          <td class="num">
+            {% if r.misu_amt > 0 %}
+            <span class="st-badge overdue">{{ r.misu_amt|money }}</span>
+            {% else %}
+            <span class="st-badge paid">0</span>
+            {% endif %}
+          </td>
+          <td class="tc">{{ r.months }}</td>
+          <td class="num">{{ r.expected|money }}</td>
+          <td class="num">{{ r.paid|money }}</td>
+          <td class="num">{{ r.bojung_amt|money }}</td>
+          <td class="tc col-nowrap">
+            {% if r.monthly %}
+            {{ (r.rent_amt // 10000) if r.rent_amt else 0 }}/{{ (r.manage_amt // 10000) if r.manage_amt else 0 }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5" class="tc">합계</th>
+          <th class="num">{{ total_misu|money }}</th>
+          <th colspan="5"></th>
+        </tr>
+      </tfoot>
+    </table>
+    {% elif ran %}
+    <p class="empty">조건에 맞는 미수 내역이 없습니다.</p>
+    {% else %}
+    <p class="empty">조건을 입력한 뒤 「조회」하세요.</p>
+    {% endif %}
+  </div>
+  </div>
+</div>
+
+<style>
+@media print {
+  .no-print-filter, .caption-actions, .topbar, .legacy-note { display: none !important; }
+  .wrap { max-width: none; padding: 0; }
+  .legacy-sukum-panel { box-shadow: none; border: 1px solid #333; }
+}
+</style>
+{% endblock %}

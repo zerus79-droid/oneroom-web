@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}중개수수료 등록 · 주택관리 시스템{% endblock %}
+{% block content %}
+
+{# ── 등록 + 목록 일체형 ── #}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">중개수수료 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
+    {% if results %}<span class="muted">목록 {{ results|length }}건</span>{% endif %}
+  </div>
+  <div class="legacy-sukum-body xp-form">
+  <form method="post" id="jungke-form" autocomplete="off">
+    <input type="hidden" name="action" id="form_action" value="save">
+    <input type="hidden" name="mode" value="{{ form.mode }}">
+    <input type="hidden" name="orig_dt" value="{{ form.orig_dt }}">
+    <input type="hidden" name="orig_seq" value="{{ form.orig_seq }}">
+    <input type="hidden" name="orig_bunji1" value="{{ form.orig_bunji1 }}">
+    <input type="hidden" name="orig_bunji2" value="{{ form.orig_bunji2 }}">
+    <input type="hidden" name="keep_from" value="{{ filters.date_from }}">
+    <input type="hidden" name="keep_to" value="{{ filters.date_to }}">
+    <input type="hidden" name="keep_q_b1" value="{{ filters.bunji1 }}">
+    <input type="hidden" name="keep_q_b2" value="{{ filters.bunji2 }}">
+
+    <div class="xp-key-row">
+      <label class="ls-lab star">중개일자</label>
+      <div class="date-with-cal">
+        <div class="date-parts" id="jungke_dt_parts">
+          <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+          <span class="dp-sep">-</span>
+          <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+          <span class="dp-sep">-</span>
+          <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+          <input type="hidden" name="jungke_dt" id="jungke_dt" value="{{ form.jungke_dt }}">
+        </div>
+      </div>
+      <label class="ls-lab">순번</label>
+      <input type="text" name="jungke_seq" id="jungke_seq" class="ls-box ls-narrow"
+             value="{{ form.jungke_seq }}" maxlength="2" readonly
+             title="저장 시 자동" style="max-width:4em">
+    </div>
+
+    <div class="xp-grid">
+      <div class="xp-field">
+        <label class="ls-lab star" for="bunji1">주소</label>
+        <div class="xp-inline">
+          <div class="bunji-pair-input">
+            <input type="text" name="bunji1" id="bunji1" required class="ls-box"
+                   value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+            <span class="bunji-sep">-</span>
+            <input type="text" name="bunji2" id="bunji2" required class="ls-box"
+                   value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+                   inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+          </div>
+          <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
+            {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
+          </span>
+        </div>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab star">수수료</label>
+        <div class="xp-inline">
+          <input type="text" name="jungke_amt" id="jungke_amt" class="ls-box ls-money money-input"
+                 value="{{ form.jungke_amt }}" inputmode="numeric" required
+                 placeholder="0" autocomplete="off">
+          <span class="ls-unit">원</span>
+        </div>
+      </div>
+      <div class="xp-field xp-field-wide">
+        <label class="ls-lab star">내역</label>
+        <input type="text" name="jungke_desc" id="jungke_desc" class="ls-box" required
+               value="{{ form.jungke_desc }}" maxlength="50"
+               placeholder="예: 205호 복비" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="xp-actions">
+      <button type="submit" class="btn" data-action="save">저장</button>
+      <button type="submit" class="btn secondary" data-action="delete"
+              onclick="return confirm('이 중개수수료 내역을 삭제할까요?');">삭제</button>
+      <button type="submit" class="btn secondary" data-action="new">신규</button>
+    </div>
+  </form>
+
+  <div class="panel-section-lab">중개수수료 목록</div>
+  <form method="get" id="jungke-list-filter" autocomplete="off">
+    <div class="ls-row">
+      <label class="ls-lab" for="q_bunji1">주소</label>
+      <div class="ls-val">
+        <div class="bunji-pair-input">
+          <input type="text" name="q_bunji1" id="q_bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소" class="bunji1-input">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="q_bunji2" id="q_bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2" class="bunji2-input">
+        </div>
+      </div>
+    </div>
+    <div class="ls-row ls-date-bottom">
+      <label class="ls-lab star">기준일자</label>
+      <div class="ls-val">
+        <div class="date-with-cal">
+          <div class="date-parts" id="date_from_parts" data-next="date_to_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="시작 년">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="시작 월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="시작 일">
+            <input type="hidden" name="date_from" id="date_from" value="{{ filters.date_from }}">
+          </div>
+          <button type="button" class="btn secondary cal-btn" id="jungke_from_cal_btn" title="시작일 달력" tabindex="-1">📅</button>
+          <input type="date" id="jungke_from_cal" class="cal-native" tabindex="-1" aria-label="기준일자 시작 달력">
+          <span class="bunji-sep" style="margin:0 4px;">~</span>
+          <div class="date-parts" id="date_to_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="종료 년">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="종료 월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="종료 일">
+            <input type="hidden" name="date_to" id="date_to" value="{{ filters.date_to }}">
+          </div>
+          <button type="button" class="btn secondary cal-btn" id="jungke_to_cal_btn" title="종료일 달력" tabindex="-1">📅</button>
+          <input type="date" id="jungke_to_cal" class="cal-native" tabindex="-1" aria-label="기준일자 종료 달력">
+        </div>
+      </div>
+    </div>
+    <div class="ls-actions">
+      <button type="submit" class="btn">조회</button>
+      <a class="btn secondary" href="{{ url_for('jungke', reset=1) }}">초기화</a>
+    </div>
+  </form>
+
+  <div class="panel-table-wrap table-scroll">
+    {% if results %}
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th class="tc">일자</th>
+          <th class="tc">주소</th>
+          <th>중개내역</th>
+          <th class="num">중개수수료</th>
+          <th class="tc">순번</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr class="click-row"
+            onclick="location.href='{{ url_for('jungke', date_from=filters.date_from, date_to=filters.date_to, q_bunji1=filters.bunji1|bunji if filters.bunji1 else '', q_bunji2=filters.bunji2|bunji if filters.bunji2 else '', edit_dt=r.jungke_dt|fmt_date, edit_seq=r.jungke_seq, edit_b1=r.bunji1, edit_b2=r.bunji2) }}'">
+          <td class="tc col-nowrap">{{ r.jungke_dt|fmt_date }}</td>
+          <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+          <td>{{ r.jungke_desc or '' }}</td>
+          <td class="num">{{ r.jungke_amt|money }}</td>
+          <td class="tc">{{ r.jungke_seq }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">해당 기간 중개수수료 내역이 없습니다.</p>
+    {% endif %}
+  </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('jungke-form');
+  if (form) {
+    form.querySelectorAll('button[data-action]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('form_action').value = btn.getAttribute('data-action') || 'save';
+      });
+    });
+    form.addEventListener('submit', function () {
+      var el = document.getElementById('jungke_amt');
+      if (el) el.value = (el.value || '').replace(/[^\d\-]/g, '');
+    });
+  }
+  // 기준일자 시작/종료 달력
+  function bindDateCal(btnId, calId, hiddenId, partsId) {
+    var calBtn = document.getElementById(btnId);
+    var cal = document.getElementById(calId);
+    var hidden = document.getElementById(hiddenId);
+    if (!calBtn || !cal) return;
+    function syncCal() {
+      var v = (hidden && hidden.value || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) cal.value = v;
+    }
+    calBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      syncCal();
+      try {
+        if (typeof cal.showPicker === 'function') cal.showPicker();
+        else cal.click();
+      } catch (err) {
+        try { cal.focus(); cal.click(); } catch (err2) {}
+      }
+    });
+    cal.addEventListener('change', function () {
+      if (!cal.value) return;
+      var iso = cal.value.slice(0, 10);
+      if (window.setDateParts) window.setDateParts(partsId, iso);
+      else if (hidden) hidden.value = iso;
+    });
+  }
+  bindDateCal('jungke_from_cal_btn', 'jungke_from_cal', 'date_from', 'date_from_parts');
+  bindDateCal('jungke_to_cal_btn', 'jungke_to_cal', 'date_to', 'date_to_parts');
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+.env
+*.pyc
+__pycache__/
+.aider*
+.venv/
+.continue/
+_shots/
+tenant_shot.png
+temp_probe.py

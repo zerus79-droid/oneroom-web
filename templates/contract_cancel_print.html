@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>계약 해지{% if doc.name %} · {{ doc.name }}{% endif %}</title>
+  <style>
+    /* ── 계약 해지 인쇄 양식 (XP sinbee 출력 기준: 1139-4-707.pdf) ── */
+    @page {
+      size: A4 portrait;
+      margin: 14mm 16mm 16mm 16mm;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #e8e8e8;
+      color: #000;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      font-size: 11pt;
+      line-height: 1.35;
+    }
+    .sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 12px auto;
+      padding: 14mm 16mm 18mm;
+      background: #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,.12);
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 12px;
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 0.9rem;
+    }
+    .toolbar button,
+    .toolbar a {
+      appearance: none;
+      border: 0;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      color: #fff;
+      background: #2563eb;
+    }
+    .toolbar a.secondary { background: #64748b; }
+    .toolbar .hint { color: #94a3b8; font-size: 0.82rem; }
+
+    h1.title {
+      text-align: center;
+      font-size: 22pt;
+      font-weight: 700;
+      letter-spacing: 0.55em;
+      margin: 0 0 18px;
+      padding-left: 0.55em; /* letter-spacing 보정 */
+    }
+    .sec {
+      margin: 0 0 14px;
+    }
+    .sec-h {
+      font-size: 11pt;
+      font-weight: 700;
+      margin: 0 0 6px;
+    }
+    table.grid {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    table.grid th,
+    table.grid td {
+      border: 1px solid #222;
+      padding: 5px 6px;
+      vertical-align: middle;
+      text-align: center;
+      font-size: 10pt;
+      height: 1.7em;
+      word-break: keep-all;
+    }
+    table.grid th {
+      background: #f3f4f6;
+      font-weight: 600;
+    }
+    table.grid td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      padding-right: 8px;
+    }
+    table.grid td.left {
+      text-align: left;
+      padding-left: 8px;
+    }
+    /* (3) 임대료현황: 왼쪽 요약 + 오른쪽 납부현황 */
+    .rent-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr;
+      border: 1px solid #222;
+    }
+    .rent-wrap .left-tbl {
+      border: 0;
+    }
+    .rent-wrap .left-tbl th,
+    .rent-wrap .left-tbl td {
+      border: 0;
+      border-bottom: 1px solid #222;
+      border-right: 1px solid #222;
+    }
+    .rent-wrap .left-tbl tr:last-child th,
+    .rent-wrap .left-tbl tr:last-child td {
+      border-bottom: 0;
+    }
+    .rent-wrap .left-tbl th {
+      width: 42%;
+      background: #f3f4f6;
+      text-align: left;
+      padding-left: 8px;
+      font-weight: 600;
+    }
+    .rent-wrap .left-tbl td {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      padding-right: 10px;
+    }
+    .pay-box {
+      padding: 6px 8px 8px;
+      min-height: 100%;
+      font-size: 9.5pt;
+    }
+    .pay-box .pay-title {
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .pay-box table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .pay-box td {
+      border: 0;
+      padding: 1px 2px;
+      font-variant-numeric: tabular-nums;
+      font-size: 9.5pt;
+    }
+    .pay-box td.d { width: 5.5em; text-align: left; }
+    .pay-box td.a { text-align: right; }
+
+    .util-row {
+      margin-top: 8px;
+    }
+    .util-row th {
+      background: #f3f4f6;
+      font-weight: 600;
+    }
+
+    .settle {
+      margin-top: 6px;
+    }
+    .settle .amt-line {
+      margin: 8px 0 6px;
+      font-size: 11pt;
+    }
+    .settle .amt-line .mark {
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    .settle .formula {
+      margin: 4px 0 0 1.2em;
+      font-size: 10.5pt;
+      line-height: 1.6;
+    }
+    .sign {
+      margin-top: 28px;
+      text-align: right;
+      font-size: 10.5pt;
+      line-height: 1.8;
+    }
+    .sign .who {
+      margin-top: 6px;
+      padding-right: 2em;
+    }
+
+    @media print {
+      html, body {
+        background: #fff;
+      }
+      .toolbar { display: none !important; }
+      .sheet {
+        width: auto;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
+    <a class="secondary" href="{{ url_for('home') }}">홈</a>
+    <span class="hint">Ctrl+P · 대상: PDF로 저장 · 여백 기본</span>
+  </div>
+
+  <div class="sheet">
+    <h1 class="title">계 약 해 지</h1>
+
+    {# ── (1) 해지상황 ── #}
+    <section class="sec">
+      <div class="sec-h">(1) 해지상황 - 성명: {{ doc.name or '' }}</div>
+      <table class="grid">
+        <colgroup>
+          <col style="width:16%"><col style="width:12%"><col style="width:12%">
+          <col style="width:14%"><col style="width:22%"><col style="width:24%">
+        </colgroup>
+        <tr>
+          <th>주 소</th>
+          <th>호 수</th>
+          <th>열 쇠</th>
+          <th>복비관계</th>
+          <th>계약후이사일</th>
+          <th>연락처</th>
+        </tr>
+        <tr>
+          <td>{{ doc.addr or '' }}</td>
+          <td>{{ doc.hosu or '' }}</td>
+          <td>{{ doc.key_note or '' }}</td>
+          <td>{{ doc.broker_note or '' }}</td>
+          <td>{{ doc.move_after or '' }}</td>
+          <td>{{ doc.tel or '' }}</td>
+        </tr>
+        <tr>
+          <th>보증금</th>
+          <th colspan="1">임대료/관리비</th>
+          <th colspan="1">계약입주일</th>
+          <th colspan="1">해 지 일</th>
+          <th colspan="2">기　　　　　　타</th>
+        </tr>
+        <tr>
+          <td class="num">{{ doc.bojung_disp }}</td>
+          <td>{{ doc.rent_manage_label or '' }}</td>
+          <td>{{ doc.ipju_dt or '' }}</td>
+          <td>{{ doc.out_dt or '' }}</td>
+          <td colspan="2" class="left">{{ doc.etc_note or '' }}</td>
+        </tr>
+      </table>
+    </section>
+
+    {# ── (2) 시설현황 ── #}
+    <section class="sec">
+      <div class="sec-h">(2) 시설현황</div>
+      <table class="grid">
+        <tr>
+          <th>현관문</th><th>주 방</th><th>벽 지</th>
+          <th>장 판</th><th>전 등</th><th>유 리 창</th>
+        </tr>
+        <tr>
+          <td>{{ fac.door or '' }}</td>
+          <td>{{ fac.kitchen or '' }}</td>
+          <td>{{ fac.wallpaper or '' }}</td>
+          <td>{{ fac.floor or '' }}</td>
+          <td>{{ fac.light or '' }}</td>
+          <td>{{ fac.window or '' }}</td>
+        </tr>
+        <tr>
+          <th>화장실집기</th><th>보일러실</th><th>열 쇠</th>
+          <th>계약서</th><th>청소상태</th><th>환산금액</th>
+        </tr>
+        <tr>
+          <td>{{ fac.bath or '' }}</td>
+          <td>{{ fac.boiler or '' }}</td>
+          <td>{{ fac.key2 or '' }}</td>
+          <td>{{ fac.contract or '' }}</td>
+          <td>{{ fac.clean or '' }}</td>
+          <td class="num">{{ fac.convert_amt or '' }}</td>
+        </tr>
+      </table>
+    </section>
+
+    {# ── (3) 임대료현황 ── #}
+    <section class="sec">
+      <div class="sec-h">(3) 임대료현황</div>
+      <div class="rent-wrap">
+        <table class="grid left-tbl">
+          <tr>
+            <th>①입주기간</th>
+            <td>{{ rent.period or '' }}</td>
+          </tr>
+          <tr>
+            <th>②수 리 비</th>
+            <td>{% if rent.repair_amt %}{{ rent.repair_amt }}{% endif %}</td>
+          </tr>
+          <tr>
+            <th>③입금총액(기준)</th>
+            <td>{% if rent.base_total %}{{ rent.base_total }}{% endif %}</td>
+          </tr>
+          <tr>
+            <th>④수금총액</th>
+            <td>{% if rent.paid_total %}{{ rent.paid_total }}{% endif %}</td>
+          </tr>
+          <tr>
+            <th>⑤환불성수금</th>
+            <td>{% if rent.refundable %}{{ rent.refundable }}{% endif %}</td>
+          </tr>
+          <tr>
+            <th>⑥미수총액</th>
+            <td>{% if rent.unpaid %}{{ rent.unpaid }}{% endif %}</td>
+          </tr>
+        </table>
+        <div class="pay-box">
+          <div class="pay-title">&lt;납부현황&gt;</div>
+          <table>
+            {% for p in payments %}
+            <tr>
+              <td class="d">{{ p.dt }}</td>
+              <td class="a">{{ p.amt }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="2" style="color:#999;">(납부 내역 없음)</td></tr>
+            {% endfor %}
+          </table>
+        </div>
+      </div>
+
+      <table class="grid util-row">
+        <tr>
+          <th>전 기</th>
+          <th>수 도</th>
+          <th>시설복구비</th>
+          <th>도시가스</th>
+          <th>기 타</th>
+          <th>⑦합 계</th>
+        </tr>
+        <tr>
+          <td class="num">{{ util.elec or '' }}</td>
+          <td class="num">{{ util.water or '' }}</td>
+          <td class="num">{{ util.restore or '' }}</td>
+          <td class="num">{{ util.gas or '' }}</td>
+          <td class="num">{{ util.etc or '' }}</td>
+          <td class="num">{{ util.total or '' }}</td>
+        </tr>
+      </table>
+    </section>
+
+    {# ── (4) 정산내용 ── #}
+    <section class="sec settle">
+      <div class="sec-h">(4) 정산내용</div>
+      <div class="amt-line">
+        <span class="mark">♧</span>정산금액 :
+        {% if settle.amount %}<strong>{{ settle.amount }}</strong>{% endif %}
+      </div>
+      <div class="formula">
+        산 출 식 :⑤−⑥−⑦
+        {% if settle.formula_nums %}
+        &nbsp;&nbsp;{{ settle.formula_nums }}
+        {% endif %}
+      </div>
+    </section>
+
+    <div class="sign">
+      <div>{{ settle.confirm_year or '　　' }}년　{{ settle.confirm_month or '　' }}월　{{ settle.confirm_day or '　' }}일　상기사항이 틀림없음을 확인합니다.</div>
+      <div class="who">확인자: {{ settle.confirmer or '' }}　　　　　　(인)</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ data.bunji_label }} 결산현황</title>
+  <style>
+    /* XP 출력물 508-88.pdf 기준 레이아웃 */
+    @page { size: A4 portrait; margin: 12mm 12mm 14mm 12mm; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #e5e7eb;
+      color: #000;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      font-size: 10pt;
+      line-height: 1.25;
+    }
+    .toolbar {
+      position: sticky; top: 0; z-index: 5;
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: center;
+      padding: 10px; background: #1e293b; color: #fff;
+    }
+    .toolbar button, .toolbar a {
+      border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; font-weight: 600;
+      cursor: pointer; text-decoration: none; color: #fff; background: #2563eb;
+    }
+    .toolbar a.sec { background: #64748b; }
+    .sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 12px auto;
+      padding: 12mm 11mm 14mm;
+      background: #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,.12);
+    }
+    h1 {
+      text-align: center;
+      font-size: 18pt;
+      font-weight: 700;
+      margin: 0 0 10px;
+      letter-spacing: 0.06em;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+      font-size: 10pt;
+    }
+    table.main {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 9pt;
+    }
+    table.main th, table.main td {
+      border: 1px solid #222;
+      padding: 3px 4px;
+      vertical-align: middle;
+      text-align: center;
+      height: 1.45em;
+    }
+    table.main th {
+      background: #f3f4f6;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    table.main td.num { text-align: right; font-variant-numeric: tabular-nums; padding-right: 5px; }
+    table.main td.left { text-align: left; padding-left: 5px; }
+    table.main tfoot th {
+      background: #f8fafc;
+      font-weight: 700;
+    }
+    /* 열 폭 — 508-88.pdf 비율 */
+    col.c-hosu { width: 7%; }
+    col.c-nm { width: 14%; }
+    col.c-dt { width: 10%; }
+    col.c-bo { width: 8%; }
+    col.c-wol { width: 9%; }
+    col.c-man { width: 8%; }
+    col.c-ip { width: 12%; }
+    col.c-ji { width: 12%; }
+    col.c-mi { width: 12%; }
+
+    .foot {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr 1.1fr 1fr;
+      gap: 8px 16px;
+      font-size: 10pt;
+      align-items: start;
+    }
+    .foot .blk { line-height: 1.55; }
+    .foot .lab { display: inline-block; min-width: 5.2em; }
+    .foot .amt {
+      display: inline-block;
+      min-width: 5.5em;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .foot .sum-line {
+      border-top: 1px solid #222;
+      margin-top: 2px;
+      padding-top: 2px;
+      font-weight: 700;
+    }
+    .foot .center {
+      text-align: center;
+      padding-top: 4px;
+    }
+    .foot .center .big {
+      font-size: 12pt;
+      font-weight: 700;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .foot .right { text-align: left; }
+    .suri {
+      margin-top: 10px;
+      font-size: 9pt;
+      line-height: 1.5;
+      font-variant-numeric: tabular-nums;
+    }
+    .err { padding: 24px; text-align: center; color: #991b1b; }
+
+    @media print {
+      html, body { background: #fff; }
+      .toolbar { display: none !important; }
+      .sheet {
+        width: auto; min-height: 0; margin: 0; padding: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
+    <a class="sec" href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}">화면 조회로</a>
+    <span style="opacity:.75;font-size:.85rem">Ctrl+P · PDF로 저장</span>
+  </div>
+
+  {% if data.error %}
+  <div class="sheet err">{{ data.error }}</div>
+  {% else %}
+  <div class="sheet">
+    <h1>{{ data.bunji_label }} 결산현황</h1>
+    <div class="meta">
+      <span>최초보증금 : {{ data.summary.first_amt|money }}</span>
+      <span>기준일자:{{ data.summary.as_of_kr }}</span>
+    </div>
+
+    <table class="main">
+      <colgroup>
+        <col class="c-hosu"><col class="c-nm"><col class="c-dt"><col class="c-bo">
+        <col class="c-wol"><col class="c-man"><col class="c-ip"><col class="c-ji"><col class="c-mi">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>호수</th>
+          <th>성 명</th>
+          <th>입주일자</th>
+          <th>보증금</th>
+          <th>월세</th>
+          <th>관리비</th>
+          <th>입금액</th>
+          <th>관리지시</th>
+          <th>미수내역</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in data.rows %}
+        <tr>
+          <td>{{ r.hosu }}</td>
+          <td class="left">{{ r.ipju_nm_disp }}</td>
+          <td>{{ r.ipju_dt_disp }}</td>
+          <td class="num">{{ r.bojung_disp }}</td>
+          <td>{{ r.wolse_disp }}</td>
+          <td class="num">{{ r.manage_disp }}</td>
+          <td class="num">{{ r.ipkum_disp }}</td>
+          <td class="left">{{ r.jisi_disp }}</td>
+          <td class="num">{{ r.misu_disp }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">합　　계</th>
+          <th>{{ data.totals.tenant_cnt }}세대</th>
+          <th class="num">{{ '{:,}'.format(data.totals.bojung_man) if data.totals.bojung_man else '' }}</th>
+          <th class="num">{{ data.totals.rent_man }}</th>
+          <th class="num">{{ data.totals.manage_man_disp }}</th>
+          <th class="num">{{ data.totals.ipkum_amt|money }}</th>
+          <th></th>
+          <th class="num">{{ data.totals.misu_amt|money }}</th>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="foot">
+      <div class="blk">
+        <div><span class="lab">관리수수료</span> <span class="amt">{{ data.summary.man_cost|money }}</span></div>
+        <div><span class="lab">수　리　비</span> <span class="amt">{{ data.summary.owner_suri|money }}</span></div>
+        <div><span class="lab">중개수수료</span> <span class="amt">{{ data.summary.jungke_cost|money }}</span></div>
+        <div class="sum-line"><span class="lab">계</span> <span class="amt">{{ data.summary.cost_sum|money }}</span></div>
+      </div>
+      <div class="blk center">
+        <div>당월지급액</div>
+        <div class="big">{{ data.summary.pay_amt|money }}</div>
+      </div>
+      <div class="blk right">
+        <div><span class="lab">임대료대체</span> <span class="amt">{{ data.summary.imdae_dache|money }}</span></div>
+        <div><span class="lab">보증금대체</span> <span class="amt">{{ data.summary.bojung_dache|money }}</span></div>
+      </div>
+    </div>
+
+    {% if data.suri_detail %}
+    <div class="suri">
+      {% for s in data.suri_detail %}
+      <div>{{ s.dt }} {{ s.amt_disp }} {{ s.desc }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+  <script>
+    // 인쇄 모드로 열렸으면 바로 대화상자 (원하면 ?autoprint=1)
+    if (location.search.indexOf('autoprint=1') >= 0) {
+      setTimeout(function () { window.print(); }, 300);
+    }
+  </script>
+</body>
+</html>

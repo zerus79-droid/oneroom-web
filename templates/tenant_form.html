@@ -1,0 +1,1266 @@
+{% extends "base.html" %}
+{% block title %}입주 이력 등록 · 주택관리 시스템{% endblock %}
+{% block content %}
+
+{# 레거시 「입주 이력 등록」 창 (AnyDesk/XP 스타일) #}
+{% set ts = form.tenant_status or 'new' %}
+{% set ts_label = '신규' if ts == 'new' else ('퇴실자' if ts == 'past' else '현세입자') %}
+<div class="legacy-sukum-panel card tenant-reg-panel{% if ts == 'past' %} is-past-readonly{% endif %}" id="tenant-reg-panel">
+  <div class="legacy-sukum-caption" id="tenant-caption">
+    <span class="caption-title">입주 이력 등록</span>
+    <span class="caption-status" id="tenant-status-badge" data-status="{{ ts }}"
+          title="순번 기준 세입자 상태">{{ ts_label }}</span>
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('search') }}">입주자 이력 조회</a>
+    </span>
+  </div>
+  <form method="post" class="legacy-sukum-body tenant-reg-body" id="tenant-form" autocomplete="off">
+    <input type="hidden" name="mode" id="form_mode" value="{{ form.mode }}">
+    <input type="hidden" name="action" id="form_action" value="save">
+    <input type="hidden" id="form_out_dt" value="{{ form.out_dt or '' }}">
+
+    {# ── 상단: 주소 · 호수 · 순번 ── #}
+    <div class="tr-key-row">
+      <label class="ls-lab star" for="bunji1">주소</label>
+      <div class="ls-val tr-bunji">
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" required
+                 value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
+                 placeholder="508" autocomplete="off" title="주소">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" required
+                 value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
+                 placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+        </div>
+        <button type="button" class="btn secondary" id="btn_find_bunji" title="건물 목록">주소 찾기</button>
+        <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
+          {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
+        </span>
+      </div>
+      <label class="ls-lab star">호수</label>
+      <div class="ls-val">
+        <input type="text" name="hosu" id="hosu" class="hosu-input ls-narrow" required
+               value="{{ form.hosu }}" placeholder="201"
+               style="text-transform:uppercase" autocomplete="off" maxlength="3">
+      </div>
+      <label class="ls-lab seq-lab">순번</label>
+      <div class="ls-val">
+        <input type="text" name="ipju_seq" id="ipju_seq" class="seq-field ls-narrow"
+               value="{{ form.ipju_seq }}" maxlength="2" inputmode="numeric"
+               autocomplete="off" title="호수 입력 시 다음 순번 자동">
+      </div>
+    </div>
+
+    {# ── 인적명세 (화면 배치 유지 · 입력 순서는 JS tabindex) ── #}
+    <fieldset class="tr-section">
+      <legend><span class="tr-radio-dot"></span> 인적명세</legend>
+      <div class="tr-grid-2">
+        <div class="tr-field">
+          <label class="ls-lab tri">성명</label>
+          <input type="text" name="ipju_nm" id="ipju_nm" class="ls-box" required
+                 value="{{ form.ipju_nm }}" autocomplete="off" maxlength="100">
+        </div>
+        <div class="tr-field">
+          <label class="ls-lab">휴대1</label>
+          <input type="text" name="ipju_tel1" id="ipju_tel1" class="ls-box"
+                 value="{{ form.ipju_tel1 }}" autocomplete="off" maxlength="14"
+                 placeholder="010-">
+        </div>
+        <div class="tr-field">
+          <label class="ls-lab tri">입주일</label>
+          <div class="date-with-cal">
+            <div class="date-parts" id="ipju_dt_parts">
+              <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
+              <span class="dp-sep">-</span>
+              <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+              <span class="dp-sep">-</span>
+              <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+              <input type="hidden" name="ipju_dt" id="ipju_dt_hidden" value="{{ form.ipju_dt }}" required>
+            </div>
+            <button type="button" class="btn secondary today-btn" id="ipju_today_btn" title="오늘" tabindex="-1">오늘</button>
+            <button type="button" class="btn secondary cal-btn" id="ipju_cal_btn" title="달력" tabindex="-1">📅</button>
+            <input type="date" id="ipju_cal" class="cal-native" tabindex="-1" aria-label="달력">
+          </div>
+        </div>
+        <div class="tr-field">
+          <label class="ls-lab">휴대2</label>
+          <input type="text" name="ipju_tel2" id="ipju_tel2" class="ls-box"
+                 value="{{ form.ipju_tel2 }}" autocomplete="off" maxlength="14"
+                 placeholder="010-">
+        </div>
+        <div class="tr-field">
+          <label class="ls-lab tri">주민번호</label>
+          <div class="jumin-pair">
+            <input type="text" name="jumin1" id="jumin1" class="ls-box jumin1"
+                   value="{{ form.jumin1 }}" maxlength="6" inputmode="numeric"
+                   autocomplete="off" placeholder="앞 6">
+            <span class="bunji-sep">-</span>
+            <input type="password" name="jumin2" id="jumin2" class="ls-box jumin2"
+                   value="{{ form.jumin2 }}" maxlength="7" inputmode="numeric"
+                   autocomplete="off" placeholder="뒤 7">
+          </div>
+        </div>
+        <div class="tr-field">
+          <label class="ls-lab">일반전화</label>
+          <input type="text" name="ipju_tel3" id="ipju_tel3" class="ls-box"
+                 value="{{ form.ipju_tel3 }}" autocomplete="off" maxlength="14"
+                 placeholder="02-... (선택)">
+        </div>
+      </div>
+    </fieldset>
+
+    {# ── 계약내역 (화면 배치 유지) ── #}
+    <fieldset class="tr-section">
+      <legend><span class="tr-radio-dot"></span> 계약내역 <span class="muted">(입력: 만원 → Enter/Tab 시 원)</span></legend>
+      <div class="tr-grid-2">
+        <div class="tr-field">
+          <label class="ls-lab tri">보증금</label>
+          <input type="text" name="bojung_amt" id="bojung_amt" class="ls-box ls-money money-in money-manwon"
+                 value="{{ form.bojung_amt|money }}" inputmode="numeric" autocomplete="off"
+                 placeholder="예: 300 → 3,000,000" title="만원 단위 입력 (300 = 300만 원)">
+        </div>
+        <div class="tr-field tr-napbu">
+          <label class="ls-lab tri">납부시기</label>
+          <div class="napbu-radios">
+            <label class="napbu-opt">
+              <input type="radio" name="napbu_gb" value="A"
+                     {% if form.napbu_gb == 'A' %}checked{% endif %}> 선납
+            </label>
+            <label class="napbu-opt">
+              <input type="radio" name="napbu_gb" value="B"
+                     {% if form.napbu_gb != 'A' %}checked{% endif %}> 후납
+            </label>
+          </div>
+        </div>
+        <div class="tr-field">
+          <label class="ls-lab tri">임대료</label>
+          <input type="text" name="rent_amt" id="rent_amt" class="ls-box ls-money money-in money-manwon"
+                 value="{{ form.rent_amt|money }}" inputmode="numeric" autocomplete="off"
+                 placeholder="예: 30 → 300,000" title="만원 단위 입력">
+        </div>
+        <div class="tr-field tr-spacer"></div>
+        <div class="tr-field">
+          <label class="ls-lab tri">관리비</label>
+          <input type="text" name="manage_amt" id="manage_amt" class="ls-box ls-money money-in money-manwon"
+                 value="{{ form.manage_amt|money }}" inputmode="numeric" autocomplete="off"
+                 placeholder="예: 7 → 70,000" title="만원 단위 입력">
+        </div>
+        <div class="tr-field tr-spacer"></div>
+        <div class="tr-field">
+          <label class="ls-lab tri">예치금</label>
+          <input type="text" name="yechi_amt" id="yechi_amt" class="ls-box ls-money money-in money-manwon"
+                 value="{{ form.yechi_amt|money }}" inputmode="numeric" autocomplete="off"
+                 placeholder="예: 30 → 300,000" title="만원 단위 입력">
+        </div>
+      </div>
+    </fieldset>
+
+    <p class="tenant-past-hint muted" id="tenant-past-hint"{% if ts != 'past' %} hidden{% endif %}>
+      ※ 퇴실자 이력은 <strong>조회 전용</strong>입니다. 내용은 수정·저장·삭제할 수 없습니다.
+      (주소·호수·순번으로 다른 이력 이동은 가능)
+    </p>
+
+    {# ── 하단 버튼 ── #}
+    <div class="tr-actions actions">
+      <button type="submit" class="btn" data-action="save" id="btn-tenant-save" title="저장"
+              {% if ts == 'past' %}disabled{% endif %}>저장</button>
+      <button type="submit" class="btn secondary" data-action="delete" id="btn-tenant-delete"
+              title="{% if ts == 'past' %}퇴실자는 삭제할 수 없습니다{% else %}삭제{% endif %}"
+              {% if ts == 'past' or ts == 'new' %}disabled{% endif %}
+              onclick="return onTenantDeleteClick(event);">삭제</button>
+      <button type="submit" class="btn secondary" data-action="new" title="신규">신규</button>
+    </div>
+  </form>
+</div>
+
+{# 저장 결과 박스 #}
+{% if last_saved %}
+<div class="legacy-sukum-panel card tenant-save-result" id="tenant-save-result">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">
+      {% if last_saved.action == 'insert' %}저장 완료{% else %}수정 완료{% endif %}
+    </span>
+    <span class="caption-status" data-status="current">
+      {% if last_saved.action == 'insert' %}신규 등록{% else %}수정{% endif %}
+    </span>
+  </div>
+  <div class="legacy-sukum-body tenant-save-result-body">
+    <div class="save-result-grid">
+      <div class="save-result-item"><span class="lab">주소</span><span class="val">{{ last_saved.bunji }}</span></div>
+      <div class="save-result-item"><span class="lab">호수</span><span class="val">{{ last_saved.hosu }}</span></div>
+      <div class="save-result-item"><span class="lab">순번</span><span class="val">{{ last_saved.ipju_seq }}</span></div>
+      <div class="save-result-item"><span class="lab">성명</span><span class="val">{{ last_saved.ipju_nm }}</span></div>
+      <div class="save-result-item"><span class="lab">입주일</span><span class="val">{{ last_saved.ipju_dt }}</span></div>
+      <div class="save-result-item"><span class="lab">납부</span><span class="val">{{ last_saved.napbu_label }}</span></div>
+      <div class="save-result-item"><span class="lab">휴대1</span><span class="val">{{ last_saved.ipju_tel1 or '—' }}</span></div>
+      <div class="save-result-item"><span class="lab">휴대2</span><span class="val">{{ last_saved.ipju_tel2 or '—' }}</span></div>
+      <div class="save-result-item"><span class="lab">일반전화</span><span class="val">{{ last_saved.ipju_tel3 or '—' }}</span></div>
+      <div class="save-result-item"><span class="lab">보증금</span><span class="val num">{{ last_saved.bojung_amt|money }}</span></div>
+      <div class="save-result-item"><span class="lab">예치금</span><span class="val num">{{ last_saved.yechi_amt|money }}</span></div>
+      <div class="save-result-item"><span class="lab">임대료</span><span class="val num">{{ last_saved.rent_amt|money }}</span></div>
+      <div class="save-result-item"><span class="lab">관리비</span><span class="val num">{{ last_saved.manage_amt|money }}</span></div>
+    </div>
+    <p class="muted save-result-note" style="margin:12px 0 0">
+      {% if last_saved.action == 'insert' %}
+      신규 입주 이력이 등록되었습니다. 위 입력란은 다음 등록을 위해 초기화되었습니다.
+      {% else %}
+      입주 이력이 수정 저장되었습니다.
+      {% endif %}
+    </p>
+  </div>
+</div>
+{% endif %}
+
+<script>
+window.onTenantDeleteClick = function (e) {
+  var badge = document.getElementById('tenant-status-badge');
+  var st = badge ? (badge.getAttribute('data-status') || '') : '';
+  if (st === 'past') {
+    if (e) e.preventDefault();
+    if (window.appAlert) window.appAlert('퇴실 완료된 이력은 삭제할 수 없습니다.');
+    return false;
+  }
+  if (st === 'new') {
+    if (e) e.preventDefault();
+    if (window.appAlert) window.appAlert('신규(미저장) 상태에서는 삭제할 항목이 없습니다.');
+    return false;
+  }
+  return confirm('이 입주 이력을 삭제할까요?');
+};
+
+(function () {
+  var form = document.getElementById('tenant-form');
+  if (!form) return;
+  var b1 = document.getElementById('bunji1');
+  var b2 = document.getElementById('bunji2');
+  var hosu = document.getElementById('hosu');
+  var seq = document.getElementById('ipju_seq');
+  var hint = document.getElementById('building-hint');
+  var modeEl = document.getElementById('form_mode');
+  var actionEl = document.getElementById('form_action');
+  var btnDelete = document.getElementById('btn-tenant-delete');
+  var btnSave = document.getElementById('btn-tenant-save');
+  var panelEl = document.getElementById('tenant-reg-panel');
+  var pastHint = document.getElementById('tenant-past-hint');
+
+  // 서버 팝업 (저장/삭제 결과) + 결과 박스로 스크롤
+  {% if popup_msg %}
+  setTimeout(function () {
+    if (window.appAlert) {
+      window.appAlert({{ popup_msg|tojson }});
+    } else {
+      alert({{ popup_msg|tojson }});
+    }
+  }, 50);
+  {% endif %}
+  {% if last_saved %}
+  setTimeout(function () {
+    var box = document.getElementById('tenant-save-result');
+    if (box && box.scrollIntoView) {
+      try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {
+        box.scrollIntoView(true);
+      }
+    }
+  }, 100);
+  {% endif %}
+
+  // action buttons
+  form.querySelectorAll('button[data-action]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      actionEl.value = btn.getAttribute('data-action') || 'save';
+    });
+  });
+
+  /** 키 필드(주소·호수·순번)만 남기고 나머지 조회 전용 */
+  var NAV_IDS = { bunji1: 1, bunji2: 1, hosu: 1, ipju_seq: 1 };
+
+  function setPastReadonly(isPast) {
+    if (panelEl) panelEl.classList.toggle('is-past-readonly', !!isPast);
+    if (pastHint) pastHint.hidden = !isPast;
+    if (btnSave) {
+      btnSave.disabled = !!isPast;
+      btnSave.title = isPast ? '퇴실자는 수정·저장할 수 없습니다' : '저장';
+    }
+    var fields = form.querySelectorAll('input, select, textarea, button');
+    for (var i = 0; i < fields.length; i++) {
+      var el = fields[i];
+      var id = el.id || '';
+      var name = el.getAttribute('name') || '';
+      var action = el.getAttribute('data-action') || '';
+      // 네비게이션·신규·숨김 유지
+      if (NAV_IDS[id] || NAV_IDS[name]) continue;
+      if (id === 'btn_find_bunji' || action === 'new') continue;
+      if (el.type === 'hidden') continue;
+      if (id === 'btn-tenant-save' || id === 'btn-tenant-delete') continue;
+      if (el.classList && el.classList.contains('cal-native')) continue;
+      if (el.classList && (el.classList.contains('today-btn') || el.classList.contains('cal-btn'))) {
+        el.disabled = !!isPast;
+        continue;
+      }
+      if (el.tagName === 'BUTTON') {
+        if (action === 'save' || action === 'delete') continue;
+        el.disabled = !!isPast;
+        continue;
+      }
+      if (el.type === 'radio') {
+        el.disabled = !!isPast;
+        continue;
+      }
+      if (isPast) {
+        el.readOnly = true;
+        el.classList.add('is-past-ro');
+      } else {
+        el.readOnly = false;
+        el.classList.remove('is-past-ro');
+        // 금액 disabled 상태는 보증금/예치금 로직이 다시 잡음
+        if (!el.classList.contains('is-money-disabled')) {
+          el.disabled = false;
+        }
+      }
+    }
+    if (!isPast && typeof enforceBojungYechiExclusive === 'function') {
+      enforceBojungYechiExclusive('');
+    }
+  }
+
+  function updateDeleteButton() {
+    if (!btnDelete) return;
+    var st = statusBadge ? (statusBadge.dataset.status || 'new') : 'new';
+    // 퇴실자·신규(미저장) 삭제 불가, 현세입자만 삭제 가능
+    var canDel = (st === 'current');
+    btnDelete.disabled = !canDel;
+    btnDelete.title = st === 'past'
+      ? '퇴실자는 삭제할 수 없습니다'
+      : (st === 'new' ? '신규 상태에서는 삭제할 수 없습니다' : '삭제');
+    setPastReadonly(st === 'past');
+  }
+
+  /**
+   * 화면 배치는 그대로, Tab/Enter 입력 순서만 제어.
+   * 성명 → 입주일(년월일) → 주민(앞/뒤) → 휴대1 → 휴대2 → 일반전화 → 보증금 → …
+   */
+  var INPUT_ORDER = [
+    'bunji1', 'bunji2', 'hosu', 'ipju_seq',
+    'ipju_nm',
+    // 입주일 date-parts (class, not id)
+    { sel: '#ipju_dt_parts .dp-y' },
+    { sel: '#ipju_dt_parts .dp-m' },
+    { sel: '#ipju_dt_parts .dp-d' },
+    'jumin1', 'jumin2',
+    'ipju_tel1', // 휴대1
+    'ipju_tel2', // 휴대2
+    'ipju_tel3', // 일반전화
+    'bojung_amt',
+    'rent_amt',
+    'manage_amt',
+    'yechi_amt'
+  ];
+
+  function resolveOrderEl(item) {
+    if (!item) return null;
+    if (typeof item === 'string') return document.getElementById(item);
+    if (item.sel) return form.querySelector(item.sel);
+    return null;
+  }
+  function inputOrderList() {
+    var list = [];
+    for (var i = 0; i < INPUT_ORDER.length; i++) {
+      var el = resolveOrderEl(INPUT_ORDER[i]);
+      if (!el) continue;
+      if (el.disabled) continue;
+      if (el.getAttribute('tabindex') === '-1' && !el.classList.contains('dp-y') &&
+          !el.classList.contains('dp-m') && !el.classList.contains('dp-d')) continue;
+      if (el.offsetParent === null && el.type !== 'hidden') continue;
+      list.push(el);
+    }
+    return list;
+  }
+  function focusField(el) {
+    if (!el) return;
+    try {
+      el.focus();
+      if (typeof el.select === 'function' && el.type !== 'radio' && el.type !== 'checkbox') {
+        el.select();
+      }
+    } catch (err) {}
+  }
+  /** 처음부터 작성해야 할 키 필드 중 첫 빈 칸 */
+  function firstEmptyKeyField() {
+    var ids = ['bunji1', 'bunji2', 'hosu', 'ipju_seq'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && !(String(el.value || '').trim())) {
+        return el;
+      }
+    }
+    return null;
+  }
+  function indexInOrder(el) {
+    var list = inputOrderList();
+    var i = list.indexOf(el);
+    if (i >= 0) return i;
+    // date-parts 등: 가장 가까운 앞 항목
+    for (var k = 0; k < list.length; k++) {
+      if (el === list[k]) return k;
+      if (list[k].contains && list[k].contains(el)) return k;
+    }
+    // 입주일 칸 안의 요소
+    var root = el.closest && el.closest('.date-parts');
+    if (root) {
+      for (var j = 0; j < list.length; j++) {
+        if (root.contains(list[j]) || list[j].closest && list[j].closest('.date-parts') === root) {
+          // find which dp
+          if (el.classList.contains('dp-y') || el.classList.contains('dp-m') || el.classList.contains('dp-d')) {
+            for (var m = 0; m < list.length; m++) {
+              if (list[m] === el) return m;
+            }
+          }
+        }
+      }
+    }
+    return -1;
+  }
+  function focusNextFrom(el, reverse) {
+    var list = inputOrderList();
+    var i = list.indexOf(el);
+    if (i < 0) {
+      // class 기반 재검색
+      for (var k = 0; k < list.length; k++) {
+        if (list[k] === el) { i = k; break; }
+      }
+    }
+    if (i < 0 && el.classList) {
+      if (el.classList.contains('dp-y') || el.classList.contains('dp-m') || el.classList.contains('dp-d')) {
+        for (var n = 0; n < list.length; n++) {
+          if (list[n] === el) { i = n; break; }
+        }
+      }
+    }
+    if (i < 0) {
+      // 순서표에 없으면 DOM 다음
+      var all = form.querySelectorAll('input:not([type="hidden"]):not([disabled])');
+      for (var a = 0; a < all.length; a++) {
+        if (all[a] === el) {
+          var nx = reverse ? all[a - 1] : all[a + 1];
+          if (nx && nx.getAttribute('tabindex') !== '-1') focusField(nx);
+          return;
+        }
+      }
+      return;
+    }
+    var next = reverse ? list[i - 1] : list[i + 1];
+    // 비활성 금액 칸 건너뛰기
+    while (next && next.disabled) {
+      i = reverse ? i - 1 : i + 1;
+      next = list[i];
+    }
+    focusField(next);
+  }
+  /** Enter 후 포커스: 앞쪽 미입력이 있으면 그곳, 없으면 입력 순서상 다음 */
+  function focusAfterEnter(fromEl) {
+    var miss = firstEmptyKeyField();
+    if (miss) {
+      focusField(miss);
+      return;
+    }
+    focusNextFrom(fromEl, false);
+  }
+
+  // Tab 도 같은 입력 순서 사용 (화면 배치와 무관)
+  form.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (!t || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON') return;
+    if (t.tagName !== 'INPUT' && t.tagName !== 'SELECT') return;
+
+    if (e.key === 'Tab') {
+      // 금액 확정 후 순서대로 이동
+      if (t.classList && (t.classList.contains('money-manwon') || t.classList.contains('money-in'))) {
+        if (typeof finalizeManwonField === 'function') finalizeManwonField(t);
+      }
+      e.preventDefault();
+      focusNextFrom(t, !!e.shiftKey);
+      return;
+    }
+
+    if (e.key !== 'Enter') return;
+
+    e.preventDefault();
+
+    var id = t.id || '';
+    // 금액(만원) 칸: Enter 시 원 단위로 확정 표시 후 다음 칸
+    if (t.classList && (t.classList.contains('money-manwon') || t.classList.contains('money-in'))) {
+      if (typeof finalizeManwonField === 'function') finalizeManwonField(t);
+      setTimeout(function () {
+        focusAfterEnter(t);
+      }, 0);
+      return;
+    }
+
+    if (id === 'ipju_seq') {
+      if (typeof loadTenantBySeq === 'function') loadTenantBySeq();
+    } else if (id === 'hosu') {
+      if (typeof loadTenantForRoom === 'function') loadTenantForRoom();
+    } else if (id === 'bunji1' || id === 'bunji2') {
+      refreshBuilding();
+      if (id === 'bunji2' && (hosu.value || '').trim() && typeof loadTenantForRoom === 'function') {
+        loadTenantForRoom();
+      }
+    }
+
+    setTimeout(function () {
+      focusAfterEnter(t);
+    }, 0);
+  });
+
+  /**
+   * 입주 이력 등록 전용: 만원 단위 입력
+   *  - 입력 중: 숫자 그대로 (3 → 3, 30 → 30, 300 → 300)
+   *  - Enter / Tab / blur 확정 시: ×1만 원 + 콤마 (300 → 3,000,000)
+   *  - 포커스 시 0 이면 비움, 기존 금액은 만원 숫자로 다시 편집
+   */
+  function moneyDigits(v) {
+    return String(v == null ? '' : v).replace(/[^\d]/g, '');
+  }
+  function formatWonComma(n) {
+    n = parseInt(n, 10);
+    if (isNaN(n) || n < 0) return '';
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function wonFromDisplay(v) {
+    var d = moneyDigits(v);
+    if (!d) return 0;
+    return parseInt(d, 10) || 0;
+  }
+  /** 입력 중 표시: 만원 숫자 그대로 */
+  function showManwonTyping(el, man) {
+    man = String(man || '').replace(/\D/g, '');
+    if (man !== '') {
+      man = String(parseInt(man, 10));
+      if (man === 'NaN' || man === '0') man = '';
+    }
+    el.dataset.manwon = man;
+    el.dataset.manwonFinal = ''; // 아직 원 확정 전
+    el.value = man;
+  }
+  /** Enter/Tab/blur: 만원 → 원 확정 표시 */
+  function finalizeManwonField(el) {
+    if (!el) return;
+    var man = (el.dataset.manwon || moneyDigits(el.value) || '').replace(/\D/g, '');
+    if (man !== '') {
+      man = String(parseInt(man, 10));
+      if (man === 'NaN' || man === '0') man = '';
+    }
+    // 이미 원으로 확정된 큰 수만 있는 경우 (재포커스 없이)
+    if (!man) {
+      var raw = moneyDigits(el.value);
+      if (raw) {
+        var n = parseInt(raw, 10);
+        if (!isNaN(n) && n >= 10000) {
+          el.dataset.manwon = String(Math.floor(n / 10000));
+          el.dataset.manwonFinal = '1';
+          el.value = formatWonComma(n);
+          return;
+        }
+        man = raw;
+      }
+    }
+    el.dataset.manwon = man || '';
+    if (!man) {
+      el.value = '';
+      el.dataset.manwonFinal = '';
+      return;
+    }
+    el.dataset.manwonFinal = '1';
+    el.value = formatWonComma(parseInt(man, 10) * 10000);
+  }
+  function bindManwonMoney(el) {
+    if (!el || el._manwonBound) return;
+    el._manwonBound = true;
+    el.setAttribute('inputmode', 'numeric');
+
+    // 초기: 서버 값은 원 → 콤마 표시, manwon 보관
+    var initWon = wonFromDisplay(el.value);
+    if (!initWon) {
+      el.value = '';
+      el.dataset.manwon = '';
+      el.dataset.manwonFinal = '';
+    } else {
+      el.dataset.manwon = String(Math.floor(initWon / 10000));
+      el.dataset.manwonFinal = '1';
+      el.value = formatWonComma(initWon);
+    }
+
+    el.addEventListener('focus', function () {
+      var won = wonFromDisplay(el.value);
+      var man = el.dataset.manwon || '';
+      if (el.dataset.manwonFinal === '1' && won) {
+        man = String(Math.floor(won / 10000));
+      } else if (!man && won) {
+        // 표시가 원 단위면 만원으로 환산해 편집
+        if (won >= 10000) man = String(Math.floor(won / 10000));
+        else man = String(won);
+      }
+      if (!man || man === '0') {
+        el.value = '';
+        el.dataset.manwon = '';
+        el.dataset.manwonFinal = '';
+        return;
+      }
+      // 편집 모드: 만원 숫자만 보여 줌 (300)
+      el.dataset.manwon = man;
+      el.dataset.manwonFinal = '';
+      el.value = man;
+      try { el.select(); } catch (e) {}
+    });
+
+    el.addEventListener('keydown', function (e) {
+      if (el.readOnly || el.classList.contains('is-past-ro') || el.disabled) {
+        if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') {
+          e.preventDefault();
+        }
+        return;
+      }
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        var cur = el.dataset.manwon || '';
+        // 확정(원) 상태에서 숫자 누르면 새로 입력 시작
+        if (el.dataset.manwonFinal === '1') {
+          cur = '';
+          el.dataset.manwonFinal = '';
+        }
+        var allSelected = el.selectionStart === 0 &&
+          el.selectionEnd === String(el.value || '').length &&
+          String(el.value || '').length > 0;
+        if (allSelected || !cur) {
+          cur = e.key === '0' ? '' : e.key;
+        } else {
+          cur = cur + e.key;
+        }
+        if (cur.length > 8) return;
+        showManwonTyping(el, cur);
+        return;
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        if (el.dataset.manwonFinal === '1') {
+          // 원 표시 중 Backspace → 만원 편집으로 전환 후 한 자리 삭제
+          var w = wonFromDisplay(el.value);
+          var m0 = w ? String(Math.floor(w / 10000)) : '';
+          showManwonTyping(el, m0.slice(0, -1));
+          return;
+        }
+        var m = el.dataset.manwon || '';
+        var selAll = el.selectionStart === 0 &&
+          el.selectionEnd === String(el.value || '').length &&
+          String(el.value || '').length > 0;
+        if (selAll) showManwonTyping(el, '');
+        else showManwonTyping(el, m.slice(0, -1));
+        return;
+      }
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        showManwonTyping(el, '');
+        return;
+      }
+      // Tab: 확정 후 기본 포커스 이동 (blur에서 한 번 더 확정해도 무방)
+      if (e.key === 'Tab') {
+        finalizeManwonField(el);
+        return; // preventDefault 하지 않음 → 탭 이동
+      }
+      // Enter 는 폼 핸들러에서 확정
+    });
+
+    el.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var text = '';
+      try {
+        text = (e.clipboardData || window.clipboardData).getData('text') || '';
+      } catch (err) {}
+      var man = moneyDigits(text);
+      if (man.length >= 5) {
+        var w = parseInt(man, 10);
+        if (!isNaN(w) && w >= 10000 && w % 10000 === 0) {
+          man = String(Math.floor(w / 10000));
+        }
+      }
+      showManwonTyping(el, man);
+    });
+
+    el.addEventListener('blur', function () {
+      finalizeManwonField(el);
+      if (el.id === 'bojung_amt') enforceBojungYechiExclusive('bojung');
+      if (el.id === 'yechi_amt') enforceBojungYechiExclusive('yechi');
+    });
+  }
+
+  form.querySelectorAll('input.money-manwon, input.money-in').forEach(bindManwonMoney);
+
+  // 보증금 ↔ 예치금: 입력 쪽만 활성, 반대쪽 비활성
+  var bojungEl = document.getElementById('bojung_amt');
+  var yechiEl = document.getElementById('yechi_amt');
+  function clearMoneyField(el) {
+    if (!el) return;
+    el.value = '';
+    el.dataset.manwon = '';
+    el.dataset.manwonFinal = '';
+  }
+  function moneyHasValue(el) {
+    if (!el) return false;
+    var man = el.dataset.manwon || '';
+    if (man && parseInt(man, 10) > 0) return true;
+    return wonFromDisplay(el.value) > 0;
+  }
+  function setMoneyDisabled(el, disabled) {
+    if (!el) return;
+    el.disabled = !!disabled;
+    el.classList.toggle('is-money-disabled', !!disabled);
+    if (disabled) {
+      el.setAttribute('tabindex', '-1');
+      el.title = el.id === 'bojung_amt'
+        ? '예치금이 입력되어 보증금은 사용할 수 없습니다'
+        : '보증금이 입력되어 예치금은 사용할 수 없습니다';
+    } else {
+      el.removeAttribute('tabindex');
+      el.title = '만원 단위 입력';
+    }
+  }
+  function enforceBojungYechiExclusive(changed) {
+    if (!bojungEl || !yechiEl) return;
+    var hasB = moneyHasValue(bojungEl);
+    var hasY = moneyHasValue(yechiEl);
+    if (changed === 'bojung' && hasB) {
+      clearMoneyField(yechiEl);
+      setMoneyDisabled(yechiEl, true);
+      setMoneyDisabled(bojungEl, false);
+      return;
+    }
+    if (changed === 'yechi' && hasY) {
+      clearMoneyField(bojungEl);
+      setMoneyDisabled(bojungEl, true);
+      setMoneyDisabled(yechiEl, false);
+      return;
+    }
+    // 둘 다 비었으면 둘 다 활성
+    if (!hasB && !hasY) {
+      setMoneyDisabled(bojungEl, false);
+      setMoneyDisabled(yechiEl, false);
+      return;
+    }
+    if (hasB && !hasY) {
+      setMoneyDisabled(yechiEl, true);
+      setMoneyDisabled(bojungEl, false);
+    } else if (hasY && !hasB) {
+      setMoneyDisabled(bojungEl, true);
+      setMoneyDisabled(yechiEl, false);
+    }
+  }
+  // 비활성 필드 클릭 시 안내
+  function onDisabledMoneyClick(e) {
+    var el = e.currentTarget;
+    if (!el.disabled) return;
+    e.preventDefault();
+    if (window.appAlert) {
+      window.appAlert(el.id === 'bojung_amt'
+        ? '예치금이 입력되어 있습니다. 보증금을 쓰려면 예치금을 먼저 비우세요.'
+        : '보증금이 입력되어 있습니다. 예치금을 쓰려면 보증금을 먼저 비우세요.');
+    }
+  }
+  if (bojungEl) {
+    ['keydown', 'blur', 'paste', 'input'].forEach(function (ev) {
+      bojungEl.addEventListener(ev, function () {
+        setTimeout(function () { enforceBojungYechiExclusive('bojung'); }, 0);
+      });
+    });
+    bojungEl.addEventListener('mousedown', onDisabledMoneyClick);
+  }
+  if (yechiEl) {
+    ['keydown', 'blur', 'paste', 'input'].forEach(function (ev) {
+      yechiEl.addEventListener(ev, function () {
+        setTimeout(function () { enforceBojungYechiExclusive('yechi'); }, 0);
+      });
+    });
+    yechiEl.addEventListener('mousedown', onDisabledMoneyClick);
+  }
+  // 초기 상태 (로드된 값 기준)
+  enforceBojungYechiExclusive('');
+
+  // 저장: 원 단위 숫자 + 보증금/예치금 검사
+  form.addEventListener('submit', function (e) {
+    form.querySelectorAll('.money-in, .money-manwon').forEach(function (el) {
+      finalizeManwonField(el);
+      var man = el.dataset.manwon;
+      if (man !== undefined && man !== null && String(man).trim() !== '') {
+        el.value = String(parseInt(man, 10) * 10000);
+      } else {
+        el.value = String(wonFromDisplay(el.value) || 0);
+      }
+    });
+    var bj = wonFromDisplay(bojungEl && bojungEl.value);
+    var yc = wonFromDisplay(yechiEl && yechiEl.value);
+    if (bj > 0 && yc > 0) {
+      e.preventDefault();
+      if (window.appAlert) {
+        window.appAlert('보증금과 예치금은 함께 입력할 수 없습니다.\n하나만 입력해 주세요.');
+      } else {
+        alert('보증금과 예치금은 함께 입력할 수 없습니다.');
+      }
+      return false;
+    }
+    var st0 = statusBadge ? statusBadge.dataset.status : '';
+    // 퇴실자: 저장·삭제 모두 차단
+    if (st0 === 'past') {
+      e.preventDefault();
+      if (window.appAlert) {
+        window.appAlert('퇴실 완료된 이력은 수정·저장·삭제할 수 없습니다.\n(조회 전용)');
+      }
+      return false;
+    }
+    if (actionEl && actionEl.value === 'delete') {
+      if (st0 === 'new') {
+        e.preventDefault();
+        if (window.appAlert) window.appAlert('신규 상태에서는 삭제할 항목이 없습니다.');
+        return false;
+      }
+    }
+  });
+
+  function pad4(v) {
+    v = String(v || '').replace(/\D/g, '');
+    if (!v) return '';
+    return ('0000' + v).slice(-4);
+  }
+
+  function refreshBuilding() {
+    var p1 = (b1.value || '').trim();
+    var p2 = (b2.value || '').trim();
+    if (!p1 || !p2) {
+      if (hint) { hint.hidden = true; hint.innerHTML = ''; }
+      return;
+    }
+    fetch('{{ url_for("api_building") }}?bunji1=' + encodeURIComponent(p1) +
+          '&bunji2=' + encodeURIComponent(p2), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!hint) return;
+        if (d.found && d.label) {
+          hint.hidden = false;
+          hint.innerHTML = '<strong>' + d.label + '</strong>';
+        } else if (d.message) {
+          hint.hidden = false;
+          hint.innerHTML = '<span style="color:#991b1b">' + (d.label || '미등록') + '</span>';
+        } else {
+          hint.hidden = true;
+        }
+      }).catch(function () {});
+  }
+
+  /** 비동기 로드 레이스 방지 (호실조회가 순번조회를 덮어쓰지 않게) */
+  var loadToken = 0;
+  var lastRoomKey = '';
+
+  function moneyDisp(v) {
+    var n = String(v == null ? '0' : v).replace(/[^\d\-]/g, '');
+    if (n === '' || n === '-') return '';
+    var num = parseInt(n, 10);
+    if (isNaN(num) || num === 0) return '';
+    try { return num.toLocaleString('ko-KR'); } catch (e) { return n; }
+  }
+  function setMoneyField(el, v) {
+    if (!el) return;
+    var disp = moneyDisp(v);
+    el.value = disp;
+    var won = wonFromDisplay(disp);
+    el.dataset.manwon = won ? String(Math.floor(won / 10000)) : '';
+    el.dataset.manwonFinal = won ? '1' : '';
+  }
+
+  function normalizeSeq(v) {
+    var s = String(v || '').replace(/\D/g, '');
+    if (!s) return '';
+    if (s.length === 1) s = '0' + s;
+    return s.slice(-2);
+  }
+
+  function roomKey() {
+    return [(b1.value || '').trim(), (b2.value || '').trim(), (hosu.value || '').trim().toUpperCase()].join('|');
+  }
+
+  var statusBadge = document.getElementById('tenant-status-badge');
+  var outDtEl = document.getElementById('form_out_dt');
+  // 초기 삭제 버튼 (현세입자만 활성)
+  updateDeleteButton();
+
+  function setTenantStatus(status, outDt) {
+    // status: current | past | new
+    var st = status || 'new';
+    var prev = statusBadge ? (statusBadge.dataset.status || '') : '';
+    if (outDtEl) outDtEl.value = outDt || '';
+    if (statusBadge) {
+      var labels = { current: '현세입자', past: '퇴실자', new: '신규' };
+      statusBadge.dataset.status = st;
+      statusBadge.textContent = labels[st] || '신규';
+      statusBadge.hidden = false;
+    }
+    // 상태 바뀔 때만 전 필드 readonly 순회
+    if (prev !== st && typeof updateDeleteButton === 'function') {
+      updateDeleteButton();
+    } else if (prev === st && btnDelete) {
+      // 삭제 버튼 문구만 가벼운 갱신
+      var canDel = (st === 'current');
+      btnDelete.disabled = !canDel;
+    }
+  }
+
+  function fillFormFrom(f) {
+    if (!f) return;
+    // 주소는 화면 표기용 앞0 제거 (DB는 저장 시 패딩)
+    if (b1 && f.bunji1 != null) {
+      var x = String(f.bunji1).replace(/\D/g, '');
+      b1.value = x ? String(parseInt(x, 10)) : '';
+    }
+    if (b2 && f.bunji2 != null) {
+      var y = String(f.bunji2).replace(/\D/g, '');
+      b2.value = y === '' ? '' : String(parseInt(y, 10));
+    }
+    if (hosu) hosu.value = (f.hosu || '').toString().trim().toUpperCase();
+    if (seq) {
+      seq.value = normalizeSeq(f.ipju_seq);
+      seq.dataset.locked = '1';
+    }
+    var nm = document.getElementById('ipju_nm');
+    var t1 = document.getElementById('ipju_tel1');
+    var t2 = document.getElementById('ipju_tel2');
+    var t3 = document.getElementById('ipju_tel3');
+    var j1 = document.getElementById('jumin1');
+    var j2 = document.getElementById('jumin2');
+    var bj = document.getElementById('bojung_amt');
+    var rt = document.getElementById('rent_amt');
+    var mg = document.getElementById('manage_amt');
+    var yc = document.getElementById('yechi_amt');
+    if (nm) nm.value = f.ipju_nm || '';
+    // 휴대1 = tel1, 휴대2 = tel2
+    if (t1) t1.value = f.ipju_tel1 || '';
+    if (t2) t2.value = f.ipju_tel2 || '';
+    if (t3) t3.value = f.ipju_tel3 || '';
+    if (j1) j1.value = f.jumin1 || '';
+    if (j2) j2.value = f.jumin2 || '';
+    setMoneyField(bj, f.bojung_amt);
+    setMoneyField(rt, f.rent_amt);
+    setMoneyField(mg, f.manage_amt);
+    setMoneyField(yc, f.yechi_amt);
+    // 로드 시 보증금·예치금 동시 값이면 예치금 비움 + 비활성 갱신
+    if (bj && yc && wonFromDisplay(bj.value) > 0 && wonFromDisplay(yc.value) > 0) {
+      setMoneyField(yc, 0);
+    }
+    if (typeof enforceBojungYechiExclusive === 'function') {
+      enforceBojungYechiExclusive(wonFromDisplay(bj && bj.value) > 0 ? 'bojung'
+        : (wonFromDisplay(yc && yc.value) > 0 ? 'yechi' : ''));
+    }
+    if (f.ipju_dt && window.setDateParts) {
+      window.setDateParts('ipju_dt_parts', f.ipju_dt);
+    }
+    var nap = (f.napbu_gb || 'B').toUpperCase();
+    form.querySelectorAll('input[name="napbu_gb"]').forEach(function (r) {
+      r.checked = (r.value === nap);
+    });
+    if (modeEl) modeEl.value = f.mode || 'edit';
+    setTenantStatus(f.tenant_status || 'current', f.out_dt || '');
+    lastRoomKey = roomKey();
+  }
+
+  function clearDetailKeepKey() {
+    var nm = document.getElementById('ipju_nm');
+    var t1 = document.getElementById('ipju_tel1');
+    var t2 = document.getElementById('ipju_tel2');
+    var t3 = document.getElementById('ipju_tel3');
+    var j1 = document.getElementById('jumin1');
+    var j2 = document.getElementById('jumin2');
+    var bj = document.getElementById('bojung_amt');
+    var rt = document.getElementById('rent_amt');
+    var mg = document.getElementById('manage_amt');
+    var yc = document.getElementById('yechi_amt');
+    if (nm) nm.value = '';
+    if (t1) t1.value = '';
+    if (t2) t2.value = '';
+    if (t3) t3.value = '';
+    if (j1) j1.value = '';
+    if (j2) j2.value = '';
+    setMoneyField(bj, 0);
+    setMoneyField(rt, 0);
+    setMoneyField(mg, 0);
+    setMoneyField(yc, 0);
+    if (typeof enforceBojungYechiExclusive === 'function') {
+      enforceBojungYechiExclusive('');
+    }
+    form.querySelectorAll('input[name="napbu_gb"]').forEach(function (r) {
+      r.checked = (r.value === 'B');
+    });
+    var t = new Date();
+    var iso = t.getFullYear() + '-' +
+      String(t.getMonth() + 1).padStart(2, '0') + '-' +
+      String(t.getDate()).padStart(2, '0');
+    if (window.setDateParts) window.setDateParts('ipju_dt_parts', iso);
+    if (modeEl) modeEl.value = 'new';
+    setTenantStatus('new', '');
+  }
+
+  /** 호실 입력 시: 현재(또는 최신) 입주 이력 로드 */
+  function loadTenantForRoom() {
+    var p1 = (b1.value || '').trim();
+    var p2 = (b2.value || '').trim();
+    var h = (hosu.value || '').trim().toUpperCase();
+    if (!p1 || !p2 || !h) return;
+    hosu.value = h;
+    // 순번을 사용자가 잠근 상태 + 같은 호실이면 호실 재조회로 덮지 않음
+    var rk = roomKey();
+    if (seq && seq.dataset.locked === '1' && lastRoomKey === rk && (seq.value || '').trim()) {
+      scheduleLoadTenantBySeq(0);
+      return;
+    }
+    var wasOnHosu = (document.activeElement === hosu);
+    var my = ++loadToken;
+    fetch('{{ url_for("api_tenant_load") }}?bunji1=' + encodeURIComponent(p1) +
+          '&bunji2=' + encodeURIComponent(p2) +
+          '&hosu=' + encodeURIComponent(h), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (my !== loadToken) return;
+        if (d.ok && d.form) {
+          fillFormFrom(d.form);
+          refreshBuilding();
+        } else {
+          clearDetailKeepKey();
+          if (seq) {
+            seq.value = normalizeSeq(d.ipju_seq || d.next_seq || '01');
+            seq.dataset.locked = '';
+          }
+          if (modeEl) modeEl.value = 'new';
+          setTenantStatus('new', '');
+          lastRoomKey = rk;
+        }
+        // 호수에서 왔으면 순번으로 포커스 → ↑↓ 로 바로 조절 가능
+        if (wasOnHosu && seq) {
+          try {
+            seq.focus({ preventScroll: true });
+            seq.select();
+          } catch (eF) {
+            try { seq.focus(); seq.select(); } catch (eF2) {}
+          }
+        }
+      }).catch(function () {});
+  }
+
+  /** 신규용: 요청 순번이 다음(max+1)보다 크면 다음 순번으로 */
+  function applyNewSeqClamp(requested, d) {
+    var next = normalizeSeq((d && (d.ipju_seq || d.next_seq)) || '');
+    var s = normalizeSeq(requested);
+    if (!s) return next || '';
+    if (!next) return s;
+    var sn = parseInt(s, 10);
+    var nn = parseInt(next, 10);
+    if (!isNaN(sn) && !isNaN(nn) && sn > nn) {
+      return next;
+    }
+    // 서버가 이미 보정한 경우
+    if (d && d.did_clamp && d.ipju_seq) {
+      return normalizeSeq(d.ipju_seq);
+    }
+    return s;
+  }
+
+  /** 순번 조회 디바운스 — ↑↓ 연타 시 API·fillForm 폭주 방지 */
+  var seqLoadTimer = null;
+  function scheduleLoadTenantBySeq(delayMs) {
+    if (seqLoadTimer) {
+      clearTimeout(seqLoadTimer);
+      seqLoadTimer = null;
+    }
+    var d = (typeof delayMs === 'number') ? delayMs : 160;
+    seqLoadTimer = setTimeout(function () {
+      seqLoadTimer = null;
+      loadTenantBySeqNow();
+    }, d);
+  }
+
+  /** 순번 직접 입력 시 해당 이력 로드 (없으면 신규, 과대 순번은 다음 번호로 보정) */
+  function loadTenantBySeq() {
+    scheduleLoadTenantBySeq(0);
+  }
+  function loadTenantBySeqNow() {
+    var p1 = (b1.value || '').trim();
+    var p2 = (b2.value || '').trim();
+    var h = (hosu.value || '').trim().toUpperCase();
+    var s = normalizeSeq(seq && seq.value);
+    if (!p1 || !p2 || !h || !s) return;
+    if (seq) {
+      seq.value = s;
+      seq.dataset.locked = '1';
+    }
+    hosu.value = h;
+    var my = ++loadToken;
+    fetch('{{ url_for("api_tenant_load") }}?bunji1=' + encodeURIComponent(p1) +
+          '&bunji2=' + encodeURIComponent(p2) +
+          '&hosu=' + encodeURIComponent(h) +
+          '&ipju_seq=' + encodeURIComponent(s), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (my !== loadToken) return;
+        // 순번 ↑↓ 조절 중이면 포커스 유지
+        var keepSeqFocus = (document.activeElement === seq);
+        if (d.ok && d.form) {
+          fillFormFrom(d.form);
+          refreshBuilding();
+        } else {
+          // 해당 순번 없음 → 신규. 현세입자(max) 다음보다 크면 다음 순번으로
+          var useSeq = applyNewSeqClamp(s, d);
+          clearDetailKeepKey();
+          if (seq) {
+            seq.value = useSeq;
+            seq.dataset.locked = '1';
+          }
+          if (modeEl) modeEl.value = 'new';
+          setTenantStatus('new', '');
+          lastRoomKey = roomKey();
+          if (useSeq !== s && statusBadge) {
+            statusBadge.title = '입력 ' + s + ' → 다음 순번 ' + useSeq + ' 으로 맞춤';
+          }
+        }
+        if (keepSeqFocus && seq) {
+          try {
+            seq.focus({ preventScroll: true });
+            seq.select();
+          } catch (eK) {}
+        }
+      }).catch(function () {});
+  }
+
+  b1.addEventListener('change', refreshBuilding);
+  b2.addEventListener('change', refreshBuilding);
+  b1.addEventListener('blur', refreshBuilding);
+  b2.addEventListener('blur', refreshBuilding);
+  hosu.addEventListener('change', function () {
+    // 호실이 바뀌면 순번 잠금 해제 후 현재 거주자
+    if (seq) seq.dataset.locked = '';
+    lastRoomKey = '';
+    loadTenantForRoom();
+  });
+  hosu.addEventListener('blur', function () {
+    hosu.value = (hosu.value || '').toUpperCase();
+    var rk = roomKey();
+    if (rk === lastRoomKey && seq && seq.dataset.locked === '1') return;
+    loadTenantForRoom();
+  });
+  // 호실이 방향키 등으로 바뀐 경우
+  window.onHosuValueChanged = function () {
+    if (seq) seq.dataset.locked = '';
+    lastRoomKey = '';
+    loadTenantForRoom();
+  };
+  seq.addEventListener('input', function () {
+    // 숫자만, 최대 2자리. 2자리 되면 즉시 로드
+    var raw = String(seq.value || '').replace(/\D/g, '').slice(0, 2);
+    seq.value = raw;
+    seq.dataset.locked = '1';
+    if (raw.length === 2) {
+      loadTenantBySeq();
+    }
+  });
+  seq.addEventListener('change', loadTenantBySeq);
+  seq.addEventListener('blur', function () {
+    if (seq && seq.value) {
+      seq.value = normalizeSeq(seq.value);
+      loadTenantBySeq();
+    }
+  });
+
+  /** 순번: ↑↓ 만 사용 (마우스 휠 제거). 숫자 즉시 변경, 이력 조회는 디바운스 */
+  function stepIpjuSeq(step) {
+    if (!seq || !step) return;
+    var n = parseInt(String(seq.value || '').replace(/\D/g, ''), 10);
+    if (isNaN(n) || n < 1) n = 1;
+    n = n + step;
+    if (n < 1) n = 1;
+    if (n > 99) n = 99;
+    seq.value = n < 10 ? '0' + n : String(n);
+    seq.dataset.locked = '1';
+    try {
+      seq.focus({ preventScroll: true });
+      seq.select();
+    } catch (e) {
+      try { seq.focus(); seq.select(); } catch (e2) {}
+    }
+    scheduleLoadTenantBySeq(160);
+  }
+  if (seq) {
+    seq.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        stepIpjuSeq(1);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        stepIpjuSeq(-1);
+        return;
+      }
+    });
+  }
+
+  document.getElementById('btn_find_bunji').addEventListener('click', function () {
+    window.location.href = '{{ url_for("buildings") }}';
+  });
+
+  // 오늘 / 달력
+  var cal = document.getElementById('ipju_cal');
+  var calBtn = document.getElementById('ipju_cal_btn');
+  var todayBtn = document.getElementById('ipju_today_btn');
+  if (todayBtn) {
+    todayBtn.addEventListener('click', function () {
+      var t = new Date();
+      var iso = t.getFullYear() + '-' +
+        String(t.getMonth() + 1).padStart(2, '0') + '-' +
+        String(t.getDate()).padStart(2, '0');
+      if (window.setDateParts) window.setDateParts('ipju_dt_parts', iso);
+    });
+  }
+  if (calBtn && cal) {
+    calBtn.addEventListener('click', function () {
+      try { cal.showPicker(); } catch (e) { cal.click(); }
+    });
+    cal.addEventListener('change', function () {
+      if (cal.value && window.setDateParts) window.setDateParts('ipju_dt_parts', cal.value);
+    });
+  }
+
+  // 주민번호 자동 이동
+  var j1 = document.getElementById('jumin1');
+  var j2 = document.getElementById('jumin2');
+  if (j1 && j2) {
+    j1.addEventListener('input', function () {
+      j1.value = (j1.value || '').replace(/\D/g, '').slice(0, 6);
+      if (j1.value.length === 6) j2.focus();
+    });
+    j2.addEventListener('input', function () {
+      j2.value = (j2.value || '').replace(/\D/g, '').slice(0, 7);
+    });
+  }
+
+  refreshBuilding();
+  // 초기: 수정 모드가 아니고 주소·호가 있으면 현재 이력 로드 (다음 순번 자동 신규 금지)
+  if ((modeEl.value || '') !== 'edit') {
+    var p1i = (b1 && b1.value || '').trim();
+    var p2i = (b2 && b2.value || '').trim();
+    var hi = (hosu && hosu.value || '').trim();
+    if (p1i && p2i && hi) loadTenantForRoom();
+  }
+})();
+</script>
+{% endblock %}
+{# 팝업 안내 쓸 때는 flash 중복 숨김; 그 외는 base 하단 flash 사용 #}
+{% if popup_msg %}
+{% block flash %}{% endblock %}
+{% endif %}
