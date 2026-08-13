@@ -1,6 +1,6 @@
 import unittest
 
-import app
+import tenants
 
 
 class TenantFormTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class TenantFormTests(unittest.TestCase):
             "yechi_amt": "",
         }
 
-        form = app._tenant_form_from_row(row)
+        form = tenants._tenant_form_from_row(row)
 
         self.assertEqual(form["bojung_amt"], "0")
         self.assertEqual(form["rent_amt"], "0")
@@ -30,7 +30,7 @@ class TenantFormTests(unittest.TestCase):
             "bunji2": "0088",
             "hosu": "201",
         }
-        self.assertEqual(app._tenant_search_query(form), "홍길동")
+        self.assertEqual(tenants._tenant_search_query(form), "홍길동")
 
 
 if __name__ == "__main__":

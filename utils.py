@@ -342,3 +342,32 @@ def calc_month_misu_amt(
     paid = to_int_amt((paid_row or {}).get("paid"))
     return max(0, monthly - paid)
 
+
+def tenant_is_past_out(out_dt) -> bool:
+    """퇴실일 있으면 True (현세입자 아님)."""
+    if out_dt is None:
+        return False
+    if isinstance(out_dt, datetime):
+        return out_dt.year >= 1000
+    if isinstance(out_dt, date):
+        return out_dt.year >= 1000
+    s = str(out_dt)[:10]
+    if len(s) >= 4 and s[:4].isdigit():
+        return int(s[:4]) >= 1000
+    return False
+
+
+def buildings_and_rooms():
+    """화면 검증용: 등록 건물·호실 목록"""
+    buildings = db.query(
+        "SELECT bunji1, bunji2, juso FROM bd01 ORDER BY bunji1, bunji2"
+    )
+    rooms = db.query(
+        """
+        SELECT bunji1, bunji2, hosu
+        FROM bd03_m
+        ORDER BY bunji1, bunji2, hosu
+        """
+    )
+    return buildings, rooms
+
