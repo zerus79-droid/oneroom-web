@@ -11,6 +11,12 @@ import re
 
 from flask import redirect, session, url_for
 
+import db
+
+
+# 현재 입주 중: out_dt 없음 또는 레거시 무효 날짜 (여러 화면에서 공통 사용)
+CURRENT_TENANT_SQL = "(d.out_dt IS NULL OR d.out_dt < '1000-01-01')"
+
 
 def login_required(fn):
     @wraps(fn)
@@ -149,3 +155,63 @@ def clamp_date_str(s):
     if d > last:
         d = last
     return f"{y:04d}-{mo:02d}-{d:02d}"
+
+
+def pad_bunji(v, width=4):
+    """번지(주소) 문자열을 DB 저장 형식인 4자리 숫자로 맞춤. 예: '88' -> '0088'"""
+    s = (v or "").strip()
+    if not s:
+        return ""
+    if s.isdigit():
+        return s.zfill(width)
+    return s[:width]
+
+
+def parse_money(raw):
+    """콤마 섞인 금액 문자열을 정수로 변환. 빈 값이면 None."""
+    s = (raw or "").replace(",", "").strip()
+    if s == "":
+        return None
+    return int(s)
+
+
+def parse_bunji_input(raw, bunji1="", bunji2=""):
+    """'508-88' / '50888' / '05080088' → DB용 4자리 bunji1, bunji2.
+    하이픈 없이 연속 숫자면 등록 건물 매칭 또는 4+4 분할.
+    """
+    s = (raw or "").strip().replace(" ", "")
+    if s:
+        s = re.sub(r"[^\d\-]", "", s)
+        if "-" in s:
+            parts = s.split("-", 1)
+            b1 = parts[0].strip()
+            b2 = parts[1].strip() if len(parts) > 1 else ""
+            bunji1, bunji2 = b1, b2
+        else:
+            digits = re.sub(r"\D", "", s)
+            matched = False
+            if digits:
+                # 등록 건물: 앞0 제거한 주소+주소2 와 일치하는 항목 찾기
+                try:
+                    rows = db.query("SELECT bunji1, bunji2 FROM bd01")
+                except Exception:
+                    rows = []
+                for r in rows or []:
+                    key = f"{fmt_bunji(r.get('bunji1'))}{fmt_bunji(r.get('bunji2'))}"
+                    key_pad = f"{pad_bunji(r.get('bunji1'))}{pad_bunji(r.get('bunji2'))}"
+                    if digits == key or digits == key_pad or digits.lstrip("0") == key.lstrip("0"):
+                        bunji1 = r.get("bunji1") or ""
+                        bunji2 = r.get("bunji2") or ""
+                        matched = True
+                        break
+            if not matched:
+                if len(digits) == 8:
+                    bunji1, bunji2 = digits[:4], digits[4:]
+                elif len(digits) > 4:
+                    # 뒤 4자리를 주소2, 앞을 주소
+                    bunji1, bunji2 = digits[:-4], digits[-4:]
+                else:
+                    bunji1, bunji2 = digits, ""
+    bunji1 = pad_bunji(bunji1)
+    bunji2 = pad_bunji(bunji2)
+    return bunji1, bunji2
