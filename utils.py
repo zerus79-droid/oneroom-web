@@ -215,3 +215,18 @@ def parse_bunji_input(raw, bunji1="", bunji2=""):
     bunji1 = pad_bunji(bunji1)
     bunji2 = pad_bunji(bunji2)
     return bunji1, bunji2
+
+
+def building_label(bunji1, bunji2):
+    """화면에 건물명만 표시 (주소 접두어 없음)."""
+    if not bunji1 or not bunji2:
+        return ""
+    b = db.query_one(
+        "SELECT juso, owner_nm FROM bd01 WHERE bunji1=%s AND bunji2=%s",
+        (bunji1, bunji2),
+    )
+    if not b:
+        return "미등록 주소"
+    name = (b.get("juso") or "").strip() or (b.get("owner_nm") or "").strip()
+    return name or "이름 없음"
+
