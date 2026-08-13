@@ -223,183 +223,117 @@ def _form_from_tenant_request(src):
     return form
 
 
-@app.route("/tenants/manage", methods=["GET", "POST"])
-@login_required
-def tenant_manage():
-    """입주자관리 · 입주 이력 등록/수정 (레거시 「입주 이력 등록」 창)"""
-    buildings, rooms = _buildings_and_rooms()
+def _render_tenant_form(form, buildings, rooms, *, building_label=None, **extra):
+    """입주 폼 화면. building_label=None 이면 주소로 계산, '' 는 빈 값 유지."""
+    if building_label is None:
+        building_label = _building_label(form.get("bunji1"), form.get("bunji2"))
+    return render_template(
+        "tenant_form.html",
+        form=form,
+        buildings=buildings,
+        rooms=rooms,
+        building_label=building_label,
+        **extra,
+    )
 
-    if request.method == "GET":
-        form = _empty_tenant_form()
-        # URL 로 기존 건 로드
-        b1 = _pad_bunji((request.args.get("bunji1") or "").strip())
-        b2 = _pad_bunji((request.args.get("bunji2") or "").strip())
-        if request.args.get("bunji"):
-            b1, b2 = _parse_bunji_input(request.args.get("bunji"))
-        hosu = (request.args.get("hosu") or "").strip().upper()
-        seq = (request.args.get("ipju_seq") or "").strip()
-        if seq.isdigit():
-            seq = seq.zfill(2)
-        if b1 and b2 and hosu and seq:
-            row = _lookup_tenant_row(b1, b2, hosu, seq)
-            if row:
-                form = _tenant_form_from_row(row)
-            else:
-                form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"] = (
-                    b1,
-                    b2,
-                    hosu,
-                    seq,
-                )
-                form["mode"] = "new"
-        elif b1 and b2:
-            form["bunji1"], form["bunji2"] = b1, b2
-            if hosu:
-                form["hosu"] = hosu
-                # 호수만 지정: 다음 순번 신규가 아니라 현재(또는 최신) 이력 표시
-                row = _lookup_tenant_row(b1, b2, hosu)
-                if row:
-                    form = _tenant_form_from_row(row)
-                else:
-                    form["ipju_seq"] = _next_ipju_seq(b1, b2, hosu)
-                    form["mode"] = "new"
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=_building_label(form["bunji1"], form["bunji2"]),
+
+def _load_tenant_form_from_args(args):
+    """GET URL 키로 입주 폼 채우기. 순번 있으면 그 건, 호수만 있으면 현재/최신."""
+    form = _empty_tenant_form()
+    b1 = _pad_bunji((args.get("bunji1") or "").strip())
+    b2 = _pad_bunji((args.get("bunji2") or "").strip())
+    if args.get("bunji"):
+        b1, b2 = _parse_bunji_input(args.get("bunji"))
+    hosu = (args.get("hosu") or "").strip().upper()
+    seq = (args.get("ipju_seq") or "").strip()
+    if seq.isdigit():
+        seq = seq.zfill(2)
+    if b1 and b2 and hosu and seq:
+        row = _lookup_tenant_row(b1, b2, hosu, seq)
+        if row:
+            return _tenant_form_from_row(row)
+        form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"] = (
+            b1,
+            b2,
+            hosu,
+            seq,
         )
+        form["mode"] = "new"
+        return form
+    if b1 and b2:
+        form["bunji1"], form["bunji2"] = b1, b2
+        if hosu:
+            form["hosu"] = hosu
+            row = _lookup_tenant_row(b1, b2, hosu)
+            if row:
+                return _tenant_form_from_row(row)
+            form["ipju_seq"] = _next_ipju_seq(b1, b2, hosu)
+            form["mode"] = "new"
+    return form
 
-    action = (request.form.get("action") or "save").strip()
-    form = _form_from_tenant_request(request.form)
+
+def _tenant_action_new(form):
+    """키(주소·호수)만 남기고 신규 입력 모드. (form, 렌더 추가인자)."""
+    keep_b1, keep_b2, keep_h = form["bunji1"], form["bunji2"], form["hosu"]
+    form = _empty_tenant_form()
+    form["bunji1"], form["bunji2"], form["hosu"] = keep_b1, keep_b2, keep_h
+    if keep_b1 and keep_b2 and keep_h:
+        form["ipju_seq"] = _next_ipju_seq(keep_b1, keep_b2, keep_h)
+    flash("신규 입력 모드입니다. 저장하면 새 순번으로 등록됩니다.", "ok")
+    return form, {}
+
+
+def _tenant_action_delete(form):
+    """입주 이력 삭제. 퇴실 완료 건은 삭제 금지. (form, 렌더 추가인자)."""
     building_label = _building_label(form["bunji1"], form["bunji2"])
-
-    if action == "new":
-        # 키(주소·호수)만 남기고 신규
+    if not (form["bunji1"] and form["bunji2"] and form["hosu"] and form["ipju_seq"]):
+        flash("삭제할 주소·호수·순번을 확인하세요.", "err")
+        return form, {"building_label": building_label}
+    del_row = _lookup_tenant_row(
+        form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"]
+    )
+    if not del_row:
+        flash("삭제할 이력을 찾지 못했습니다.", "err")
+        return form, {"building_label": building_label}
+    if _tenant_is_past_out(del_row.get("out_dt")):
+        flash("퇴실 완료된 이력은 삭제할 수 없습니다. (퇴실자)", "err")
+        form = _tenant_form_from_row(del_row)
+        return form, {
+            "popup_msg": "퇴실 완료된 이력은 삭제할 수 없습니다.",
+            "popup_type": "err",
+        }
+    n = db.execute(
+        """
+        DELETE FROM bd03_det
+        WHERE bunji1=%s AND bunji2=%s
+          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+        """,
+        (form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"]),
+    )
+    if n:
+        flash(f"입주 이력(순번 {form['ipju_seq']})이 삭제되었습니다.", "ok")
         keep_b1, keep_b2, keep_h = form["bunji1"], form["bunji2"], form["hosu"]
         form = _empty_tenant_form()
         form["bunji1"], form["bunji2"], form["hosu"] = keep_b1, keep_b2, keep_h
-        if keep_b1 and keep_b2 and keep_h:
+        if keep_h:
             form["ipju_seq"] = _next_ipju_seq(keep_b1, keep_b2, keep_h)
-        flash("신규 입력 모드입니다. 저장하면 새 순번으로 등록됩니다.", "ok")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=_building_label(form["bunji1"], form["bunji2"]),
-        )
+        return form, {"popup_msg": "삭제되었습니다.", "popup_type": "ok"}
+    flash("삭제할 이력을 찾지 못했습니다.", "err")
+    return form, {}
 
-    if action == "delete":
-        if not (
-            form["bunji1"]
-            and form["bunji2"]
-            and form["hosu"]
-            and form["ipju_seq"]
-        ):
-            flash("삭제할 주소·호수·순번을 확인하세요.", "err")
-            return render_template(
-                "tenant_form.html",
-                form=form,
-                buildings=buildings,
-                rooms=rooms,
-                building_label=building_label,
-            )
-        # 퇴실자 이력 삭제 금지
-        del_row = _lookup_tenant_row(
-            form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"]
-        )
-        if not del_row:
-            flash("삭제할 이력을 찾지 못했습니다.", "err")
-            return render_template(
-                "tenant_form.html",
-                form=form,
-                buildings=buildings,
-                rooms=rooms,
-                building_label=building_label,
-            )
-        if _tenant_is_past_out(del_row.get("out_dt")):
-            flash(
-                "퇴실 완료된 이력은 삭제할 수 없습니다. (퇴실자)",
-                "err",
-            )
-            form = _tenant_form_from_row(del_row)
-            return render_template(
-                "tenant_form.html",
-                form=form,
-                buildings=buildings,
-                rooms=rooms,
-                building_label=_building_label(form["bunji1"], form["bunji2"]),
-                popup_msg="퇴실 완료된 이력은 삭제할 수 없습니다.",
-                popup_type="err",
-            )
-        n = db.execute(
-            """
-            DELETE FROM bd03_det
-            WHERE bunji1=%s AND bunji2=%s
-              AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-            """,
-            (form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"]),
-        )
-        if n:
-            flash(f"입주 이력(순번 {form['ipju_seq']})이 삭제되었습니다.", "ok")
-            keep_b1, keep_b2, keep_h = form["bunji1"], form["bunji2"], form["hosu"]
-            form = _empty_tenant_form()
-            form["bunji1"], form["bunji2"], form["hosu"] = keep_b1, keep_b2, keep_h
-            if keep_h:
-                form["ipju_seq"] = _next_ipju_seq(keep_b1, keep_b2, keep_h)
-            return render_template(
-                "tenant_form.html",
-                form=form,
-                buildings=buildings,
-                rooms=rooms,
-                building_label=_building_label(form["bunji1"], form["bunji2"]),
-                popup_msg="삭제되었습니다.",
-                popup_type="ok",
-            )
-        flash("삭제할 이력을 찾지 못했습니다.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=_building_label(form["bunji1"], form["bunji2"]),
-        )
 
-    # ── 저장 ──
+def _validate_tenant_save(form):
+    """주소·호수·성명·건물/호수 존재. 실패 시 (메시지, 렌더추가)."""
     if not (form["bunji1"] and form["bunji2"] and form["hosu"]):
-        flash("주소와 호수는 필수입니다.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=building_label,
-        )
+        return "주소와 호수는 필수입니다.", {}
     if not form["ipju_nm"]:
-        flash("성명을 입력하세요.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=building_label,
-        )
-    # 건물·호수 존재
+        return "성명을 입력하세요.", {}
     b = db.query_one(
         "SELECT bunji1 FROM bd01 WHERE bunji1=%s AND bunji2=%s",
         (form["bunji1"], form["bunji2"]),
     )
     if not b:
-        flash("등록되지 않은 주소입니다. 건물 내역을 먼저 등록하세요.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=building_label,
-        )
+        return "등록되지 않은 주소입니다. 건물 내역을 먼저 등록하세요.", {}
     room = db.query_one(
         """
         SELECT hosu FROM bd03_m
@@ -408,13 +342,89 @@ def tenant_manage():
         (form["bunji1"], form["bunji2"], form["hosu"]),
     )
     if not room:
-        flash("등록되지 않은 호수입니다. 호수 내역을 먼저 등록하세요.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=building_label,
+        return "등록되지 않은 호수입니다. 호수 내역을 먼저 등록하세요.", {}
+    return None, {}
+
+
+def _parse_tenant_amounts(form):
+    """금액 숫자 검사 + 보증금/예치금 동시입력 금지. 실패 시 (메시지, 렌더추가, None)."""
+    try:
+        amounts = {
+            "bojung": int(form["bojung_amt"] or 0),
+            "rent": int(form["rent_amt"] or 0),
+            "manage": int(form["manage_amt"] or 0),
+            "yechi": int(form["yechi_amt"] or 0),
+        }
+    except ValueError:
+        return "금액은 숫자로 입력하세요.", {}, None
+    if amounts["bojung"] > 0 and amounts["yechi"] > 0:
+        return (
+            "보증금과 예치금은 함께 입력할 수 없습니다. 하나만 입력하세요.",
+            {
+                "popup_msg": "보증금과 예치금은 함께 입력할 수 없습니다.",
+                "popup_type": "err",
+            },
+            None,
+        )
+    return None, {}, amounts
+
+
+def _saved_snapshot(form, was_insert, amounts):
+    """저장 직후 하단 결과 박스용."""
+    b1d = form["bunji1"]
+    b2d = form["bunji2"]
+    try:
+        b1s = str(int(re.sub(r"\D", "", str(b1d)) or "0"))
+        b2s = str(int(re.sub(r"\D", "", str(b2d)) or "0"))
+    except ValueError:
+        b1s, b2s = str(b1d), str(b2d)
+    return {
+        "action": "insert" if was_insert else "update",
+        "bunji": f"{b1s}-{b2s}",
+        "hosu": form["hosu"],
+        "ipju_seq": form["ipju_seq"],
+        "ipju_nm": form["ipju_nm"],
+        "ipju_dt": form.get("ipju_dt") or "",
+        "ipju_tel1": form.get("ipju_tel1") or "",
+        "ipju_tel2": form.get("ipju_tel2") or "",
+        "ipju_tel3": form.get("ipju_tel3") or "",
+        "bojung_amt": amounts["bojung"],
+        "rent_amt": amounts["rent"],
+        "manage_amt": amounts["manage"],
+        "yechi_amt": amounts["yechi"],
+        "napbu_gb": form.get("napbu_gb") or "B",
+        "napbu_label": "선납" if (form.get("napbu_gb") or "") == "A" else "후납",
+    }
+
+
+@app.route("/tenants/manage", methods=["GET", "POST"])
+@login_required
+def tenant_manage():
+    """입주자관리 · 입주 이력 등록/수정 (레거시 「입주 이력 등록」 창)"""
+    buildings, rooms = _buildings_and_rooms()
+
+    if request.method == "GET":
+        form = _load_tenant_form_from_args(request.args)
+        return _render_tenant_form(form, buildings, rooms)
+
+    action = (request.form.get("action") or "save").strip()
+    form = _form_from_tenant_request(request.form)
+    building_label = _building_label(form["bunji1"], form["bunji2"])
+
+    if action == "new":
+        form, extra = _tenant_action_new(form)
+        return _render_tenant_form(form, buildings, rooms, **extra)
+
+    if action == "delete":
+        form, extra = _tenant_action_delete(form)
+        return _render_tenant_form(form, buildings, rooms, **extra)
+
+    # ── 저장 ──
+    err, extra = _validate_tenant_save(form)
+    if err:
+        flash(err, "err")
+        return _render_tenant_form(
+            form, buildings, rooms, building_label=building_label, **extra
         )
 
     if not form["ipju_seq"]:
@@ -443,34 +453,17 @@ def tenant_manage():
                 "ok",
             )
 
-    try:
-        bojung = int(form["bojung_amt"] or 0)
-        rent = int(form["rent_amt"] or 0)
-        manage = int(form["manage_amt"] or 0)
-        yechi = int(form["yechi_amt"] or 0)
-    except ValueError:
-        flash("금액은 숫자로 입력하세요.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=building_label,
+    err, extra, amounts = _parse_tenant_amounts(form)
+    if err:
+        flash(err, "err")
+        return _render_tenant_form(
+            form, buildings, rooms, building_label=building_label, **extra
         )
 
-    # 보증금 · 예치금 동시 입력 불가
-    if bojung > 0 and yechi > 0:
-        flash("보증금과 예치금은 함께 입력할 수 없습니다. 하나만 입력하세요.", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=building_label,
-            popup_msg="보증금과 예치금은 함께 입력할 수 없습니다.",
-            popup_type="err",
-        )
-
+    bojung = amounts["bojung"]
+    rent = amounts["rent"]
+    manage = amounts["manage"]
+    yechi = amounts["yechi"]
     jumin = (form["jumin1"] + form["jumin2"])[:13]
     ipju_dt = form["ipju_dt"] + " 00:00:00"
     uid = (session.get("sabun") or "")[:5]
@@ -486,33 +479,6 @@ def tenant_manage():
     )
     was_insert = not exists
 
-    def _saved_snapshot():
-        """저장 직후 하단 결과 박스용."""
-        b1d = form["bunji1"]
-        b2d = form["bunji2"]
-        try:
-            b1s = str(int(re.sub(r"\D", "", str(b1d)) or "0"))
-            b2s = str(int(re.sub(r"\D", "", str(b2d)) or "0"))
-        except ValueError:
-            b1s, b2s = str(b1d), str(b2d)
-        return {
-            "action": "insert" if was_insert else "update",
-            "bunji": f"{b1s}-{b2s}",
-            "hosu": form["hosu"],
-            "ipju_seq": form["ipju_seq"],
-            "ipju_nm": form["ipju_nm"],
-            "ipju_dt": form.get("ipju_dt") or "",
-            "ipju_tel1": form.get("ipju_tel1") or "",
-            "ipju_tel2": form.get("ipju_tel2") or "",
-            "ipju_tel3": form.get("ipju_tel3") or "",
-            "bojung_amt": bojung,
-            "rent_amt": rent,
-            "manage_amt": manage,
-            "yechi_amt": yechi,
-            "napbu_gb": form.get("napbu_gb") or "B",
-            "napbu_label": "선납" if (form.get("napbu_gb") or "") == "A" else "후납",
-        }
-
     try:
         if exists:
             # 퇴실자 이력은 조회만 — 수정 저장 불가
@@ -523,15 +489,7 @@ def tenant_manage():
                 )
                 if full:
                     form = _tenant_form_from_row(full)
-                return render_template(
-                    "tenant_form.html",
-                    form=form,
-                    buildings=buildings,
-                    rooms=rooms,
-                    building_label=building_label,
-                    popup_msg="퇴실 완료된 이력은 수정할 수 없습니다.",
-                    popup_type="err",
-                )
+                return _render_tenant_form(form, buildings, rooms, building_label=building_label, popup_msg="퇴실 완료된 이력은 수정할 수 없습니다.", popup_type="err")
             db.execute(
                 """
                 UPDATE bd03_det SET
@@ -601,13 +559,7 @@ def tenant_manage():
             )
     except Exception as e:
         flash(f"저장 실패: {e}", "err")
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label=_building_label(form["bunji1"], form["bunji2"]),
-        )
+        return _render_tenant_form(form, buildings, rooms)
 
     # 예전 flash("…수정…") + flash("…조회 화면…") 잔여 메시지 비우기
     try:
@@ -617,23 +569,14 @@ def tenant_manage():
     except Exception:
         pass
 
-    snap = _saved_snapshot()
+    snap = _saved_snapshot(form, was_insert, amounts)
     nm = (snap.get("ipju_nm") or "").strip()
     seq_s = snap.get("ipju_seq") or ""
 
     # 신규 저장: 팝업 1회 + 전체 필드 초기화 + 하단 결과 박스
     if was_insert:
         form = _empty_tenant_form()
-        return render_template(
-            "tenant_form.html",
-            form=form,
-            buildings=buildings,
-            rooms=rooms,
-            building_label="",
-            popup_msg=f"저장되었습니다.\n{nm} · 순번 {seq_s}",
-            popup_type="ok",
-            last_saved=snap,
-        )
+        return _render_tenant_form(form, buildings, rooms, building_label="", popup_msg=f"저장되었습니다.\n{nm} · 순번 {seq_s}", popup_type="ok", last_saved=snap)
 
     # 수정 저장: 팝업 1회 + 이력 유지 + 하단 결과 박스
     saved = _lookup_tenant_row(
@@ -644,16 +587,7 @@ def tenant_manage():
     else:
         form["mode"] = "edit"
         form["tenant_status"] = "current"
-    return render_template(
-        "tenant_form.html",
-        form=form,
-        buildings=buildings,
-        rooms=rooms,
-        building_label=_building_label(form["bunji1"], form["bunji2"]),
-        popup_msg=f"수정 저장되었습니다.\n{nm} · 순번 {seq_s}",
-        popup_type="ok",
-        last_saved=snap,
-    )
+    return _render_tenant_form(form, buildings, rooms, popup_msg=f"수정 저장되었습니다.\n{nm} · 순번 {seq_s}", popup_type="ok", last_saved=snap)
 
 
 def _lookup_tenant_row(bunji1, bunji2, hosu, ipju_seq=""):

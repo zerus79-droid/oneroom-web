@@ -35,9 +35,9 @@
 
 ## 적용 순서
 
-1. `_render_tenant_form` 만 (중복 제거, 제일 안전)
-2. GET 로드 헬퍼
-3. new / delete
-4. 저장 검증 + snapshot
+1. `_render_tenant_form` 완료 (중복 제거)
+2. GET 로드 헬퍼 완료 (`_load_tenant_form_from_args`)
+3. new / delete 완료 (`_tenant_action_new`, `_tenant_action_delete`)
+4. 저장 검증 + snapshot 완료 (`_validate_tenant_save`, `_parse_tenant_amounts`, `_saved_snapshot`)
 
 파일: `tenants.py` 만.
