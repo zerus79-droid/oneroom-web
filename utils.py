@@ -371,3 +371,34 @@ def buildings_and_rooms():
     )
     return buildings, rooms
 
+
+def build_pager(page, total_pages, *, page_block_size=6):
+    """페이지 번호: N개 단위 블록 (예: 1–6, 7–12). 이전/다음은 블록 점프."""
+    page = max(1, int(page or 1))
+    total_pages = max(1, int(total_pages or 1))
+    page_window = []
+    prev_block_page = 1
+    next_block_page = 1
+    has_prev_block = False
+    has_next_block = False
+    if total_pages > 0:
+        block = (page - 1) // page_block_size
+        start_p = block * page_block_size + 1
+        end_p = min(total_pages, start_p + page_block_size - 1)
+        page_window = list(range(start_p, end_p + 1))
+        if start_p > 1:
+            has_prev_block = True
+            prev_block_page = max(1, start_p - page_block_size)
+        if end_p < total_pages:
+            has_next_block = True
+            next_block_page = end_p + 1
+    return {
+        "page": page,
+        "total_pages": total_pages,
+        "page_window": page_window,
+        "has_prev": has_prev_block,
+        "has_next": has_next_block,
+        "prev_page": prev_block_page,
+        "next_page": next_block_page,
+    }
+

@@ -167,6 +167,11 @@ h2 { font-size: 1.1rem; margin: 24px 0 10px; }
   margin: 14px 0 4px;
   padding: 8px 0;
 }
+.pager-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
 .pager-btn,
 .pager-num {
   display: inline-flex;

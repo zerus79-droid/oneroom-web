@@ -5,7 +5,9 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">입주자 이력 조회</span>
-    {% if results %}
+    {% if total %}
+    <span class="muted">{{ total }}건</span>
+    {% elif results %}
     <span class="muted">{{ results|length }}건</span>
     {% endif %}
   </div>
@@ -57,7 +59,7 @@
       </div>
     </form>
 
-    <div class="panel-section-lab">검색 결과{% if results %} <span class="muted">{{ results|length }}건</span>{% endif %}</div>
+    <div class="panel-section-lab">검색 결과{% if total %} <span class="muted">{{ total }}건</span>{% elif results %} <span class="muted">{{ results|length }}건</span>{% endif %}</div>
     <div class="panel-table-wrap table-scroll">
       {% if results %}
       <table class="legacy-grid">
@@ -102,6 +104,37 @@
           {% endfor %}
         </tbody>
       </table>
+      {% if pager.total_pages > 1 %}
+      {% set pq = {
+        'q': q,
+        'bunji1': bunji1,
+        'bunji2': bunji2,
+        'hosu': hosu,
+        'ipju_seq': ipju_seq,
+        'tenant_status': tenant_status
+      } %}
+      <nav class="pager" aria-label="입주자 조회 페이지">
+        {% if pager.has_prev %}
+        <a class="pager-btn" href="{{ url_for('search', page=pager.prev_page, **pq) }}">‹ 이전</a>
+        {% else %}
+        <span class="pager-btn is-disabled">‹ 이전</span>
+        {% endif %}
+
+        {% for p in pager.page_window %}
+          {% if p == pager.page %}
+          <span class="pager-num is-current" aria-current="page">{{ p }}</span>
+          {% else %}
+          <a class="pager-num" href="{{ url_for('search', page=p, **pq) }}">{{ p }}</a>
+          {% endif %}
+        {% endfor %}
+
+        {% if pager.has_next %}
+        <a class="pager-btn" href="{{ url_for('search', page=pager.next_page, **pq) }}">다음 ›</a>
+        {% else %}
+        <span class="pager-btn is-disabled">다음 ›</span>
+        {% endif %}
+      </nav>
+      {% endif %}
       {% elif has_filter %}
       <p class="empty">검색 결과가 없습니다.</p>
       {% else %}

@@ -38,53 +38,71 @@ def _elec_label(v):
     return key
 
 
-def _building_from_form(form, *, for_insert=False):
-    bunji1 = _pad_bunji(form.get("bunji1"))
-    bunji2 = _pad_bunji(form.get("bunji2"))
-    juso = (form.get("juso") or "").strip()
-    owner_nm = (form.get("owner_nm") or "").strip()
-    owner_tel = (form.get("owner_tel") or "").strip()
-    building_dt = (form.get("building_dt") or "").strip()
-    bank_cd = (form.get("bank_cd") or "").strip()
-    elec_gb = (form.get("elec_gb") or "").strip().upper()
+def _coerce_building_floor_no(value):
+    floor_raw = (value or "").strip()
+    return int(floor_raw) if floor_raw.isdigit() else None
+
+
+def _normalize_elec_gb(value):
+    elec_gb = (value or "").strip().upper()
     if elec_gb not in ("A", "B", ""):
-        elec_gb = ""
+        return ""
+    return elec_gb
 
-    floor_raw = (form.get("floor_no") or "").strip()
-    floor_no = int(floor_raw) if floor_raw.isdigit() else None
-    man_cost = _parse_money(form.get("man_cost"))
-    first_amt = _parse_money(form.get("first_amt"))
 
-    data = {
-        "bunji1": bunji1,
-        "bunji2": bunji2,
-        "juso": juso,
-        "owner_nm": owner_nm,
-        "owner_tel": owner_tel,
-        "building_dt": building_dt,
-        "bank_cd": bank_cd,
-        "elec_gb": elec_gb,
-        "floor_no": floor_no,
-        "man_cost": man_cost,
-        "first_amt": first_amt,
-        "del_yn": "N",
-        "uid": session.get("sabun") or "",
+def _extract_building_form_values(form):
+    return {
+        "bunji1": _pad_bunji(form.get("bunji1")),
+        "bunji2": _pad_bunji(form.get("bunji2")),
+        "juso": (form.get("juso") or "").strip(),
+        "owner_nm": (form.get("owner_nm") or "").strip(),
+        "owner_tel": (form.get("owner_tel") or "").strip(),
+        "building_dt": (form.get("building_dt") or "").strip(),
+        "bank_cd": (form.get("bank_cd") or "").strip(),
+        "elec_gb": _normalize_elec_gb(form.get("elec_gb")),
+        "floor_no": _coerce_building_floor_no(form.get("floor_no")),
+        "man_cost": _parse_money(form.get("man_cost")),
+        "first_amt": _parse_money(form.get("first_amt")),
     }
+
+
+def _building_from_form(form, *, for_insert=False):
+    data = _extract_building_form_values(form)
+    data.update(
+        {
+            "del_yn": "N",
+            "uid": session.get("sabun") or "",
+        }
+    )
     return data
 
 
-def _validate_building(data, *, for_insert=False):
-    if not data["bunji1"] or not data["bunji2"]:
+def _validate_required_building_fields(data):
+    if not data.get("bunji1") or not data.get("bunji2"):
         return "주소, 주소2는 필수입니다."
-    if not data["juso"]:
+    if not data.get("juso"):
         return "건물명은 필수입니다."
+    return None
+
+
+def _check_duplicate_building(data):
+    exists = db.query_one(
+        "SELECT 1 AS x FROM bd01 WHERE bunji1=%s AND bunji2=%s",
+        (data["bunji1"], data["bunji2"]),
+    )
+    if exists:
+        return "이미 등록된 주소입니다."
+    return None
+
+
+def _validate_building(data, *, for_insert=False):
+    err = _validate_required_building_fields(data)
+    if err:
+        return err
     if for_insert:
-        exists = db.query_one(
-            "SELECT 1 AS x FROM bd01 WHERE bunji1=%s AND bunji2=%s",
-            (data["bunji1"], data["bunji2"]),
-        )
-        if exists:
-            return "이미 등록된 주소입니다."
+        err = _check_duplicate_building(data)
+        if err:
+            return err
     return None
 
 
