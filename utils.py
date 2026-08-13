@@ -254,3 +254,91 @@ def months_elapsed(ipju_dt, as_of=None):
     m = (as_of.year - ipju_dt.year) * 12 + (as_of.month - ipju_dt.month)
     return max(0, m)
 
+
+def fmt_ipju_short(v):
+    """입주일 인쇄용 짧은 표시: 15-12-27"""
+    if not v:
+        return ""
+    if isinstance(v, datetime):
+        return v.strftime("%y-%m-%d")
+    if isinstance(v, date):
+        return v.strftime("%y-%m-%d")
+    s = str(v)[:10]
+    if len(s) >= 10 and s[4] == "-":
+        return s[2:4] + "-" + s[5:7] + "-" + s[8:10]
+    return s
+
+
+def calc_misu_amt(
+    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None
+):
+    """전월미수총액(누적 추정).
+    (월세+관리비) × 입주 후 경과연월 − 수금성격「월세+관리비」합계.
+    as_of 가 있으면 그 날짜까지의 수금·경과연월 기준.
+    음수(선수금)면 0.
+    """
+    monthly = to_int_amt(rent_amt) + to_int_amt(manage_amt)
+    if monthly <= 0 or not (bunji1 and bunji2 and hosu and ipju_seq):
+        return 0
+    months = months_elapsed(ipju_dt, as_of)
+    expected = monthly * months
+    sql = """
+        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)), 0) AS paid
+        FROM sukum01
+        WHERE bunji1=%s AND bunji2=%s
+          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+          AND sukum_char='01'
+          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+    """
+    args = [bunji1, bunji2, (hosu or "").strip().upper(), ipju_seq]
+    if as_of is not None:
+        if isinstance(as_of, datetime):
+            as_of = as_of.date()
+        sql += " AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
+        args.append(as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10])
+    paid_row = db.query_one(sql, args)
+    paid = to_int_amt((paid_row or {}).get("paid"))
+    return max(0, expected - paid)
+
+
+def calc_month_misu_amt(
+    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, as_of=None
+):
+    """이번 달 미입금액(미수총액).
+    (월세+관리비) − 이번 달 수금성격「월세+관리비」합.
+    이미 다 냈으면 0.
+    """
+    monthly = to_int_amt(rent_amt) + to_int_amt(manage_amt)
+    if monthly <= 0 or not (bunji1 and bunji2 and hosu and ipju_seq):
+        return 0
+    if as_of is None:
+        as_of = date.today()
+    if isinstance(as_of, datetime):
+        as_of = as_of.date()
+    month_start = as_of.replace(day=1)
+    if as_of.month == 12:
+        next_month = date(as_of.year + 1, 1, 1)
+    else:
+        next_month = date(as_of.year, as_of.month + 1, 1)
+    paid_row = db.query_one(
+        """
+        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)), 0) AS paid
+        FROM sukum01
+        WHERE bunji1=%s AND bunji2=%s
+          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+          AND sukum_char='01'
+          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+          AND sukum_dt >= %s AND sukum_dt < %s
+        """,
+        (
+            bunji1,
+            bunji2,
+            (hosu or "").strip().upper(),
+            ipju_seq,
+            month_start.isoformat() + " 00:00:00",
+            next_month.isoformat(),
+        ),
+    )
+    paid = to_int_amt((paid_row or {}).get("paid"))
+    return max(0, monthly - paid)
+
