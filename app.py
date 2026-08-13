@@ -26,16 +26,19 @@ from utils import (
     mask_jumin,
     mask_phone,
     money,
+    months_elapsed as _months_elapsed,
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
     parse_money as _parse_money,
+    to_int_amt as _to_int_amt,
 )
 
-# building.py, repair.py: 각 화면(@app.route)들을 등록하기 위한 import.
+# building.py, repair.py, misu.py: 각 화면(@app.route)들을 등록하기 위한 import.
 # 실제로 이 모듈 안에서 building_routes.xxx 형태로 쓰이진 않지만, import 하는 순간
 # 해당 파일 안의 @app.route(...) 들이 실행되며 같은 app에 화면이 등록됨.
 import building as building_routes  # noqa: F401
 import repair as repair_routes  # noqa: F401
+import misu as misu_routes  # noqa: F401
 
 app.jinja_env.filters["money"] = money
 app.jinja_env.filters["fmt_date"] = fmt_date
@@ -424,137 +427,6 @@ def search():
         ipju_seq=ipju_seq,
         tenant_status=tenant_status,
         results=results,
-    )
-
-
-@app.route("/misu")
-@login_required
-def misu():
-    """
-    미수금 현황 조회 (XP「미수 현황 조회」).
-    기준일 시점 거주 입주자 기준 누적 미수 목록.
-    UX: 주소·호수·성명 위, 기준일자는 아래.
-    """
-    today = date.today()
-    # XP 기본: 당월 말일
-    default_as_of = date(
-        today.year, today.month, monthrange(today.year, today.month)[1]
-    ).isoformat()
-
-    bunji1 = _pad_bunji(request.args.get("bunji1"))
-    bunji2 = _pad_bunji(request.args.get("bunji2"))
-    hosu = (request.args.get("hosu") or "").strip().upper()
-    name = (request.args.get("name") or "").strip()
-    as_of_s = (request.args.get("as_of") or "").strip() or default_as_of
-    # 체크 없으면 미전송 → 기본 True, 조회 후 해제 시 only_misu 미포함이면 False 처리 위해
-    if "q" in request.args or "as_of" in request.args or any(
-        k in request.args for k in ("bunji1", "bunji2", "hosu", "name", "only_misu")
-    ):
-        only_misu = request.args.get("only_misu") == "1"
-    else:
-        only_misu = True
-
-    ran = (
-        "as_of" in request.args
-        or "bunji1" in request.args
-        or "bunji2" in request.args
-        or "hosu" in request.args
-        or "name" in request.args
-        or "only_misu" in request.args
-    )
-
-    results = []
-    total_misu = 0
-    if ran:
-        try:
-            as_of = datetime.strptime(as_of_s[:10], "%Y-%m-%d").date()
-        except ValueError:
-            as_of = today
-            as_of_s = as_of.isoformat()
-
-        where = [_CURRENT_TENANT_SQL]
-        args = []
-        if bunji1:
-            where.append("d.bunji1=%s")
-            args.append(bunji1)
-        if bunji2:
-            where.append("d.bunji2=%s")
-            args.append(bunji2)
-        if hosu:
-            where.append("UPPER(TRIM(d.hosu))=%s")
-            args.append(hosu)
-        if name:
-            where.append("d.ipju_nm LIKE %s")
-            args.append(f"%{name}%")
-
-        # 기준일 이전 입주 현재 거주자 + 기준일까지 월세+관리 수금 합
-        sql = f"""
-            SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.ipju_dt,
-                   d.rent_amt, d.manage_amt, d.bojung_amt,
-                   COALESCE(p.paid, 0) AS paid
-            FROM bd03_det d
-            LEFT JOIN (
-                SELECT bunji1, bunji2, hosu, ipju_seq,
-                       SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)) AS paid
-                FROM sukum01
-                WHERE sukum_char='01'
-                  AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-                  AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-                GROUP BY bunji1, bunji2, hosu, ipju_seq
-            ) p
-              ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2
-             AND UPPER(TRIM(p.hosu))=UPPER(TRIM(d.hosu)) AND p.ipju_seq=d.ipju_seq
-            WHERE {" AND ".join(where)}
-              AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
-            ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-            LIMIT 2000
-        """
-        rows = db.query(sql, [as_of_s, *args, as_of_s])
-        for r in rows:
-            rent = _to_int_amt(r.get("rent_amt"))
-            manage = _to_int_amt(r.get("manage_amt"))
-            monthly = rent + manage
-            months = _months_elapsed(r.get("ipju_dt"), as_of)
-            expected = monthly * months
-            paid = _to_int_amt(r.get("paid"))
-            misu_amt = max(0, expected - paid)
-            if only_misu and misu_amt <= 0:
-                continue
-            total_misu += misu_amt
-            results.append(
-                {
-                    "bunji1": r.get("bunji1"),
-                    "bunji2": r.get("bunji2"),
-                    "hosu": r.get("hosu"),
-                    "ipju_seq": r.get("ipju_seq"),
-                    "ipju_nm": r.get("ipju_nm"),
-                    "ipju_dt": r.get("ipju_dt"),
-                    "misu_amt": misu_amt,
-                    "months": months,
-                    "expected": expected,
-                    "paid": paid,
-                    "bojung_amt": r.get("bojung_amt"),
-                    "rent_amt": rent,
-                    "manage_amt": manage,
-                    "monthly": monthly,
-                }
-            )
-        # 미수 큰 순
-        results.sort(key=lambda x: (-x["misu_amt"], x["bunji1"] or "", x["hosu"] or ""))
-
-    return render_template(
-        "misu.html",
-        filters={
-            "bunji1": bunji1,
-            "bunji2": bunji2,
-            "hosu": hosu,
-            "name": name,
-            "as_of": as_of_s,
-            "only_misu": only_misu,
-        },
-        results=results,
-        ran=ran,
-        total_misu=total_misu,
     )
 
 
@@ -2751,29 +2623,6 @@ def _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu):
     )
     next_n = int((max_seq or {}).get("mx") or 0) + 1
     return f"{next_n:04d}"
-
-
-def _to_int_amt(v):
-    if v is None or v == "":
-        return 0
-    try:
-        return int(Decimal(str(v).replace(",", "").strip() or "0"))
-    except (InvalidOperation, ValueError, TypeError):
-        return 0
-
-
-def _months_elapsed(ipju_dt, as_of=None):
-    """입주일 ~ 기준일 경과연월 (같은 달이면 0)."""
-    if not ipju_dt:
-        return 0
-    if as_of is None:
-        as_of = date.today()
-    if isinstance(ipju_dt, datetime):
-        ipju_dt = ipju_dt.date()
-    if isinstance(as_of, datetime):
-        as_of = as_of.date()
-    m = (as_of.year - ipju_dt.year) * 12 + (as_of.month - ipju_dt.month)
-    return max(0, m)
 
 
 def _calc_misu_amt(

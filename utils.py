@@ -230,3 +230,27 @@ def building_label(bunji1, bunji2):
     name = (b.get("juso") or "").strip() or (b.get("owner_nm") or "").strip()
     return name or "이름 없음"
 
+
+def to_int_amt(v):
+    """콤마 섞인 금액 값(문자/숫자/None 등)을 정수로 변환. 실패하면 0."""
+    if v is None or v == "":
+        return 0
+    try:
+        return int(Decimal(str(v).replace(",", "").strip() or "0"))
+    except (InvalidOperation, ValueError, TypeError):
+        return 0
+
+
+def months_elapsed(ipju_dt, as_of=None):
+    """입주일 ~ 기준일 경과연월 (같은 달이면 0)."""
+    if not ipju_dt:
+        return 0
+    if as_of is None:
+        as_of = date.today()
+    if isinstance(ipju_dt, datetime):
+        ipju_dt = ipju_dt.date()
+    if isinstance(as_of, datetime):
+        as_of = as_of.date()
+    m = (as_of.year - ipju_dt.year) * 12 + (as_of.month - ipju_dt.month)
+    return max(0, m)
+
