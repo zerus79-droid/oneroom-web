@@ -3341,7 +3341,6 @@ def _parse_bunji_input(raw, bunji1="", bunji2=""):
 def payments():
     today = date.today()
     month_start = today.replace(day=1)
-    year_start = today.replace(month=1, day=1)
 
     # 상단 메뉴 등: fresh=1 또는 쿼리 없음 → 이전 세입자/주소 조건 초기화
     # (수금 등록에서 넘어온 조회값이 폼에 남지 않도록)
