@@ -82,7 +82,7 @@
           {% for r in results %}
           <tr>
             <td>
-              {% if r.out_dt %}
+              {% if r.is_past %}
               <span class="badge out">퇴실</span>
               {% else %}
               <span class="badge">거주</span>
@@ -96,7 +96,7 @@
             <td>{{ r.hosu }}</td>
             <td>{{ r.ipju_seq }}</td>
             <td>{{ r.ipju_dt|fmt_date }}</td>
-            <td>{{ r.out_dt|fmt_date }}</td>
+            <td>{% if r.is_past %}{{ r.out_dt|fmt_date }}{% endif %}</td>
             <td class="num">{{ r.bojung_amt|money }}</td>
             <td class="num">{{ r.rent_amt|money }}</td>
             <td class="num">{{ r.manage_amt|money }}</td>

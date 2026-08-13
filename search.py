@@ -11,6 +11,7 @@ from utils import (
     login_required,
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
+    tenant_is_past_out as _tenant_is_past_out,
 )
 
 
@@ -89,6 +90,8 @@ def search():
             LIMIT %s OFFSET %s
         """
         results = db.query(sql, args + [per_page, offset])
+        for r in results or []:
+            r["is_past"] = _tenant_is_past_out(r.get("out_dt"))
 
     pager = _build_pager(page, total_pages, page_block_size=6)
     pager["total"] = total

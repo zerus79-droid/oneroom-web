@@ -14,6 +14,13 @@
       <a class="btn secondary" href="{{ url_for('search') }}">입주자 이력 조회</a>
     </span>
   </div>
+  {% if flash_messages and not popup_msg %}
+  <ul class="flash flash-below-form">
+    {% for cat, msg in flash_messages %}
+    <li class="{{ cat }}">{{ msg }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   <form method="post" class="legacy-sukum-body tenant-reg-body" id="tenant-form" autocomplete="off">
     <input type="hidden" name="mode" id="form_mode" value="{{ form.mode }}">
     <input type="hidden" name="action" id="form_action" value="save">
