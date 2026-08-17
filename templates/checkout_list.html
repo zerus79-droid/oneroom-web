@@ -10,10 +10,11 @@
     </span>
   </div>
   <div class="legacy-sukum-body">
-  <form method="get" autocomplete="off">
+  <form method="get" class="filter-bar" autocomplete="off">
     <input type="hidden" name="q" value="1">
     {# 새 조회 시 1페이지부터 #}
     <input type="hidden" name="page" value="1">
+    <div class="filter-bar-fields">
     <div class="ls-row">
       <label class="ls-lab" for="bunji1">주소</label>
       <div class="ls-val ls-val-inline">
@@ -54,10 +55,11 @@
         </div>
       </div>
     </div>
-    <p class="muted" style="margin:0 0 8px;font-size:0.85rem">※ 주소 · 호수 · 이름 중 하나 이상 입력 후 조회</p>
-    <div class="ls-actions">
+    <p class="muted" style="margin:0;font-size:0.85rem">※ 주소 · 호수 · 이름 중 하나 이상 입력 후 조회</p>
+    </div>
+    <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn secondary" href="{{ url_for('checkout_list') }}">초기화</a>
+      <a class="btn" href="{{ url_for('checkout_list') }}">초기화</a>
     </div>
   </form>
 
@@ -79,6 +81,17 @@
     </span>
     {% endif %}
   </div>
+  {% set pager_endpoint = 'checkout_list' %}
+  {% set pager_label = '목록 페이지' %}
+  {% set pager_query = {
+    'q': 1,
+    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+    'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+    'hosu': filters.hosu or none,
+    'name': filters.name or none,
+    'mode': filters.mode
+  } %}
+  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
     {% if ran and results %}
     <table class="legacy-grid">
@@ -157,39 +170,6 @@
               onclick="return confirm('선택 건을 현입주자로 변환할까요?\\n(퇴실일·예정일이 지워집니다)');"
               disabled>현입주자로 변환</button>
     </form>
-
-    {% if pager.total_pages > 1 %}
-    {% set pq = {
-      'q': 1,
-      'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
-      'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
-      'hosu': filters.hosu or none,
-      'name': filters.name or none,
-      'mode': filters.mode
-    } %}
-    <nav class="pager" aria-label="목록 페이지">
-      {# 이전/다음 = 6페이지 블록 단위 점프 (1–6 → 7–12) #}
-      {% if pager.has_prev %}
-      <a class="pager-btn" href="{{ url_for('checkout_list', page=pager.prev_page, **pq) }}">‹ 이전</a>
-      {% else %}
-      <span class="pager-btn is-disabled">‹ 이전</span>
-      {% endif %}
-
-      {% for p in pager.page_window %}
-        {% if p == pager.page %}
-        <span class="pager-num is-current" aria-current="page">{{ p }}</span>
-        {% else %}
-        <a class="pager-num" href="{{ url_for('checkout_list', page=p, **pq) }}">{{ p }}</a>
-        {% endif %}
-      {% endfor %}
-
-      {% if pager.has_next %}
-      <a class="pager-btn" href="{{ url_for('checkout_list', page=pager.next_page, **pq) }}">다음 ›</a>
-      {% else %}
-      <span class="pager-btn is-disabled">다음 ›</span>
-      {% endif %}
-    </nav>
-    {% endif %}
 
     {% elif want_query or ran %}
     <ul class="flash flash-below-form">

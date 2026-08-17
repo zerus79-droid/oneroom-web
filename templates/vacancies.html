@@ -14,26 +14,26 @@
 
     {# KPI 요약 #}
     <div class="vacancy-stats">
-      <div class="vacancy-stat">
+      <a href="{{ url_for('buildings') }}" class="vacancy-stat vacancy-stat-clickable">
         <div class="vacancy-stat-label">전체 건물</div>
         <div class="vacancy-stat-value">{{ stats.building_total }}</div>
-      </div>
-      <div class="vacancy-stat">
+      </a>
+      <a href="{{ url_for('vacancies', only_empty=0) }}" class="vacancy-stat vacancy-stat-clickable">
         <div class="vacancy-stat-label">전체 호수</div>
         <div class="vacancy-stat-value">{{ stats.room_total }}</div>
-      </div>
-      <div class="vacancy-stat">
+      </a>
+      <a href="{{ url_for('vacancies', only_empty=0, show_occupied=1) }}" class="vacancy-stat vacancy-stat-clickable">
         <div class="vacancy-stat-label">현재 입주</div>
         <div class="vacancy-stat-value ok">{{ stats.occupied_total }}</div>
-      </div>
-      <div class="vacancy-stat highlight">
+      </a>
+      <a href="{{ url_for('vacancies') }}" class="vacancy-stat vacancy-stat-clickable highlight">
         <div class="vacancy-stat-label">공실</div>
         <div class="vacancy-stat-value warn">{{ stats.vacant_total }}</div>
-      </div>
-      <div class="vacancy-stat">
+      </a>
+      <a href="{{ url_for('vacancies', only_empty=1) }}" class="vacancy-stat vacancy-stat-clickable">
         <div class="vacancy-stat-label">공실 있는 건물</div>
         <div class="vacancy-stat-value">{{ stats.buildings_with_vacancy }}</div>
-      </div>
+      </a>
     </div>
 
     {# 필터 #}
@@ -59,15 +59,31 @@
                {% if filters.only_empty %}checked{% endif %}>
         <span>공실 있는 건물만</span>
       </label>
+      <input type="hidden" name="show_occupied" value="{% if stats.show_occupied %}1{% else %}0{% endif %}">
       <button type="submit" class="btn">조회</button>
       <a class="btn secondary" href="{{ url_for('vacancies') }}">초기화</a>
     </form>
 
     {# 공실 호수 목록 #}
     <div class="vacancy-section-lab">
+      {% if stats.show_occupied %}
+      현재 입주 호수
+      <span class="muted">{{ stats.vacant_listed }}건</span>
+      {% else %}
       공실 호수
       <span class="muted">{{ stats.vacant_listed }}건</span>
+      {% endif %}
     </div>
+    {% if pager %}
+    {% set pager_endpoint = 'vacancies' %}
+    {% set pager_query = {
+      'bunji1': filters.bunji1,
+      'bunji2': filters.bunji2,
+      'q': filters.q,
+      'only_empty': filters.only_empty
+    } %}
+    {% include '_pager.html' %}
+    {% endif %}
     <div class="table-scroll vacancy-table-wrap">
       {% if vacancies %}
       <table class="legacy-grid">

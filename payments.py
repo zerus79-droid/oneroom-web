@@ -6,7 +6,16 @@
 from calendar import monthrange
 from datetime import date, datetime
 
-from flask import flash, jsonify, redirect, render_template, request, session, url_for
+from flask import (
+    flash,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 import db
 from app_instance import app
@@ -19,9 +28,12 @@ from utils import (
     fmt_bunji,
     fmt_bunji_pair,
     login_required,
+    require_write_access,
     money,
     pad_bunji as _pad_bunji,
+    paginate as _paginate,
     parse_bunji_input as _parse_bunji_input,
+    PAGE_SIZE as _PAGE_SIZE,
     to_int_amt as _to_int_amt,
 )
 
@@ -78,6 +90,19 @@ def _tenant_status_sql(tenant_status, alias="d"):
     if tenant_status == "all":
         return "1=1"
     return f"({alias}.out_dt IS NULL OR {alias}.out_dt < '1000-01-01')"
+
+
+def _tenant_is_current(row):
+    """out_dt 없음·레거시 무효날짜 = 거주 중"""
+    if not row:
+        return False
+    out = row.get("out_dt")
+    if out is None:
+        return True
+    if isinstance(out, (datetime, date)):
+        return out.year < 1000
+    s = str(out).strip()
+    return (not s) or s.startswith("0000") or s < "1000-01-01"
 
 
 def _first_date_for_name(nm):
@@ -138,6 +163,7 @@ def _empty_payment_filters(today):
         "date_to": today.isoformat(),
         "ym_year": str(today.year),
         "ym_month": f"{today.month:02d}",
+        "all_hist": "",
     }
 
 
@@ -233,7 +259,8 @@ def _search_tenants_by_name(name_q, tenant_status):
     status_sql = _tenant_status_sql(tenant_status, "d")
     tenants = db.query(
         f"""
-        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.out_dt, b.juso
+        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
+               d.ipju_dt, d.out_dt, b.juso
         FROM bd03_det d
         LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
         WHERE TRIM(d.ipju_nm)=%s
@@ -247,7 +274,8 @@ def _search_tenants_by_name(name_q, tenant_status):
         return tenants
     tenants = db.query(
         f"""
-        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.out_dt, b.juso
+        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
+               d.ipju_dt, d.out_dt, b.juso
         FROM bd03_det d
         LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
         WHERE d.ipju_nm LIKE %s
@@ -261,7 +289,8 @@ def _search_tenants_by_name(name_q, tenant_status):
         return tenants
     return db.query(
         f"""
-        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.out_dt, b.juso
+        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
+               d.ipju_dt, d.out_dt, b.juso
         FROM bd03_det d
         LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
         WHERE d.ipju_nm LIKE %s
@@ -270,6 +299,25 @@ def _search_tenants_by_name(name_q, tenant_status):
         LIMIT 200
         """,
         (f"%{name_q}%",),
+    )
+
+
+def _list_room_tenants(bunji1, bunji2, hosu, tenant_status):
+    """한 호실의 입주 이력. 과거=퇴실자만, 전체=전원, 현=거주 중."""
+    status_sql = _tenant_status_sql(tenant_status, "d")
+    return db.query(
+        f"""
+        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
+               d.ipju_dt, d.out_dt, b.juso
+        FROM bd03_det d
+        LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
+        WHERE d.bunji1=%s AND d.bunji2=%s
+          AND UPPER(TRIM(d.hosu))=UPPER(TRIM(%s))
+          AND {status_sql}
+        ORDER BY CAST(d.ipju_seq AS UNSIGNED) DESC
+        LIMIT 200
+        """,
+        (bunji1, bunji2, (hosu or "").strip().upper()),
     )
 
 
@@ -318,6 +366,9 @@ def _name_match_payment_groups(tenants, date_from, date_to):
                 "ipju_seq": t_seq,
                 "ipju_nm": (t.get("ipju_nm") or "").strip(),
                 "juso": (t.get("juso") or "").strip(),
+                "ipju_dt": _iso_min_date(t.get("ipju_dt")),
+                "out_dt": _iso_min_date(t.get("out_dt")),
+                "is_current": _tenant_is_current(t),
             }
         )
     stats_map = {}
@@ -368,6 +419,9 @@ def _name_match_payment_groups(tenants, date_from, date_to):
                 "ipju_seq": m["ipju_seq"],
                 "ipju_nm": m["ipju_nm"],
                 "juso": m["juso"],
+                "ipju_dt": m.get("ipju_dt"),
+                "out_dt": m.get("out_dt"),
+                "is_current": m.get("is_current"),
                 "pay_count": int(sr.get("pay_c") or 0),
                 "hist_count": int(sr.get("hist_c") or 0),
                 "hist_from": str(hist_mn)[:10] if hist_mn is not None else None,
@@ -378,7 +432,8 @@ def _name_match_payment_groups(tenants, date_from, date_to):
 
 
 def _query_payment_rows(
-    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist
+    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist,
+    tenant_status="all",
 ):
     where = ["1=1"]
     args = []
@@ -394,6 +449,10 @@ def _query_payment_rows(
     if ipju_seq_f:
         where.append("LPAD(TRIM(s.ipju_seq), 2, '0')=LPAD(TRIM(%s), 2, '0')")
         args.append(ipju_seq_f)
+    elif tenant_status in ("current", "past"):
+        # 순번 미지정: 현/과거 구분. 입주 이력 없는 수금은 제외
+        where.append(_tenant_status_sql(tenant_status, "d"))
+        where.append("d.ipju_seq IS NOT NULL")
     if date_from:
         where.append("s.sukum_dt >= %s")
         args.append(date_from + " 00:00:00")
@@ -437,17 +496,22 @@ def payments():
     years = _payment_year_options(today)
 
     if is_fresh:
-        return render_template(
-            "payments.html",
+        fresh_ctx = dict(
             payments=[],
             payment_groups=[],
             name_list_mode=False,
+            picker_kind="",
+            empty_hint="",
             is_fresh=True,
             buildings=buildings,
             rooms=rooms,
             years=years,
             filters=_empty_payment_filters(today),
+            pager=None,
         )
+        if (request.args.get("partial") or "").strip() in ("list", "result"):
+            return render_template("payments_result.html", **fresh_ctx)
+        return render_template("payments.html", **fresh_ctx)
 
     q = _read_payment_list_args(request.args)
     bunji1 = q["bunji1"]
@@ -479,6 +543,8 @@ def payments():
 
     rows = []
     payment_groups = []
+    picker_kind = "name" if name_list_mode else ""
+    empty_hint = ""
     if name_list_mode:
         tenants = _search_tenants_by_name(name_q, tenant_status)
         if len(tenants) == 1:
@@ -494,23 +560,86 @@ def payments():
             ym_month = hit["ym_month"]
             all_hist = True
             name_list_mode = False
+            picker_kind = ""
         elif len(tenants) >= 2:
             payment_groups = _name_match_payment_groups(tenants, date_from, date_to)
 
-    if not name_list_mode:
+    # 주소+호실만 있고 순번이 없을 때: 현=현재 입주자, 과거/전체=그 호 입주자 목록
+    if (
+        not name_list_mode
+        and bunji1
+        and bunji2
+        and hosu
+        and not ipju_seq_f
+    ):
+        if tenant_status == "current":
+            cur = _lookup_current_tenant(bunji1, bunji2, hosu)
+            if cur and _tenant_is_current(cur):
+                hit = _focus_single_tenant(cur, name_display, today)
+                bunji1 = hit["bunji1"] or bunji1
+                bunji2 = hit["bunji2"] or bunji2
+                hosu = hit["hosu"] or hosu
+                ipju_seq_f = hit["ipju_seq_f"]
+                name_display = hit["name_display"]
+                date_from = hit["date_from"]
+                date_to = hit["date_to"]
+                ym_year = hit["ym_year"]
+                ym_month = hit["ym_month"]
+                all_hist = True
+            else:
+                empty_hint = (
+                    "현재 입주자가 없습니다. 「과거 입주자」에서 퇴실자를 고르세요."
+                )
+        else:
+            tenants = _list_room_tenants(bunji1, bunji2, hosu, tenant_status)
+            if len(tenants) == 1:
+                hit = _focus_single_tenant(tenants[0], name_display, today)
+                bunji1 = hit["bunji1"] or bunji1
+                bunji2 = hit["bunji2"] or bunji2
+                hosu = hit["hosu"] or hosu
+                ipju_seq_f = hit["ipju_seq_f"]
+                name_display = hit["name_display"]
+                date_from = hit["date_from"]
+                date_to = hit["date_to"]
+                ym_year = hit["ym_year"]
+                ym_month = hit["ym_month"]
+                all_hist = True
+            else:
+                payment_groups = _name_match_payment_groups(
+                    tenants, date_from, date_to
+                )
+                name_list_mode = True
+                picker_kind = "room"
+
+    if not name_list_mode and not empty_hint:
         rows = _query_payment_rows(
-            bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist
+            bunji1,
+            bunji2,
+            hosu,
+            ipju_seq_f,
+            date_from,
+            date_to,
+            all_hist,
+            tenant_status,
         )
 
-    return render_template(
-        "payments.html",
+    pager = None
+    if name_list_mode:
+        payment_groups, pager = _paginate(payment_groups)
+    elif rows:
+        rows, pager = _paginate(rows)
+
+    ctx = dict(
         payments=rows if not name_list_mode else [],
         payment_groups=payment_groups,
         name_list_mode=name_list_mode,
+        picker_kind=picker_kind,
+        empty_hint=empty_hint,
         is_fresh=False,
         buildings=buildings,
         rooms=rooms,
         years=years,
+        pager=pager,
         filters={
             "bunji1": bunji1,
             "bunji2": bunji2,
@@ -523,8 +652,13 @@ def payments():
             "date_to": date_to,
             "ym_year": ym_year,
             "ym_month": ym_month,
+            "all_hist": "1" if all_hist else "",
         },
     )
+    if (request.args.get("partial") or "").strip() in ("list", "result"):
+        return render_template("payments_result.html", **ctx)
+
+    return render_template("payments.html", **ctx)
 
 
 def _first_date_for_tenant(b1, b2, h, seq=""):
@@ -582,9 +716,47 @@ def _first_date_for_tenant(b1, b2, h, seq=""):
     return _iso_min_date(row["mn"])
 
 
+def _hist_page_for_payment(bunji1, bunji2, hosu, ipju_seq, sukum_dt, sukum_seq, date_from=""):
+    """기간별 수금 목록(오래된 순)에서 이 수금이 있는 페이지 번호."""
+    b1 = _pad_bunji(bunji1)
+    b2 = _pad_bunji(bunji2)
+    h = (hosu or "").strip().upper()
+    seq = _pad_ipju_seq(ipju_seq)
+    dt = str(sukum_dt or "")[:10]
+    sq = str(sukum_seq or "").strip()
+    if not (b1 and b2 and h and dt):
+        return 1
+    extra = []
+    args = [b1, b2, h]
+    if seq:
+        extra.append("LPAD(TRIM(s.ipju_seq),2,'0')=LPAD(TRIM(%s),2,'0')")
+        args.append(seq)
+    if date_from:
+        extra.append("s.sukum_dt >= %s")
+        args.append(str(date_from)[:10] + " 00:00:00")
+    extra_sql = (" AND " + " AND ".join(extra)) if extra else ""
+    args.extend([dt, dt, sq])
+    row = db.query_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM sukum01 s
+        WHERE s.bunji1=%s AND s.bunji2=%s AND UPPER(TRIM(s.hosu))=%s
+          {extra_sql}
+          AND (s.del_yn IS NULL OR s.del_yn='' OR s.del_yn='N')
+          AND (
+            DATE(s.sukum_dt) < %s
+            OR (DATE(s.sukum_dt)=%s AND CAST(s.sukum_seq AS UNSIGNED) < CAST(%s AS UNSIGNED))
+          )
+        """,
+        tuple(args),
+    )
+    before = int((row or {}).get("c") or 0)
+    return before // int(_PAGE_SIZE) + 1
+
+
 def _recent_payments(bunji1="", bunji2="", hosu="", sukum_dt="", limit=80):
     """수금 등록 화면 하단: 오늘 입력(등록)한 수금 전부 표시.
-    각 행에 hist_from/hist_to 를 붙여 클릭 시 세입자 전체 납부 내역으로 이동.
+    각 행에 hist_from/hist_to·hist_page 를 붙여 클릭 시 그 수금이 있는 페이지로 이동.
     """
     today = date.today().isoformat()
     rows = db.query(
@@ -617,6 +789,15 @@ def _recent_payments(bunji1="", bunji2="", hosu="", sukum_dt="", limit=80):
             cache[key] = first or "2000-01-01"
         r["hist_from"] = cache[key]
         r["hist_to"] = today
+        r["hist_page"] = _hist_page_for_payment(
+            r.get("bunji1"),
+            r.get("bunji2"),
+            r.get("hosu"),
+            r.get("ipju_seq"),
+            r.get("sukum_dt"),
+            r.get("sukum_seq"),
+            cache[key],
+        )
     return rows
 
 
@@ -641,7 +822,7 @@ def _lookup_current_tenant(bunji1, bunji2, hosu):
     if not (bunji1 and bunji2 and hosu):
         return None
     cols = """
-        hosu, ipju_seq, ipju_nm, out_dt,
+        bunji1, bunji2, hosu, ipju_seq, ipju_nm, out_dt,
         rent_amt, manage_amt, bojung_amt, yechi_amt,
         ipju_dt, ipju_tel1, ipju_tel2, misu_tot
     """
@@ -869,11 +1050,12 @@ def api_current_tenant():
             "yechi_amt": _to_int_amt(row.get("yechi_amt")),
             "ipju_dt": ipju_dt_s,
             "ipju_tel": tel,
-            # 하위 호환: misu_amt = 전월미수(누적)
-            "misu_amt": prev_misu,
-            "misu_display": money(prev_misu),
-            "prev_misu_amt": prev_misu,
-            "prev_misu_display": money(prev_misu),
+            # 미수총액 = 전월 누적 + 금월 미입금 (지금 받을 금액)
+            "misu_amt": prev_misu + month_misu,
+            "misu_display": money(prev_misu + month_misu),
+            "prev_misu_amt": prev_misu + month_misu,
+            "prev_misu_display": money(prev_misu + month_misu),
+            "arrears_amt": prev_misu,
             "month_misu_amt": month_misu,
             "month_misu_display": money(month_misu),
         }
@@ -882,6 +1064,7 @@ def api_current_tenant():
 
 @app.route("/api/payments/delete", methods=["POST"])
 @login_required
+@require_write_access
 def api_payments_delete():
     """수금 내역 삭제(del_yn='Y'). body: { items: [{sukum_dt,sukum_seq,bunji1,bunji2,hosu}, ...] }"""
     data = request.get_json(silent=True) or {}
@@ -984,21 +1167,27 @@ def _tenants_in_building(bunji1, bunji2):
 
 
 def _render_payment_new(buildings, rooms, chars, gbs, form, tenants, recent):
-    return render_template(
-        "payment_new.html",
-        buildings=buildings,
-        rooms=rooms,
-        chars=chars,
-        gbs=gbs,
-        form=form,
-        tenants=tenants,
-        recent_payments=recent,
-        building_label=_building_label(form.get("bunji1"), form.get("bunji2")),
+    resp = make_response(
+        render_template(
+            "payment_new.html",
+            buildings=buildings,
+            rooms=rooms,
+            chars=chars,
+            gbs=gbs,
+            form=form,
+            tenants=tenants,
+            recent_payments=recent,
+            building_label=_building_label(form.get("bunji1"), form.get("bunji2")),
+        )
     )
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/payments/new", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def payment_new():
     buildings, rooms = _buildings_and_rooms()
     chars, gbs = _payment_form_codes()
@@ -1115,7 +1304,6 @@ def payment_new():
             )
 
         # 같은 수금 등록 화면에 머무름 + 하단 목록에 방금 입력 표시
-        flash(f"수금이 등록되었습니다. (순번 {sukum_seq})", "ok")
         return redirect(
             url_for(
                 "payment_new",

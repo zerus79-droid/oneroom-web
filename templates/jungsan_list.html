@@ -15,8 +15,9 @@
     </span>
   </div>
   <div class="legacy-sukum-body">
-  <form method="get" autocomplete="off">
+  <form method="get" class="filter-bar" autocomplete="off">
     <input type="hidden" name="q" value="1">
+    <div class="filter-bar-fields">
     <div class="ls-row">
       <label class="ls-lab star">기준년월</label>
       <div class="ls-val">
@@ -46,16 +47,27 @@
         </div>
       </div>
     </div>
-    <div class="ls-actions">
+    </div>
+    <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn secondary" href="{{ url_for('jungsan_list') }}">초기화</a>
+      <a class="btn" href="{{ url_for('jungsan_list') }}">초기화</a>
     </div>
   </form>
 
   <div class="panel-section-lab">
     정산 목록
-    {% if ran and results %}<span class="muted">{{ results|length }}건</span>{% endif %}
+    {% if ran and results %}<span class="muted">{{ pager.total if pager else results|length }}건</span>{% endif %}
   </div>
+  {% set pager_endpoint = 'jungsan_list' %}
+  {% set pager_label = '정산 목록 페이지' %}
+  {% set pager_query = {
+    'q': 1,
+    'year': filters.year,
+    'month': filters.month,
+    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+    'bunji2': filters.bunji2|bunji if filters.bunji2 else none
+  } %}
+  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
     {% if ran and results %}
     <table class="legacy-grid">
@@ -104,7 +116,7 @@
       </tbody>
       <tfoot>
         <tr>
-          <th colspan="2" class="tc">합계 {{ results|length }}건</th>
+          <th colspan="2" class="tc">합계 {{ pager.total if pager else results|length }}건</th>
           <th class="num">{{ sum_pay|money }}</th>
           <th colspan="9"></th>
         </tr>

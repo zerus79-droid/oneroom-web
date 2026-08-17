@@ -4,13 +4,13 @@
 {# 레거시 「수금 관리」 창 레이아웃에 맞춤 #}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">수금 관리</span>
+    <span class="caption-title">수금 등록</span>
     <span class="caption-actions">
       <a class="btn secondary" href="{{ url_for('payments', fresh=1) }}">수금 현황</a>
     </span>
   </div>
   <div class="legacy-sukum-body xp-form">
-  <form method="post" id="payment-form" autocomplete="off">
+  <form method="post" id="payment-form" autocomplete="off" data-skip-addr-check="1">
     <input type="hidden" name="manage_desc" value="">
 
     {# 1행: 수금일자 … 달력 까지 / 2행: ★주소 … #}
@@ -36,12 +36,14 @@
         <input type="text" name="bunji1" id="bunji1" required class="ls-box"
                value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
                inputmode="numeric" pattern="[0-9]*" maxlength="4"
-               placeholder="508" autocomplete="off" title="주소 · 휠: 건물 순환">
+               placeholder="508" autocomplete="off" title="주소 · ↑↓: 등록 건물 순환"
+               data-skip-addr-check="1">
         <span class="bunji-sep">-</span>
         <input type="text" name="bunji2" id="bunji2" required class="ls-box"
                value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
                inputmode="numeric" pattern="[0-9]*" maxlength="4"
-               placeholder="88" autocomplete="off" title="주소2 · 휠: 건물 순환" aria-label="주소2">
+               placeholder="88" autocomplete="off" title="주소2 · ↑↓: 등록 건물 순환" aria-label="주소2"
+               data-skip-addr-check="1">
       </div>
       <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
         {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
@@ -49,7 +51,8 @@
       <label class="ls-lab star" for="hosu">호수</label>
       <input type="text" name="hosu" id="hosu" class="hosu-input ls-box ls-narrow" value="{{ form.hosu }}" required
              placeholder="201" style="text-transform:uppercase"
-             autocomplete="off" title="호실 · 휠: 등록 호실 순환">
+             autocomplete="off" title="호실 · ↑↓: 등록 호실 순환"
+             data-next-focus="#su_sil_amt" data-skip-addr-check="1">
       <label class="ls-lab">입주순번</label>
       <input type="text" name="ipju_seq" id="ipju_seq" value="{{ form.ipju_seq }}"
              required readonly tabindex="-1" placeholder="—"
@@ -120,7 +123,7 @@
           <div class="xp-inline">
             <div class="misu-display misu-inline" id="prev_misu_display" data-amt="">—</div>
             <span class="ls-unit">원</span>
-            <span class="muted ls-hint" id="prev_misu_hint">누적 미수(추정)</span>
+            <span class="muted ls-hint" id="prev_misu_hint">전월 체납 + 금월 미입금</span>
           </div>
         </div>
         <div class="xp-field">
@@ -157,7 +160,7 @@
     <p class="muted bunji-hint" id="misu_hint" hidden></p>
 
     <div class="xp-actions">
-      <button type="submit" class="btn">저장</button>
+      <button type="submit" class="btn" id="btn-pay-save">저장</button>
       <button type="button" class="btn secondary" id="btn-new-clear" title="입력 초기화">신규</button>
     </div>
   </form>
@@ -172,7 +175,6 @@
     <thead>
       <tr>
         <th>수금일</th>
-        <th>순번</th>
         <th>주소</th>
         <th>호</th>
         <th>입주순번</th>
@@ -189,10 +191,9 @@
       {% set hist_from = p.hist_from or '2000-01-01' %}
       {% set hist_to = p.hist_to or (p.sukum_dt|string)[:10] %}
       <tr class="click-row"
-          title="클릭: {{ p.ipju_nm or '이 세입자' }} 전체 수금(대체) 현황 ({{ hist_from }} ~ {{ hist_to }})"
-          onclick="location.href='{{ url_for('payments', bunji1=p.bunji1, bunji2=p.bunji2, hosu=p.hosu, ipju_seq=p.ipju_seq, date_from=hist_from, date_to=hist_to, all_hist=1) }}'">
+          title="클릭: {{ p.ipju_nm or '이 세입자' }} 수금 현황 {{ p.hist_page or 1 }}페이지 ({{ hist_from }} ~ {{ hist_to }})"
+          onclick="location.href='{{ url_for('payments', bunji1=p.bunji1, bunji2=p.bunji2, hosu=p.hosu, ipju_seq=p.ipju_seq, date_from=hist_from, date_to=hist_to, all_hist=1, page=p.hist_page or 1) }}'">
         <td class="col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
-        <td>{{ p.sukum_seq }}</td>
         <td class="col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
         <td>{{ p.hosu }}</td>
         <td>{{ p.ipju_seq }}</td>
@@ -214,6 +215,12 @@
 </div>
 
 <script>
+window.addEventListener('pageshow', function (e) {
+  var nav = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null;
+  if (e.persisted || (nav && nav.type === 'back_forward')) {
+    location.reload();
+  }
+});
 (function () {
   var bunji1El = document.getElementById('bunji1');
   var bunji2El = document.getElementById('bunji2');
@@ -255,14 +262,11 @@
     if (!h) return;
     roomMap[pad4(r.bunji1) + '-' + pad4(r.bunji2) + '|' + h] = true;
   });
-  // 건물·호실 휠 + 기본값(최소 주소·최소 호실)
+  // 건물·호실 휠만. 신규 화면은 주소·호수 비움 (첫 건물 자동 채움 없음)
   if (typeof window.registerBuildingWheelData === 'function') {
     window.registerBuildingWheelData(BUILDINGS, ROOMS);
   } else {
     window.__pendingBuildingData = { buildings: BUILDINGS, rooms: ROOMS };
-  }
-  if (typeof window.applyDefaultBuildingHosu === 'function') {
-    window.applyDefaultBuildingHosu();
   }
 
   function padSeq(seq) {
@@ -397,17 +401,6 @@
     return { found: false, reenter: showPopup, display: display };
   }
 
-  /** 주소 확인 통과 시에만 주소2로 이동 */
-  function goBunji2IfOk() {
-    // 건물 휠 조작 중에는 포커스 이동 금지
-    if (window.__suppressBunjiAutoJump) return false;
-    var res = checkBunji1({ showPopup: true });
-    if (res && res.found === false) return false;
-    bunji2El.focus();
-    bunji2El.select();
-    return true;
-  }
-
   function normHosu(h) {
     return String(h == null ? '' : h).trim().toUpperCase();
   }
@@ -472,6 +465,41 @@
     return { found: false, reenter: false, hosu: h, display: display };
   }
 
+  /**
+   * 번지1~호수까지 전부 등록된 상태인지 확인.
+   * 실입금액 칸에서 Enter로 넘어갈 때 · 저장할 때 공통으로 씀 —
+   * 마우스로 실입금액을 바로 클릭해서 주소·호수를 건너뛴 경우도 여기서 걸림.
+   * 실패하면 팝업 띄우고 비어있는 칸으로 포커스 이동, false 반환.
+   */
+  function ensureAddressReady(showAlert) {
+    if (!onlyDigits(bunji1El, 4)) {
+      if (showAlert) window.alert('주소를 입력하세요.');
+      focusBunji1();
+      return false;
+    }
+    if (!onlyDigits(bunji2El, 4)) {
+      if (showAlert) window.alert('주소2를 입력하세요.');
+      focusBunji2();
+      return false;
+    }
+    var bres = checkBuilding({ showPopup: showAlert });
+    if (!bres || bres.found !== true) {
+      focusBunji1();
+      return false;
+    }
+    if (!hosuEl || !normHosu(hosuEl.value)) {
+      if (showAlert) window.alert('호수를 입력하세요.');
+      focusHosu();
+      return false;
+    }
+    var hres = checkHosu({ showPopup: showAlert });
+    if (!hres || hres.found !== true) {
+      focusHosu();
+      return false;
+    }
+    return true;
+  }
+
   function focusSukumDate() {
     // 년도는 오늘 날짜로 이미 들어 있으므로 월부터 입력
     var m = document.getElementById('sukum_m');
@@ -481,14 +509,38 @@
       m.select();
     }, 30);
   }
+  function focusSilAmt() {
+    var amt = document.getElementById('su_sil_amt');
+    if (!amt) return;
+    setTimeout(function () {
+      amt.focus();
+      if (typeof amt.select === 'function') amt.select();
+    }, 30);
+  }
+  window.onHosuEnter = function () {
+    if (hosuEl) hosuEl.value = normHosu(hosuEl.value);
+    if (!hosuEl || !hosuEl.value) return;
+    clearTimeout(hosuResolveTimer);
+    resolveHosu(true, { quiet: false });
+  };
 
-  // 수금일 전용: 월(2) → 일(2) → 실수금액 (일 건너뛰기 방지)
+  // 수금일 전용: 월(2) → 일(2) → 주소(번지1) → 번지2 → 호수 → 실입금액 → 대체금액 → 저장
   (function bindSukumDateFlow() {
     var root = document.getElementById('sukum_dt_parts');
     var m = document.getElementById('sukum_m');
     var d = document.getElementById('sukum_d');
     var amt = document.getElementById('su_sil_amt');
     if (!root || !m || !d) return;
+
+    function goToAddress() {
+      if (bunji1El) {
+        bunji1El.focus();
+        if (typeof bunji1El.select === 'function') bunji1El.select();
+      } else if (amt) {
+        amt.focus();
+        if (typeof amt.select === 'function') amt.select();
+      }
+    }
 
     var mTyping = false;
     var dTyping = false;
@@ -517,12 +569,9 @@
 
     d.addEventListener('input', function () {
       d.value = (d.value || '').replace(/\D/g, '').slice(0, 2);
-      // 일을 직접 2자리 입력했을 때만 실수금액으로 (미리 채워진 일로 바로 점프 안 함)
-      if (dTyping && d.value.length === 2 && amt) {
-        setTimeout(function () {
-          amt.focus();
-          if (typeof amt.select === 'function') amt.select();
-        }, 0);
+      // 일을 직접 2자리 입력했을 때만 다음 칸(주소)으로 (미리 채워진 일로 바로 점프 안 함)
+      if (dTyping && d.value.length === 2) {
+        setTimeout(goToAddress, 0);
       }
     });
 
@@ -536,15 +585,8 @@
     });
     d.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
-        if (e.key === 'Enter') e.preventDefault();
-        if (e.key === 'Tab' && amt) {
-          e.preventDefault();
-          amt.focus();
-          if (typeof amt.select === 'function') amt.select();
-        } else if (e.key === 'Enter' && amt) {
-          amt.focus();
-          if (typeof amt.select === 'function') amt.select();
-        }
+        e.preventDefault();
+        goToAddress();
       }
     });
 
@@ -579,10 +621,7 @@
       todayBtn.addEventListener('click', function (e) {
         e.preventDefault();
         applyIso(todayIso());
-        if (amt) {
-          amt.focus();
-          if (typeof amt.select === 'function') amt.select();
-        }
+        goToAddress();
       });
     }
     if (calBtn && cal) {
@@ -601,10 +640,7 @@
       cal.addEventListener('change', function () {
         if (!cal.value) return;
         applyIso(cal.value);
-        if (amt) {
-          amt.focus();
-          if (typeof amt.select === 'function') amt.select();
-        }
+        goToAddress();
       });
     }
   })();
@@ -687,9 +723,9 @@
   function setMisuDisplay(amt, display) {
     // 하위 호환: 전월미수에 매핑
     setOneMisu(prevMisuEl, amt, display, prevMisuHint, {
-      empty: '누적 미수(추정)',
-      has: '누적 미수 있음',
-      zero: '누적 미수 없음'
+      empty: '전월 체납 + 금월 미입금',
+      has: '미수 있음',
+      zero: '미수 없음'
     });
     if (misuEl) {
       var n = parseInt(String(amt == null ? '' : amt).replace(/[^\d-]/g, ''), 10);
@@ -797,16 +833,11 @@
       monthlyView.title = '월세 ' + fmtMoneyNum(extra.rent_amt) + '원 / 관리비 ' +
         fmtMoneyNum(extra.manage_amt) + '원';
     }
-    if (misuAmt !== undefined || misuDisplay !== undefined) {
-      setMisuDisplay(
-        extra.prev_misu_amt !== undefined ? extra.prev_misu_amt : misuAmt,
-        extra.prev_misu_display || misuDisplay
-      );
-    }
-    if (extra.month_misu_amt !== undefined || extra.month_misu_display !== undefined) {
-      setMonthMisuDisplay(extra.month_misu_amt, extra.month_misu_display);
-    }
-    if (doFocus) focusSukumDate();
+    var tot = extra.prev_misu_amt;
+    if (tot === undefined) tot = misuAmt;
+    setMisuDisplay(tot, extra.prev_misu_display || misuDisplay);
+    setMonthMisuDisplay(extra.month_misu_amt, extra.month_misu_display);
+    if (doFocus) focusSilAmt();
   }
 
   function tenantVisible() {
@@ -847,6 +878,8 @@
     lastKey = key;
 
     var url = '/api/current_tenant?bunji=' + encodeURIComponent(bunji) +
+              '&bunji1=' + encodeURIComponent(onlyDigits(bunji1El, 4)) +
+              '&bunji2=' + encodeURIComponent(onlyDigits(bunji2El, 4)) +
               '&hosu=' + encodeURIComponent(hosu);
 
     return fetch(url, { credentials: 'same-origin' })
@@ -871,7 +904,7 @@
         if (ipjuNmView) ipjuNmView.value = '';
         clearTenantViews();
         if (seqEl) seqEl.value = '';
-        if (doFocus) focusSukumDate();
+        if (doFocus) focusSilAmt();
         return false;
       })
       .catch(function () {
@@ -933,12 +966,20 @@
   if (bunji1El && bunji2El) {
     selectAllOnFocus(bunji1El);
     selectAllOnFocus(bunji2El);
-    // 주소에서 - / Enter → 주소 검사 후 통과 시만 주소2
+    // 번지1 → 번지2: 팝업 없이 항상 자동 이동 (미등록 여부는 힌트 텍스트로만 표시,
+    // 실제 검증은 번지2를 벗어날 때 · 호수 입력 시 · 저장 시 팝업으로 함)
+    function goBunji2() {
+      if (window.__suppressBunjiAutoJump) return false;
+      checkBunji1({ showPopup: false });
+      bunji2El.focus();
+      bunji2El.select();
+      return true;
+    }
     bunji1El.addEventListener('keydown', function (e) {
       if (isBunjiSepKey(e) || e.key === 'Enter') {
         e.preventDefault();
         if (!onlyDigits(bunji1El, 4)) return;
-        goBunji2IfOk();
+        goBunji2();
       }
     });
     bunji1El.addEventListener('input', function () {
@@ -948,22 +989,20 @@
       var raw = bunji1El.value || '';
       var hadSep = /[-－]/.test(raw);
       var s = onlyDigits(bunji1El, 4);
-      // - 입력 또는 4자리 채움 → 주소 검사 후 주소2
+      // - 입력 또는 4자리 채움 → 바로 주소2로
       // (키보드 입력만. 휠로 건물 바꿀 때는 이동하지 않음)
       if (hadSep || s.length === 4) {
-        goBunji2IfOk();
+        goBunji2();
       }
     });
-    // Tab 등으로 주소를 벗어날 때 검사 (주소2로 갈 때도)
+    // Tab 등으로 주소를 완전히 벗어날 때만 힌트 갱신 (팝업 없음 — 아래 focusout 검사에서 처리)
     bunji1El.addEventListener('blur', function () {
       if (window.__suppressBunjiAutoJump) return;
       if (!onlyDigits(bunji1El, 4)) return;
       setTimeout(function () {
         if (window.__suppressBunjiAutoJump) return;
-        // 이미 팝업으로 다시 포커스된 경우 스킵
         if (document.activeElement === bunji1El) return;
-        var res = checkBunji1({ showPopup: true });
-        if (res && res.found === false) return;
+        checkBunji1({ showPopup: false });
       }, 0);
     });
     bunji2El.addEventListener('input', function () {
@@ -973,8 +1012,14 @@
       onlyDigits(bunji2El, 4);
     });
     function leaveBunjiToHosu() {
+      if (!onlyDigits(bunji2El, 4)) {
+        // 번지2가 비어 있으면 팝업 없이 그냥 번지2에 머무름 (숫자 입력 대기)
+        bunji2El.focus();
+        bunji2El.select();
+        return;
+      }
       var res = checkBuilding({ showPopup: true });
-      if (res && res.found === false) return; // 미등록 → 팝업 후 유지
+      if (!res || res.found !== true) return;
       if (hosuEl) {
         hosuEl.focus();
         hosuEl.select();
@@ -1043,6 +1088,18 @@
 
   // 실수금액 포커스 시에도 입주자 표시 보장 + 대체금액 활성 갱신
   var amtEl = document.getElementById('su_sil_amt');
+  var dacEl = document.getElementById('su_dache_amt');
+  function focusDacheAmt() {
+    if (!dacEl) return false;
+    updateDacheState();
+    try {
+      dacEl.focus({ preventScroll: true });
+      if (!dacEl.readOnly && typeof dacEl.select === 'function') dacEl.select();
+    } catch (e1) {
+      try { dacEl.focus(); } catch (e2) {}
+    }
+    return true;
+  }
   if (amtEl) {
     amtEl.addEventListener('focus', function () {
       ensureTenantBadge();
@@ -1053,10 +1110,28 @@
     amtEl.addEventListener('blur', function () {
       updateDacheState();
     });
+    amtEl.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 주소·호수를 안 거치고(마우스로 바로 실입금액 클릭 등) 넘어온 경우도 여기서 걸림
+      if (!ensureAddressReady(true)) return;
+      focusDacheAmt();
+    });
+  }
+  if (dacEl) {
+    dacEl.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (!form) return;
+      var saveBtn = document.getElementById('btn-pay-save');
+      if (typeof form.requestSubmit === 'function') form.requestSubmit(saveBtn || undefined);
+      else form.submit();
+    });
   }
   updateDacheState();
 
-  // 저장 직전: 미등록 주소·호실이면 저장 차단 + 순번 확인
+  // 저장 직전: 주소·호수가 비어있거나 미등록이면 저장 막고 해당 칸으로 포커스 + 순번 확인
   if (form) {
     form.addEventListener('submit', function (e) {
       if (bunji1El) onlyDigits(bunji1El, 4);
@@ -1064,27 +1139,14 @@
       if (hosuEl) hosuEl.value = normHosu(hosuEl.value);
       if (seqEl) seqEl.value = padSeq(seqEl.value);
 
-      // 1) 미등록 주소 → 팝업 후 저장 막기
-      if (hasBunji()) {
-        lastPopupKey = ''; // 저장 시에는 항상 알림
-        var bres = checkBuilding({ showPopup: true });
-        if (bres && bres.found === false) {
-          e.preventDefault();
-          return;
-        }
+      lastPopupKey = ''; // 저장 시에는 항상 알림
+      lastHosuPopupKey = '';
+      if (!ensureAddressReady(true)) {
+        e.preventDefault();
+        return;
       }
 
-      // 2) 미등록 호실 → 팝업 후 저장 막기
-      if (hosuEl && hosuEl.value) {
-        lastHosuPopupKey = '';
-        var hres = checkHosu({ showPopup: true });
-        if (hres && hres.found === false) {
-          e.preventDefault();
-          return;
-        }
-      }
-
-      // 3) 순번 비어 있으면 호실로 조회 후 재제출
+      // 순번이 비어 있으면(호실 입력 직후 등, 자동조회가 아직 안 끝난 경우) 한 번 더 조회 후 재제출
       if (seqEl && !seqEl.value) {
         e.preventDefault();
         resolveHosu(false).then(function (ok) {
@@ -1092,8 +1154,8 @@
             if (typeof form.requestSubmit === 'function') form.requestSubmit();
             else form.submit();
           } else {
-            seqEl.setCustomValidity('입주 순번이 없습니다. 등록된 호실·입주자를 확인해 주세요.');
-            seqEl.reportValidity();
+            window.alert('등록된 입주자를 찾을 수 없습니다. 호실을 다시 확인해 주세요.');
+            focusHosu();
           }
         });
       }
@@ -1115,9 +1177,6 @@
       clearTenantViews();
       setHint('', true);
       updateDacheState();
-      if (typeof window.applyDefaultBuildingHosu === 'function') {
-        window.applyDefaultBuildingHosu();
-      }
       scheduleResolveHosu();
       focusSukumDate();
     });
@@ -1127,6 +1186,9 @@
   if (hosuEl && hosuEl.value && hasBunji()) {
     resolveHosu(false, { quiet: true });
   }
+
+  // 화면 진입 시 바로 수금일자(월)부터 입력 가능하게 포커스
+  focusSukumDate();
 })();
 </script>
 {% endblock %}

@@ -17,7 +17,9 @@ from utils import (
     login_required,
     money,
     pad_bunji as _pad_bunji,
+    paginate as _paginate,
     parse_money as _parse_money,
+    require_write_access,
 )
 
 
@@ -72,6 +74,10 @@ def repairs():
         """
         results = db.query(sql, args)
 
+    pager = None
+    if ran and results:
+        results, pager = _paginate(results)
+
     return render_template(
         "repairs.html",
         filters={
@@ -84,6 +90,7 @@ def repairs():
         },
         results=results,
         ran=ran,
+        pager=pager,
     )
 
 
@@ -171,6 +178,7 @@ def _lookup_tenant_for_repair(bunji1, bunji2, hosu, ipju_seq=""):
 
 @app.route("/repairs/new", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def repair_new():
     """수리내역등록 (XP「수리 이력 등록」)."""
     if request.method == "POST":

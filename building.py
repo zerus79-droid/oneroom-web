@@ -17,6 +17,7 @@ from utils import (
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
     parse_money as _parse_money,
+    require_write_access,
 )
 
 # 전기료납부(elec_gb) — 기존 프로그램: 각세대별 / 관리비에 포함
@@ -26,6 +27,69 @@ ELEC_OPTIONS = [
     ("A", "관리비에 포함"),
     ("", "미지정"),
 ]
+
+BANK_OPTIONS = [
+    ("", "은행 선택"),
+    ("국민", "국민"),
+    ("신한", "신한"),
+    ("우리", "우리"),
+    ("하나", "하나"),
+    ("농협", "농협"),
+    ("기업", "기업"),
+    ("산업", "산업"),
+    ("수협", "수협"),
+    ("SC제일", "SC제일"),
+    ("씨티", "씨티"),
+    ("케이뱅크", "케이뱅크"),
+    ("카카오뱅크", "카카오뱅크"),
+    ("토스뱅크", "토스뱅크"),
+    ("부산", "부산"),
+    ("대구", "대구"),
+    ("광주", "광주"),
+    ("전북", "전북"),
+    ("경남", "경남"),
+    ("제주", "제주"),
+    ("새마을", "새마을"),
+    ("신협", "신협"),
+    ("우체국", "우체국"),
+    ("저축", "저축"),
+]
+
+
+def _bank_name_set():
+    return {code for code, _ in BANK_OPTIONS if code}
+
+
+def _split_bank_cd(raw):
+    """bd01.bank_cd → (은행명, 계좌). 예전 값은 계좌만."""
+    s = (raw or "").strip()
+    names = _bank_name_set()
+    if "|" in s:
+        bank, acc = s.split("|", 1)
+        return bank.strip(), acc.strip()
+    parts = s.split(None, 1)
+    if parts and parts[0] in names:
+        return parts[0], parts[1] if len(parts) > 1 else ""
+    return "", s
+
+
+def _join_bank_cd(bank, acc):
+    bank = (bank or "").strip()
+    acc = (acc or "").strip()
+    if bank and acc:
+        return f"{bank}|{acc}"
+    return acc or bank
+
+
+def _apply_bank_fields(form, raw=None):
+    name, acc = _split_bank_cd(raw if raw is not None else form.get("bank_cd"))
+    form["bank_name"] = name
+    form["bank_acc"] = acc
+    return form
+
+
+def _building_selects():
+    return {"elec_options": ELEC_OPTIONS, "bank_options": BANK_OPTIONS}
 
 
 def _elec_label(v):
@@ -58,7 +122,7 @@ def _extract_building_form_values(form):
         "owner_nm": (form.get("owner_nm") or "").strip(),
         "owner_tel": (form.get("owner_tel") or "").strip(),
         "building_dt": (form.get("building_dt") or "").strip(),
-        "bank_cd": (form.get("bank_cd") or "").strip(),
+        "bank_cd": _join_bank_cd(form.get("bank_name"), form.get("bank_acc") or form.get("bank_cd")),
         "elec_gb": _normalize_elec_gb(form.get("elec_gb")),
         "floor_no": _coerce_building_floor_no(form.get("floor_no")),
         "man_cost": _parse_money(form.get("man_cost")),
@@ -106,13 +170,24 @@ def _validate_building(data, *, for_insert=False):
     return None
 
 
+def _decorate_building_card(r):
+    r["elec_label"] = _elec_label(r.get("elec_gb"))
+    _apply_bank_fields(r)
+    dt = r.get("building_dt")
+    r["build_year"] = str(dt)[:4] if dt else ""
+    bank = " ".join(x for x in (r.get("bank_name"), r.get("bank_acc")) if x).strip()
+    r["bank_disp"] = bank or "건물 전용 계좌 없음"
+    return r
+
+
 @app.route("/buildings")
 @login_required
 def buildings():
     """기초 내역 관리 · 건물 내역 조회 (목록)
-    ?next=rooms 이면 행/호수 클릭 시 호수 내역 화면으로 이동
+    ?next=rooms 이면 카드에서 호수 내역으로 이동
     """
     next_mode = (request.args.get("next") or "").strip()
+    q = (request.args.get("q") or "").strip()
     rows = db.query(
         f"""
         SELECT b.*,
@@ -133,12 +208,29 @@ def buildings():
         ORDER BY b.bunji1, b.bunji2
         """
     )
+    if q:
+        ql = q.replace(" ", "").lower()
+        filtered = []
+        for r in rows:
+            key = "".join(
+                [
+                    str(r.get("juso") or ""),
+                    str(r.get("owner_nm") or ""),
+                    fmt_bunji_pair(r.get("bunji1"), r.get("bunji2")),
+                    str(r.get("bunji1") or ""),
+                    str(r.get("bunji2") or ""),
+                ]
+            ).replace(" ", "").lower()
+            if ql in key:
+                filtered.append(r)
+        rows = filtered
     for r in rows:
-        r["elec_label"] = _elec_label(r.get("elec_gb"))
+        _decorate_building_card(r)
     return render_template(
         "buildings.html",
         buildings=rows,
         next_mode=next_mode,
+        q=q,
     )
 
 
@@ -166,14 +258,27 @@ def vacancies():
     else:
         only_empty = True
 
-    where = [
-        f"""NOT EXISTS (
-              SELECT 1 FROM bd03_det d
-              WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-                AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
-                AND {_CURRENT_TENANT_SQL}
-            )"""
-    ]
+    show_occupied = request.args.get("show_occupied") == "1"
+
+    where = []
+    if only_empty:
+        where.append(
+            f"""NOT EXISTS (
+                  SELECT 1 FROM bd03_det d
+                  WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+                    AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
+                    AND {_CURRENT_TENANT_SQL}
+                )"""
+        )
+    elif show_occupied:
+        where.append(
+            f"""EXISTS (
+                  SELECT 1 FROM bd03_det d
+                  WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+                    AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
+                    AND {_CURRENT_TENANT_SQL}
+                )"""
+        )
     args = []
     if bunji1 and bunji2:
         where.append("m.bunji1=%s AND m.bunji2=%s")
@@ -188,6 +293,26 @@ def vacancies():
         args.extend([like, like, like, like])
 
     where_sql = " AND ".join(where)
+    if where_sql:
+        where_clause = f"WHERE {where_sql}"
+    else:
+        where_clause = ""
+
+    # 전체 개수 조회
+    count_query = f"""
+        SELECT COUNT(*) as total
+        FROM bd03_m m
+        LEFT JOIN bd01 b ON b.bunji1=m.bunji1 AND b.bunji2=m.bunji2
+        {where_clause}
+    """
+    total_row = db.query_one(count_query, tuple(args))
+    total_count = int((total_row or {}).get("total") or 0)
+
+    # 페이징 처리
+    from utils import parse_page, make_pager, PAGE_SIZE
+    page = parse_page()
+    per_page = PAGE_SIZE
+    pager = make_pager(total_count, page, per_page=per_page)
 
     vacant_rows = db.query(
         f"""
@@ -212,10 +337,11 @@ def vacancies():
                ORDER BY CAST(d2.ipju_seq AS UNSIGNED) DESC
                LIMIT 1
              )
-        WHERE {where_sql}
+        {where_clause}
         ORDER BY m.bunji1, m.bunji2, m.hosu
+        LIMIT %s OFFSET %s
         """,
-        tuple(args),
+        tuple(args + [per_page, pager["offset"]]),
     )
 
     today = date.today()
@@ -304,6 +430,7 @@ def vacancies():
         "buildings_with_vacancy": sum(
             1 for b in building_rows if int(b.get("vacant_cnt") or 0) > 0
         ),
+        "show_occupied": show_occupied,
     }
 
     return render_template(
@@ -311,6 +438,7 @@ def vacancies():
         vacancies=vacant_rows,
         building_summary=building_summary,
         stats=stats,
+        pager=pager,
         filters={
             "bunji1": bunji1,
             "bunji2": bunji2,
@@ -322,6 +450,7 @@ def vacancies():
 
 @app.route("/building/new", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def building_new():
     """건물 신규 등록"""
     form = {
@@ -333,18 +462,22 @@ def building_new():
         "building_dt": "",
         "floor_no": "",
         "bank_cd": "",
+        "bank_name": "",
+        "bank_acc": "",
         "man_cost": "",
         "first_amt": "",
         "elec_gb": "B",
     }
     if request.method == "POST":
         data = _building_from_form(request.form, for_insert=True)
-        form = {
-            **data,
-            "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
-            "man_cost": data["man_cost"],
-            "first_amt": data["first_amt"],
-        }
+        form = _apply_bank_fields(
+            {
+                **data,
+                "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
+                "man_cost": data["man_cost"],
+                "first_amt": data["first_amt"],
+            }
+        )
         err = _validate_building(data, for_insert=True)
         if err:
             flash(err, "err")
@@ -352,7 +485,7 @@ def building_new():
                 "building_form.html",
                 mode="new",
                 form=form,
-                elec_options=ELEC_OPTIONS,
+                **_building_selects(),
             )
         try:
             db.execute(
@@ -388,7 +521,7 @@ def building_new():
                 "building_form.html",
                 mode="new",
                 form=form,
-                elec_options=ELEC_OPTIONS,
+                **_building_selects(),
             )
         flash("건물이 등록되었습니다.", "ok")
         return redirect(
@@ -399,7 +532,7 @@ def building_new():
         "building_form.html",
         mode="new",
         form=form,
-        elec_options=ELEC_OPTIONS,
+        **_building_selects(),
     )
 
 
@@ -410,7 +543,12 @@ def _get_building_or_redirect(bunji1, bunji2):
     )
     if not b:
         return None
-    b["elec_label"] = _elec_label(b.get("elec_gb"))
+    _decorate_building_card(b)
+    cnt = db.query_one(
+        "SELECT COUNT(*) AS c FROM bd03_m WHERE bunji1=%s AND bunji2=%s",
+        (b.get("bunji1"), b.get("bunji2")),
+    )
+    b["room_cnt"] = int((cnt or {}).get("c") or 0)
     return b
 
 
@@ -440,7 +578,7 @@ def building_detail(bunji1, bunji2):
     if not b:
         flash("건물을 찾을 수 없습니다.", "err")
         return redirect(url_for("buildings"))
-    return render_template("building_detail.html", building=b)
+    return render_template("building_detail.html", building=b, **_building_selects())
 
 
 @app.route("/building/<bunji1>/<bunji2>/rooms")
@@ -457,6 +595,7 @@ def building_rooms(bunji1, bunji2):
 
 @app.route("/building/<bunji1>/<bunji2>/room/new", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def room_new(bunji1, bunji2):
     """호수 신규 등록 (bd03_m)"""
     b = db.query_one(
@@ -552,6 +691,43 @@ def room_new(bunji1, bunji2):
     return render_template("room_form.html", building=b, form=form, mode="new")
 
 
+@app.route("/building/<bunji1>/<bunji2>/room/<hosu>/delete", methods=["POST"])
+@login_required
+@require_write_access
+def room_delete(bunji1, bunji2, hosu):
+    """호수 삭제 (bd03_m)"""
+    hosu = hosu.strip().upper()
+
+    # 입주자가 있는지 확인
+    tenant = db.query_one(
+        """
+        SELECT ipju_nm FROM bd03_det
+        WHERE bunji1=%s AND bunji2=%s AND hosu=%s
+          AND (out_dt IS NULL OR out_dt < '1000-01-01')
+        LIMIT 1
+        """,
+        (bunji1, bunji2, hosu),
+    )
+
+    if tenant:
+        flash("현재 입주자가 있는 호수는 삭제할 수 없습니다.", "err")
+        return redirect(url_for("building_rooms", bunji1=bunji1, bunji2=bunji2))
+
+    try:
+        n = db.execute(
+            "DELETE FROM bd03_m WHERE bunji1=%s AND bunji2=%s AND hosu=%s",
+            (bunji1, bunji2, hosu),
+        )
+        if n:
+            flash(f"호수 {hosu} 가 삭제되었습니다.", "ok")
+        else:
+            flash("삭제할 호수를 찾을 수 없습니다.", "err")
+    except Exception as e:
+        flash(f"삭제 실패: {e}", "err")
+
+    return redirect(url_for("building_rooms", bunji1=bunji1, bunji2=bunji2))
+
+
 def _building_form_from_row(b):
     """bd01 행 → 수정 폼 초기값"""
     dt = b.get("building_dt") or ""
@@ -559,7 +735,7 @@ def _building_form_from_row(b):
         dt = str(dt)[:10]
     elif isinstance(dt, str):
         dt = dt[:10]
-    return {
+    form = {
         "bunji1": b.get("bunji1") or "",
         "bunji2": b.get("bunji2") or "",
         "juso": b.get("juso") or "",
@@ -572,6 +748,7 @@ def _building_form_from_row(b):
         "first_amt": b.get("first_amt"),
         "elec_gb": (b.get("elec_gb") or "").strip().upper(),
     }
+    return _apply_bank_fields(form)
 
 
 def _building_orig_for_js(form):
@@ -583,14 +760,71 @@ def _building_orig_for_js(form):
         "building_dt": (str(form.get("building_dt") or ""))[:10],
         "floor_no": form.get("floor_no") or "",
         "bank_cd": form.get("bank_cd") or "",
+        "bank_name": form.get("bank_name") or "",
+        "bank_acc": form.get("bank_acc") or "",
         "elec_gb": form.get("elec_gb") or "",
         "first_amt": money(form.get("first_amt")),
         "man_cost": money(form.get("man_cost")),
     }
 
 
+_BUILDING_CHANGE_FIELDS = (
+    ("juso", "건물명"),
+    ("owner_nm", "건물주명"),
+    ("owner_tel", "전화"),
+    ("building_dt", "건축일"),
+    ("floor_no", "층수"),
+    ("bank_cd", "은행계좌"),
+    ("elec_gb", "전기료납부"),
+    ("first_amt", "최초보증금"),
+    ("man_cost", "관리수수료"),
+)
+
+
+def _norm_building_val(key, v):
+    if key in ("first_amt", "man_cost"):
+        if v is None or v == "":
+            return None
+        return int(v)
+    if key == "floor_no":
+        if v is None or v == "":
+            return None
+        return int(v)
+    if key == "building_dt":
+        return (str(v)[:10] if v else "")
+    if key == "elec_gb":
+        return (str(v).strip().upper() if v else "")
+    return ("" if v is None else str(v)).strip()
+
+
+def _disp_building_val(key, v):
+    if key in ("first_amt", "man_cost"):
+        return money(v) if v is not None else "빈값"
+    if key == "elec_gb":
+        return _elec_label(v)
+    if v is None or v == "":
+        return "빈값"
+    return str(v)
+
+
+def _building_changes(orig, data):
+    rows = []
+    for key, label in _BUILDING_CHANGE_FIELDS:
+        before = _norm_building_val(key, orig.get(key))
+        after = _norm_building_val(key, data.get(key))
+        if before != after:
+            rows.append((label, _disp_building_val(key, before), _disp_building_val(key, after)))
+    return rows
+
+
+def _building_change_flash(changes):
+    bits = [f"{lab} {a} → {b}" for lab, a, b in changes]
+    return "건물 내역이 수정되었습니다. " + " · ".join(bits)
+
+
 @app.route("/building/<bunji1>/<bunji2>/edit", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def building_edit(bunji1, bunji2):
     """건물 내역 수정"""
     b = db.query_one(
@@ -608,12 +842,14 @@ def building_edit(bunji1, bunji2):
         # 주소는 키이므로 변경하지 않음
         data["bunji1"] = bunji1
         data["bunji2"] = bunji2
-        form = {
-            **data,
-            "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
-            "man_cost": data["man_cost"],
-            "first_amt": data["first_amt"],
-        }
+        form = _apply_bank_fields(
+            {
+                **data,
+                "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
+                "man_cost": data["man_cost"],
+                "first_amt": data["first_amt"],
+            }
+        )
         err = _validate_building(data, for_insert=False)
         if err:
             flash(err, "err")
@@ -622,8 +858,12 @@ def building_edit(bunji1, bunji2):
                 mode="edit",
                 form=form,
                 orig_js=_building_orig_for_js(orig),
-                elec_options=ELEC_OPTIONS,
+                **_building_selects(),
             )
+        changes = _building_changes(orig, data)
+        if not changes:
+            flash("변경된 내용이 없습니다.", "ok")
+            return redirect(url_for("building_detail", bunji1=bunji1, bunji2=bunji2))
         try:
             db.execute(
                 """
@@ -663,9 +903,9 @@ def building_edit(bunji1, bunji2):
                 mode="edit",
                 form=form,
                 orig_js=_building_orig_for_js(orig),
-                elec_options=ELEC_OPTIONS,
+                **_building_selects(),
             )
-        flash("건물 내역이 수정되었습니다.", "ok")
+        flash(_building_change_flash(changes), "ok")
         return redirect(url_for("building_detail", bunji1=bunji1, bunji2=bunji2))
 
     return render_template(
@@ -673,5 +913,5 @@ def building_edit(bunji1, bunji2):
         mode="edit",
         form=orig,
         orig_js=_building_orig_for_js(orig),
-        elec_options=ELEC_OPTIONS,
+        **_building_selects(),
     )

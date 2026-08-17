@@ -8,7 +8,7 @@
     /* ── 계약 해지 인쇄 양식 (XP sinbee 출력 기준: 1139-4-707.pdf) ── */
     @page {
       size: A4 portrait;
-      margin: 14mm 16mm 16mm 16mm;
+      margin: 10mm 15mm 10mm 15mm;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -29,8 +29,10 @@
       box-shadow: 0 2px 12px rgba(0,0,0,.12);
     }
     .toolbar {
-      position: sticky;
+      position: fixed;
       top: 0;
+      left: 0;
+      right: 0;
       z-index: 10;
       display: flex;
       gap: 8px;
@@ -60,33 +62,45 @@
 
     h1.title {
       text-align: center;
-      font-size: 22pt;
+      font-size: 20pt;
       font-weight: 700;
       letter-spacing: 0.55em;
-      margin: 0 0 18px;
+      margin: 0 0 10px;
       padding-left: 0.55em; /* letter-spacing 보정 */
     }
     .sec {
-      margin: 0 0 14px;
+      margin: 0 0 8px;
     }
     .sec-h {
       font-size: 11pt;
       font-weight: 700;
-      margin: 0 0 6px;
+      margin: 0 0 4px;
     }
     table.grid {
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
     }
+    /* 문서 전체를 감싸는 표: thead(제목/해지상황/①②)가 페이지마다 반복되고,
+       tbody(납부내역 이하)는 페이지를 자유롭게 넘기며 채워짐 */
+    table.doc-outer {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table.doc-outer > thead > tr > td,
+    table.doc-outer > tbody > tr > td {
+      padding: 0;
+      border: 0;
+      vertical-align: top;
+    }
     table.grid th,
     table.grid td {
       border: 1px solid #222;
-      padding: 5px 6px;
+      padding: 4px 5px;
       vertical-align: middle;
       text-align: center;
       font-size: 10pt;
-      height: 1.7em;
+      height: 1.55em;
       word-break: keep-all;
     }
     table.grid th {
@@ -102,65 +116,121 @@
       text-align: left;
       padding-left: 8px;
     }
-    /* (3) 임대료현황: 왼쪽 요약 + 오른쪽 납부현황 */
-    .rent-wrap {
-      display: grid;
-      grid-template-columns: 1fr 1.15fr;
-      border: 1px solid #222;
+    table.grid td.nowrap,
+    table.grid th.nowrap {
+      white-space: nowrap;
     }
-    .rent-wrap .left-tbl {
-      border: 0;
-    }
-    .rent-wrap .left-tbl th,
-    .rent-wrap .left-tbl td {
-      border: 0;
-      border-bottom: 1px solid #222;
-      border-right: 1px solid #222;
-    }
-    .rent-wrap .left-tbl tr:last-child th,
-    .rent-wrap .left-tbl tr:last-child td {
-      border-bottom: 0;
-    }
-    .rent-wrap .left-tbl th {
-      width: 42%;
+    /* (3) 임대료현황: ①~⑥ 아래 납부현황 한 칸 */
+    table.rent-tbl th {
       background: #f3f4f6;
+      font-weight: 600;
       text-align: left;
       padding-left: 8px;
-      font-weight: 600;
     }
-    .rent-wrap .left-tbl td {
+    table.rent-tbl td.num {
       text-align: right;
       font-variant-numeric: tabular-nums;
       padding-right: 10px;
     }
-    .pay-box {
-      padding: 6px 8px 8px;
-      min-height: 100%;
-      font-size: 9.5pt;
+    table.rent-tbl th,
+    table.rent-tbl td {
+      height: auto;
     }
-    .pay-box .pay-title {
-      font-weight: 700;
-      margin-bottom: 4px;
+    table.rent-tbl th.pay-lab {
+      text-align: left;
     }
-    .pay-box table {
+    .pay-table {
+      border: 1px solid #222;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .pay-3cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .pay-col {
+      min-width: 0;
+      border-right: 1px solid #222;
+    }
+    .pay-col:last-child { border-right: 0; }
+    table.pay-grid {
       width: 100%;
       border-collapse: collapse;
+      table-layout: fixed;
     }
-    .pay-box td {
+    table.pay-grid th,
+    table.pay-grid td {
       border: 0;
-      padding: 1px 2px;
+      border-right: 1px solid #222;
+      padding: 0 2px;
+      height: auto;
+      min-height: 0;
+      font-size: 7pt;
+      font-weight: 400;
+      line-height: 1.22;
+      text-align: left;
+      vertical-align: middle;
+      background: transparent;
+      word-break: keep-all;
+      white-space: nowrap;
+      overflow: hidden;
       font-variant-numeric: tabular-nums;
-      font-size: 9.5pt;
     }
-    .pay-box td.d { width: 5.5em; text-align: left; }
-    .pay-box td.a { text-align: right; }
+    table.pay-grid th {
+      font-weight: 700;
+      text-align: center;
+      background: #f3f4f6;
+      border-bottom: 1px solid #222;
+      border-right: 1px solid #222;
+      padding: 2px 1px;
+    }
+    table.pay-grid th:last-child,
+    table.pay-grid td:last-child {
+      border-right: 0;
+    }
+    table.pay-grid td.col-b,
+    table.pay-grid th.col-b {
+      text-align: center;
+    }
+    table.pay-grid td.col-c {
+      text-align: right;
+      padding-right: 0.7em;
+    }
+    table.pay-grid th.col-c {
+      text-align: center;
+    }
+    table.pay-grid td.col-d,
+    table.pay-grid th.col-d {
+      text-align: right;
+      overflow: visible;
+      min-width: 10ch;
+    }
+    table.pay-grid tr.year-break td {
+      border-top: 1px solid #222;
+    }
+    table.pay-grid tr.pay-day td {
+      font-weight: 700;
+    }
+    table.pay-grid td.pay-short {
+      color: #c0392b;
+      font-weight: 700;
+    }
+    table.pay-grid td.pay-over {
+      color: #1d4ed8;
+      font-weight: 700;
+    }
+    .empty-pay { color: #999; text-align: left; font-size: 8.5pt; }
 
     .util-row {
-      margin-top: 8px;
+      margin-top: 6px;
     }
     .util-row th {
       background: #f3f4f6;
       font-weight: 600;
+    }
+    .util-row td.util-extra {
+      height: 2.2em;
+      text-align: left;
     }
 
     .settle {
@@ -180,7 +250,7 @@
       line-height: 1.6;
     }
     .sign {
-      margin-top: 28px;
+      margin-top: 14px;
       text-align: right;
       font-size: 10.5pt;
       line-height: 1.8;
@@ -202,6 +272,34 @@
         padding: 0;
         box-shadow: none;
       }
+
+      /* 표 행이 페이지 중간에서 잘리지 않도록: 행 단위로 다음 페이지로 넘김 */
+      table.grid tr,
+      table.pay-grid tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      /* 소제목이 아래 표와 떨어져 페이지가 갈리지 않도록 */
+      .sec-h {
+        break-after: avoid;
+        page-break-after: avoid;
+      }
+      /* 마무리 블록(③~⑦ + 전기/수도 등 + 정산내용 + 서명): 남은 공간에 통째로 다
+         들어가면 그대로, 안 들어가면 전체를 다음 페이지로 — 중간에서 쪼개지 않음 */
+      .doc-footer {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      /* 납부현황 표가 페이지를 넘기면 헤더(년도/기간/입금일/입금액) 반복 */
+      table.pay-grid thead {
+        display: table-header-group;
+      }
+      /* 납부현황: 1페이지 분량(3칸)씩 미리 잘라뒀으니, 다음 묶음은 새 페이지에서 시작
+         (신문 다단처럼 왼쪽→가운데→오른쪽 칸을 먼저 다 채운 뒤 다음 페이지로) */
+      .pay-page-break {
+        break-before: page;
+        page-break-before: always;
+      }
     }
   </style>
 </head>
@@ -209,168 +307,192 @@
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary" href="{{ url_for('home') }}">홈</a>
-    <span class="hint">Ctrl+P · 대상: PDF로 저장 · 여백 기본</span>
+    <span class="hint">Ctrl+P · 용지 A4 · <strong>머리글 및 바닥글 끄기</strong> (날짜·제목 안 나오게)</span>
   </div>
 
   <div class="sheet">
-    <h1 class="title">계 약 해 지</h1>
+    <table class="doc-outer">
+      <thead><tr><td>
+        <h1 class="title">계 약 해 지</h1>
 
-    {# ── (1) 해지상황 ── #}
-    <section class="sec">
-      <div class="sec-h">(1) 해지상황 - 성명: {{ doc.name or '' }}</div>
-      <table class="grid">
-        <colgroup>
-          <col style="width:16%"><col style="width:12%"><col style="width:12%">
-          <col style="width:14%"><col style="width:22%"><col style="width:24%">
-        </colgroup>
-        <tr>
-          <th>주 소</th>
-          <th>호 수</th>
-          <th>열 쇠</th>
-          <th>복비관계</th>
-          <th>계약후이사일</th>
-          <th>연락처</th>
-        </tr>
-        <tr>
-          <td>{{ doc.addr or '' }}</td>
-          <td>{{ doc.hosu or '' }}</td>
-          <td>{{ doc.key_note or '' }}</td>
-          <td>{{ doc.broker_note or '' }}</td>
-          <td>{{ doc.move_after or '' }}</td>
-          <td>{{ doc.tel or '' }}</td>
-        </tr>
-        <tr>
-          <th>보증금</th>
-          <th colspan="1">임대료/관리비</th>
-          <th colspan="1">계약입주일</th>
-          <th colspan="1">해 지 일</th>
-          <th colspan="2">기　　　　　　타</th>
-        </tr>
-        <tr>
-          <td class="num">{{ doc.bojung_disp }}</td>
-          <td>{{ doc.rent_manage_label or '' }}</td>
-          <td>{{ doc.ipju_dt or '' }}</td>
-          <td>{{ doc.out_dt or '' }}</td>
-          <td colspan="2" class="left">{{ doc.etc_note or '' }}</td>
-        </tr>
-      </table>
-    </section>
+        {# ── (1) 해지상황 ── #}
+        <section class="sec">
+          <div class="sec-h">(1) 해지상황 - 성명: {{ doc.name or '' }}</div>
+          <table class="grid">
+            <colgroup>
+              <col style="width:14%"><col style="width:10%"><col style="width:16%">
+              <col style="width:12%"><col style="width:24%"><col style="width:24%">
+            </colgroup>
+            <tr>
+              <th>주 소</th>
+              <th>호 수</th>
+              <th class="nowrap">보증/예치</th>
+              <th class="nowrap">임대/관리</th>
+              <th>계약입주일</th>
+              <th>해 지 일</th>
+            </tr>
+            <tr>
+              <td>{{ doc.addr or '' }}</td>
+              <td>{{ doc.hosu or '' }}</td>
+              <td class="nowrap">{{ doc.bojung_disp }}</td>
+              <td class="nowrap">{{ doc.rent_manage_label or '' }}</td>
+              <td class="nowrap">{{ doc.ipju_dt or '' }}</td>
+              <td class="nowrap">{{ doc.out_dt or '' }}</td>
+            </tr>
+          </table>
+        </section>
 
-    {# ── (2) 시설현황 ── #}
-    <section class="sec">
-      <div class="sec-h">(2) 시설현황</div>
-      <table class="grid">
-        <tr>
-          <th>현관문</th><th>주 방</th><th>벽 지</th>
-          <th>장 판</th><th>전 등</th><th>유 리 창</th>
-        </tr>
-        <tr>
-          <td>{{ fac.door or '' }}</td>
-          <td>{{ fac.kitchen or '' }}</td>
-          <td>{{ fac.wallpaper or '' }}</td>
-          <td>{{ fac.floor or '' }}</td>
-          <td>{{ fac.light or '' }}</td>
-          <td>{{ fac.window or '' }}</td>
-        </tr>
-        <tr>
-          <th>화장실집기</th><th>보일러실</th><th>열 쇠</th>
-          <th>계약서</th><th>청소상태</th><th>환산금액</th>
-        </tr>
-        <tr>
-          <td>{{ fac.bath or '' }}</td>
-          <td>{{ fac.boiler or '' }}</td>
-          <td>{{ fac.key2 or '' }}</td>
-          <td>{{ fac.contract or '' }}</td>
-          <td>{{ fac.clean or '' }}</td>
-          <td class="num">{{ fac.convert_amt or '' }}</td>
-        </tr>
-      </table>
-    </section>
-
-    {# ── (3) 임대료현황 ── #}
-    <section class="sec">
-      <div class="sec-h">(3) 임대료현황</div>
-      <div class="rent-wrap">
-        <table class="grid left-tbl">
+        <div class="sec-h">(2) 임대료현황</div>
+        <table class="grid rent-tbl">
+          <colgroup>
+            <col style="width:22%">
+            <col style="width:28%">
+            <col style="width:22%">
+            <col style="width:28%">
+          </colgroup>
           <tr>
             <th>①입주기간</th>
-            <td>{{ rent.period or '' }}</td>
+            <td class="num" colspan="3">{{ rent.period or '' }}</td>
           </tr>
           <tr>
-            <th>②수 리 비</th>
-            <td>{% if rent.repair_amt %}{{ rent.repair_amt }}{% endif %}</td>
-          </tr>
-          <tr>
-            <th>③입금총액(기준)</th>
-            <td>{% if rent.base_total %}{{ rent.base_total }}{% endif %}</td>
-          </tr>
-          <tr>
-            <th>④수금총액</th>
-            <td>{% if rent.paid_total %}{{ rent.paid_total }}{% endif %}</td>
-          </tr>
-          <tr>
-            <th>⑤환불성수금</th>
-            <td>{% if rent.refundable %}{{ rent.refundable }}{% endif %}</td>
-          </tr>
-          <tr>
-            <th>⑥미수총액</th>
-            <td>{% if rent.unpaid %}{{ rent.unpaid }}{% endif %}</td>
+            <th class="pay-lab" colspan="4">②납부현황</th>
           </tr>
         </table>
-        <div class="pay-box">
-          <div class="pay-title">&lt;납부현황&gt;</div>
-          <table>
-            {% for p in payments %}
-            <tr>
-              <td class="d">{{ p.dt }}</td>
-              <td class="a">{{ p.amt }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="2" style="color:#999;">(납부 내역 없음)</td></tr>
+      </td></tr></thead>
+      <tbody><tr><td>
+        {% if rent.pay_pages %}
+        {% for page in rent.pay_pages %}
+        <div class="pay-table{% if not loop.first %} pay-page-break{% endif %}">
+          <div class="pay-3cols">
+            {% for col in page %}
+            <div class="pay-col">
+              <table class="pay-grid">
+                <colgroup>
+                  <col style="width:12%">
+                  <col style="width:32%">
+                  <col style="width:26%">
+                  <col style="width:30%">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>년도</th>
+                    <th class="col-b">기간</th>
+                    <th class="col-c">입금일</th>
+                    <th class="col-d">입금액</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for p in col %}
+                  {% if not loop.first and p.year_break %}</tbody><tbody>{% endif %}
+                  {% if p.is_filler %}
+                  <tr class="pay-filler">
+                    <td>&nbsp;</td>
+                    <td class="col-b">&nbsp;</td>
+                    <td class="col-c">&nbsp;</td>
+                    <td class="col-d">&nbsp;</td>
+                  </tr>
+                  {% elif p.is_day_amt %}
+                  <tr class="pay-day">
+                    <td></td>
+                    <td class="col-b"></td>
+                    <td class="col-c">일할 {{ rent.dd }}일</td>
+                    <td class="col-d">{{ rent.day_amt }}</td>
+                  </tr>
+                  {% else %}
+                  <tr{% if p.year_break %} class="year-break"{% endif %}>
+                    <td>{{ p.yy1 }}</td>
+                    <td class="col-b">{% if p.start_md %}{{ p.start_md }}~{{ p.end_md }}{% endif %}</td>
+                    <td class="col-c">{{ p.pay_md }}</td>
+                    <td class="col-d{% if p.tone %} pay-{{ p.tone }}{% endif %}">{{ p.amt }}</td>
+                  </tr>
+                  {% endif %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
             {% endfor %}
-          </table>
+          </div>
         </div>
-      </div>
-
-      <table class="grid util-row">
-        <tr>
-          <th>전 기</th>
-          <th>수 도</th>
-          <th>시설복구비</th>
-          <th>도시가스</th>
-          <th>기 타</th>
-          <th>⑦합 계</th>
-        </tr>
-        <tr>
-          <td class="num">{{ util.elec or '' }}</td>
-          <td class="num">{{ util.water or '' }}</td>
-          <td class="num">{{ util.restore or '' }}</td>
-          <td class="num">{{ util.gas or '' }}</td>
-          <td class="num">{{ util.etc or '' }}</td>
-          <td class="num">{{ util.total or '' }}</td>
-        </tr>
-      </table>
-    </section>
-
-    {# ── (4) 정산내용 ── #}
-    <section class="sec settle">
-      <div class="sec-h">(4) 정산내용</div>
-      <div class="amt-line">
-        <span class="mark">♧</span>정산금액 :
-        {% if settle.amount %}<strong>{{ settle.amount }}</strong>{% endif %}
-      </div>
-      <div class="formula">
-        산 출 식 :⑤−⑥−⑦
-        {% if settle.formula_nums %}
-        &nbsp;&nbsp;{{ settle.formula_nums }}
+        {% endfor %}
+        {% else %}
+        <div class="empty-pay">(납부 내역 없음)</div>
         {% endif %}
-      </div>
-    </section>
 
-    <div class="sign">
-      <div>{{ settle.confirm_year or '　　' }}년　{{ settle.confirm_month or '　' }}월　{{ settle.confirm_day or '　' }}일　상기사항이 틀림없음을 확인합니다.</div>
-      <div class="who">확인자: {{ settle.confirmer or '' }}　　　　　　(인)</div>
-    </div>
+        <div class="doc-footer">
+          <table class="grid rent-tbl">
+            <colgroup>
+              <col style="width:22%">
+              <col style="width:28%">
+              <col style="width:22%">
+              <col style="width:28%">
+            </colgroup>
+            <tr>
+              <th>③거주기간(총액)</th>
+              <td class="num">{% if rent.base_total %}{{ rent.base_total }}{% endif %}</td>
+              <th>④수금총액</th>
+              <td class="num">{% if rent.paid_total %}{{ rent.paid_total }}{% endif %}</td>
+            </tr>
+            <tr>
+              <th>⑤보증/예치</th>
+              <td class="num">{% if rent.refundable %}{{ rent.refundable }}{% endif %}</td>
+              <th>⑥미수총액</th>
+              <td class="num">{% if rent.unpaid %}{{ rent.unpaid }}{% endif %}</td>
+            </tr>
+            <tr>
+              <th>⑦수리/폐기물</th>
+              <td class="num" colspan="3">{% if rent.repair_amt %}{{ rent.repair_amt }}{% endif %}</td>
+            </tr>
+          </table>
+
+          <table class="grid util-row">
+            <tr>
+              <th>전 기</th>
+              <th>도시가스</th>
+              <th>수 도</th>
+              <th>청 소 비</th>
+              <th>기 타</th>
+              <th>⑦합 계</th>
+            </tr>
+            <tr>
+              <td class="num">{{ util.elec or '' }}</td>
+              <td class="num">{{ util.gas or '' }}</td>
+              <td class="num">{{ util.water or '' }}</td>
+              <td class="num">{{ util.restore or '' }}</td>
+              <td class="num">{{ util.etc or '' }}</td>
+              <td class="num">{{ util.total or '' }}</td>
+            </tr>
+            <tr>
+              <td class="util-extra"></td>
+              <td class="util-extra"></td>
+              <td class="util-extra"></td>
+              <td class="util-extra"></td>
+              <td class="util-extra"></td>
+              <td class="util-extra"></td>
+            </tr>
+          </table>
+
+          {# ── (3) 정산내용 ── #}
+          <section class="sec settle">
+            <div class="sec-h">(3) 정산내용</div>
+            <div class="amt-line">
+              <span class="mark">♧</span>정산금액 :
+              {% if settle.amount %}<strong>{{ settle.amount }}</strong>{% endif %}
+            </div>
+            <div class="formula">
+              산 출 식 :⑤−⑥−⑦
+              {% if settle.formula_nums %}
+              &nbsp;&nbsp;{{ settle.formula_nums }}
+              {% endif %}
+            </div>
+          </section>
+
+          <div class="sign">
+            <div>{{ settle.confirm_year or '　　' }}년　{{ settle.confirm_month or '　' }}월　{{ settle.confirm_day or '　' }}일　상기사항이 틀림없음을 확인합니다.</div>
+            <div class="who">확인자: {{ settle.confirmer or '' }}　　　　　　(인)</div>
+          </div>
+        </div>
+      </td></tr></tbody>
+    </table>
   </div>
 </body>
 </html>

@@ -7,8 +7,8 @@ from flask import render_template, request
 import db
 from app_instance import app
 from utils import (
-    build_pager as _build_pager,
     login_required,
+    make_pager as _make_pager,
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
     tenant_is_past_out as _tenant_is_past_out,
@@ -34,18 +34,10 @@ def search():
     if tenant_status not in ("current", "past", "all"):
         tenant_status = "all"
 
-    per_page = 30
-    try:
-        page = int(request.args.get("page") or 1)
-    except (TypeError, ValueError):
-        page = 1
-    if page < 1:
-        page = 1
-
     results = []
     total = 0
-    total_pages = 1
     has_filter = bool(q or bunji1 or bunji2 or hosu or ipju_seq or tenant_status != "all")
+    pager = _make_pager(0)
     if has_filter:
         where = []
         args = []
@@ -76,26 +68,28 @@ def search():
             args,
         )
         total = int((count_row or {}).get("c") or 0)
-        total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
-        if page > total_pages:
-            page = total_pages
-        offset = (page - 1) * per_page
+        pager = _make_pager(total)
 
+        # 건물에서 들어온 조회(주소만): 호실·순번 순. 이름 검색은 최근 입주 순.
+        if bunji1 and bunji2 and not q:
+            order_sql = """
+                LPAD(TRIM(hosu), 6, '0'),
+                CAST(ipju_seq AS UNSIGNED),
+                ipju_dt
+            """
+        else:
+            order_sql = "(out_dt IS NULL) DESC, ipju_dt DESC"
         sql = f"""
             SELECT bunji1, bunji2, hosu, ipju_seq, ipju_nm, ipju_tel1, ipju_tel2,
                    ipju_dt, out_dt, rent_amt, manage_amt, bojung_amt
             FROM bd03_det
             WHERE {where_sql}
-            ORDER BY (out_dt IS NULL) DESC, ipju_dt DESC
+            ORDER BY {order_sql}
             LIMIT %s OFFSET %s
         """
-        results = db.query(sql, args + [per_page, offset])
+        results = db.query(sql, args + [pager["per_page"], pager["offset"]])
         for r in results or []:
             r["is_past"] = _tenant_is_past_out(r.get("out_dt"))
-
-    pager = _build_pager(page, total_pages, page_block_size=6)
-    pager["total"] = total
-    pager["per_page"] = per_page
 
     return render_template(
         "search.html",
@@ -107,9 +101,9 @@ def search():
         tenant_status=tenant_status,
         results=results,
         total=total,
-        total_pages=total_pages,
-        page=page,
-        per_page=per_page,
+        total_pages=pager["total_pages"],
+        page=pager["page"],
+        per_page=pager["per_page"],
         pager=pager,
         has_filter=has_filter,
     )

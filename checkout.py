@@ -3,6 +3,8 @@
 퇴실 정산 작성/저장, 퇴실(예정)자 조회, 계약 해지 인쇄
 라우트와 그 전용 도우미 함수들을 모아둔 모듈입니다.
 """
+import math
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 
 from flask import flash, redirect, render_template, request, session, url_for
@@ -12,7 +14,8 @@ from app_instance import app
 from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
     building_label as _building_label,
-    build_pager as _build_pager,
+    make_pager as _make_pager,
+    paginate as _paginate,
     fmt_bunji,
     fmt_date,
     fmt_ipju_short as _fmt_ipju_short,
@@ -20,9 +23,21 @@ from utils import (
     login_required,
     money,
     pad_bunji as _pad_bunji,
+    require_write_access,
     tenant_is_past_out as _tenant_is_past_out,
     to_int_amt as _to_int_amt,
 )
+
+
+def _ceil_100(v):
+    """10원 이하 올림. 백원 단위만 남김."""
+    try:
+        n = float(v or 0)
+    except (TypeError, ValueError):
+        return 0
+    if n <= 0:
+        return 0
+    return int(math.ceil(n / 100.0) * 100)
 
 
 def _to_date(v):
@@ -39,6 +54,61 @@ def _to_date(v):
         return None
 
 
+def _add_months(d, months):
+    d = _to_date(d)
+    if not d:
+        return None
+    y = d.year + (d.month - 1 + months) // 12
+    m = (d.month - 1 + months) % 12 + 1
+    return date(y, m, min(d.day, monthrange(y, m)[1]))
+
+
+def _cycle_bounds(ipju_dt, pay_dt, napbu="B"):
+    """입주일 기념일 주기. 선납(A)은 입금한 달의 기념일, 후납은 입금일이 속한 주기."""
+    ipju = _to_date(ipju_dt)
+    pay = _to_date(pay_dt)
+    if not ipju or not pay:
+        return None, None
+    if str(napbu or "B").strip().upper() == "A":
+        # 입금한 달의 기념일 주기. 3/16 입금 → 03-15~04-14 (다음 달로 건너뛰지 않음)
+        n = (pay.year - ipju.year) * 12 + (pay.month - ipju.month)
+        if n < 0:
+            n = 0
+        start = _add_months(ipju, n)
+    else:
+        n = (pay.year - ipju.year) * 12 + (pay.month - ipju.month)
+        if pay.day < ipju.day:
+            n -= 1
+        n = max(0, n)
+        while True:
+            nxt = _add_months(ipju, n + 1)
+            if nxt is None or pay < nxt:
+                break
+            n += 1
+        start = _add_months(ipju, n)
+    end = _add_months(start, 1) if start else None
+    if not start or not end:
+        return None, None
+    return start, end - timedelta(days=1)
+
+
+def _months_between(a, b):
+    if not a or not b:
+        return 0
+    return (b.year - a.year) * 12 + (b.month - a.month)
+
+
+def _cycle_label(start, end):
+    if not start or not end:
+        return ""
+    return f"{start.strftime('%y-%m-%d')}~{end.strftime('%m-%d')}"
+
+
+def _pay_kind(char):
+    c = str(char or "").strip().zfill(2)
+    return "임대" if c == "01" else "보증"
+
+
 def _period_mm_dd(ipju_dt, out_dt):
     """입주~퇴실 개월·일 (XP 입주기간)."""
     start = _to_date(ipju_dt)
@@ -48,10 +118,11 @@ def _period_mm_dd(ipju_dt, out_dt):
     months = (end.year - start.year) * 12 + (end.month - start.month)
     if end.day < start.day:
         months -= 1
-        # 이전달 말일
+        # 이전달 말일. 입주일이 31일처럼 그 달에 없는 날짜면(예: 1/31→2월 차입)
+        # 그 달의 말일로 맞춰서 계산해야 날짜 수가 음수/0으로 잘못 나오지 않음.
         first = end.replace(day=1)
         prev_last = first - timedelta(days=1)
-        days = prev_last.day - start.day + end.day
+        days = prev_last.day - min(start.day, prev_last.day) + end.day
     else:
         days = end.day - start.day
     return max(0, months), max(0, days)
@@ -161,7 +232,7 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
 
     mm, dd = _period_mm_dd(ipju_d, out_d)
     monthly = rent + manage
-    # 후납 기준 입금총액 추정: 보증+예치+(임+관)×개월 + 일할 임대 + 수리
+    # 후납 기준 입금총액: 보증+예치+(임+관)×개월 + 일할(임+관) + 수리
     suri = _to_int_amt(extra.get("suri"))
     if suri <= 0:
         suri_row = db.query_one(
@@ -174,13 +245,22 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         )
         suri = _to_int_amt((suri_row or {}).get("a"))
 
-    day_rent = int(round(rent * dd / 30.0)) if dd and rent else 0
-    if napbu == "A":
-        # 선납: 대략 보+예+(임+관)×개월 + 수리 − 일할 환급 추정
-        base = bojung + yechi + monthly * mm + suri - day_rent
-    else:
-        base = bojung + yechi + monthly * mm + day_rent + suri
-    base = max(0, base)
+    # 잔여 일수: 그 주기 실제 일수로 나눔. 365일 일할이면 31일이 월세보다 커짐.
+    day_amt = 0
+    if dd and monthly and ipju_d:
+        cyc_s = _add_months(ipju_d, mm)
+        cyc_e = _add_months(ipju_d, mm + 1)
+        cyc_len = (cyc_e - cyc_s).days if cyc_s and cyc_e else 0
+        if cyc_len > 0:
+            if dd >= cyc_len:
+                day_amt = monthly
+            else:
+                day_amt = _ceil_100(monthly * dd / float(cyc_len))
+                if day_amt > monthly:
+                    day_amt = monthly
+    # ③거주기간(총액) = (임+관)×개월 + 일할. 보증/예치·수리는 넣지 않음.
+    stay_amt = monthly * mm + day_amt
+    base = max(0, bojung + yechi + stay_amt + suri)
 
     pays = db.query(
         """
@@ -200,15 +280,24 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         dac = _to_int_amt(p.get("su_dache_amt"))
         tot = sil + dac
         sukum_tot += tot
+        kind = _pay_kind(p.get("sukum_char"))
+        cyc_s, cyc_e = _cycle_bounds(ipju_d, p.get("sukum_dt"), napbu)
+        period = _cycle_label(cyc_s, cyc_e) if kind == "임대" else ""
+        dt_s = _fmt_ipju_short(p.get("sukum_dt"))
+        amt_s = money(tot)
         pay_list.append(
             {
-                "dt": _fmt_ipju_short(p.get("sukum_dt")),
+                "dt": dt_s,
                 "dt_full": fmt_date(p.get("sukum_dt")),
                 "amt": tot,
-                "amt_disp": money(tot),
+                "amt_disp": amt_s,
                 "sil": sil,
                 "dache": dac,
                 "char": p.get("sukum_char") or "",
+                "kind": kind,
+                "period": period,
+                "cycle_start": cyc_s.isoformat() if cyc_s else "",
+                "cycle_end": cyc_e.isoformat() if cyc_e else "",
             }
         )
 
@@ -241,6 +330,7 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         "out_dt": out_d.isoformat(),
         "gijun_dt": out_d.isoformat(),
         "ipju_dt": fmt_date(ipju_d),
+        "ipju_dt_raw": ipju_d.isoformat() if ipju_d else "",
         "tenant_out_dt": fmt_date(tenant.get("out_dt")) if not is_current else "",
         "is_current": is_current,
         "ipju_nm": nm,
@@ -258,8 +348,9 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         "mm": mm,
         "dd": dd,
         "period_label": f"{mm}개월 {dd}일",
+        "day_amt": day_amt,
         "suri_amt": suri,
-        "ipkum_gijun": base,
+        "ipkum_gijun": stay_amt,
         "sukum_tot": sukum_tot,
         "h_amt": h_amt,
         "misu_amt": misu,
@@ -273,6 +364,48 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         "payments": pay_list,
         "building_label": juso or addr,
     }
+
+
+def _paginate_pay_items(payments, has_day_amt):
+    """계약 해지 인쇄: 납부현황을 A4 한 페이지(3칸)씩 잘라서 반환.
+
+    한 페이지에 몇 줄이 들어가는지는 인쇄 CSS(7pt, 줄간격 1.22, 칸 헤더 포함)로
+    실제 렌더링해 픽셀 단위로 측정한 값을 바탕으로 계산한다(여유를 두어 넘치지
+    않는 쪽으로 보수적으로 잡음). 반환값: [[col1, col2, col3], [col1, col2, col3], ...]
+    페이지마다 3칸으로 고르게 나뉘고, 마지막 항목이 일할계산 행이면
+    {"is_day_amt": True} 로 표시해 템플릿에서 따로 렌더링한다.
+    """
+    items = list(payments)
+    if has_day_amt:
+        items.append({"is_day_amt": True})
+    if not items:
+        return []
+
+    mm_to_px = 96 / 25.4
+    page_usable_px = 277 * mm_to_px  # @page margin 10mm+10mm 뺀 인쇄 가능 높이
+    head_px = 230  # 반복 헤더(제목+해지상황+①②), 주소 2줄 대비 여유 포함
+    pay_header_row_px = 16.5  # 칸별 "년도/기간/입금일/입금액" 제목행
+    data_row_px = 12.0  # 데이터 행 평균(년도 구분선·일할행 굵게 포함 여유)
+    safety_rows = 1
+
+    rows_per_col = max(
+        1,
+        int((page_usable_px - head_px - pay_header_row_px) / data_row_px) - safety_rows,
+    )
+    per_page = rows_per_col * 3
+
+    pages = []
+    for start in range(0, len(items), per_page):
+        page_items = items[start:start + per_page]
+        col_n = 3
+        row_n = (len(page_items) + col_n - 1) // col_n
+        cols = [page_items[i * row_n:(i + 1) * row_n] for i in range(col_n)]
+        # 짧은 칸은 빈 줄로 채워 세 칸 높이를 맞춤 → 칸 구분선을 진짜 border로
+        # 그려도(배경 그라디언트 안 씀) 항상 끝까지 이어짐
+        for col in cols:
+            col.extend({"is_filler": True} for _ in range(row_n - len(col)))
+        pages.append(cols)
+    return pages
 
 
 def _checkout_to_print(data):
@@ -289,7 +422,10 @@ def _checkout_to_print(data):
         "broker_note": "",
         "move_after": "",
         "tel": data.get("tel") or "",
-        "bojung_disp": money(data.get("bojung_amt")),
+        "bojung_disp": money(
+            data.get("bojung_amt") if _to_int_amt(data.get("bojung_amt"))
+            else data.get("yechi_amt")
+        ),
         "rent_manage_label": data.get("rent_manage_label") or "",
         "ipju_dt": data.get("ipju_dt") or "",
         "out_dt": data.get("out_dt") or "",
@@ -301,16 +437,180 @@ def _checkout_to_print(data):
     )}
     rent = {
         "period": data.get("period_label") or "",
+        "dd": data.get("dd") or 0,
+        "day_amt": money(data.get("day_amt")) if _to_int_amt(data.get("day_amt")) else "",
         "repair_amt": money(data.get("suri_amt")) if _to_int_amt(data.get("suri_amt")) else "",
         "base_total": money(data.get("ipkum_gijun")),
         "paid_total": money(data.get("sukum_tot")),
         "refundable": money(data.get("h_amt")),
         "unpaid": money(data.get("misu_amt")),
     }
-    payments = [
-        {"dt": p.get("dt") or "", "amt": p.get("amt_disp") or money(p.get("amt"))}
-        for p in (data.get("payments") or [])
-    ]
+    pay_src = list(data.get("payments") or [])
+    pay_src.sort(key=lambda p: (0 if p.get("kind") == "보증" else 1))
+    monthly = _to_int_amt(data.get("rent_amt")) + _to_int_amt(data.get("manage_amt"))
+    payments = []
+    month_left = monthly
+    for p in pay_src:
+        amt_n = _to_int_amt(p.get("amt"))
+        amt_s = p.get("amt_disp") or money(p.get("amt"))
+        kind = p.get("kind") or ""
+        item = {
+            "dt": p.get("dt") or "",
+            "dt_full": p.get("dt_full") or "",
+            "amt": amt_s,
+            "kind": kind,
+            "is_rent": True,
+            "yy1": "",
+            "start_md": "",
+            "end_md": "",
+            "pay_md": "",
+            "year_break": False,
+            "tone": "",
+            "amt_n": amt_n,
+            "cycle_start": p.get("cycle_start") or "",
+            "fill_row": False,
+        }
+        if kind == "보증":
+            pay_d = _to_date(p.get("dt_full") or p.get("dt"))
+            item["yy1"] = "보증"
+            item["pay_md"] = pay_d.strftime("%y-%m-%d") if pay_d else (p.get("dt") or "")
+        else:
+            pay_n = amt_n
+            if monthly > 0 and pay_n > 0:
+                if pay_n < month_left:
+                    item["tone"] = "short"
+                    month_left -= pay_n
+                elif pay_n > monthly:
+                    item["tone"] = "over"
+                    extra = (pay_n - month_left) % monthly
+                    month_left = monthly if extra == 0 else monthly - extra
+                else:
+                    extra = (pay_n - month_left) % monthly
+                    month_left = monthly if extra == 0 else monthly - extra
+        payments.append(item)
+
+    cursor = None
+    slot_left = monthly
+    last_pay_year = None
+    rows = []
+    out_d = _to_date(data.get("out_dt") or data.get("gijun_dt"))
+    for item in payments:
+        if item.get("kind") != "임대":
+            rows.append(item)
+            continue
+        nat_s = _to_date(item.get("cycle_start"))
+        pay_d = _to_date(item.get("dt_full") or item.get("dt"))
+        amt = item.get("amt_n") or 0
+        if cursor is None:
+            assigned = nat_s
+        else:
+            assigned = cursor
+        if not assigned:
+            rows.append(item)
+            continue
+        n_periods = 1
+        if monthly > 0 and amt > monthly:
+            n_periods = max(1, amt // monthly)
+        one_end = _add_months(assigned, 1)
+        item["start_md"] = assigned.strftime("%m/%d")
+        item["end_md"] = (one_end - timedelta(days=1)).strftime("%m/%d") if one_end else ""
+        item["period_year"] = assigned.year
+        item["period_sort"] = assigned.isoformat()
+        if pay_d:
+            pay_y = pay_d.year
+            show_pay_yy = last_pay_year is None or pay_y != last_pay_year
+            item["pay_md"] = (
+                pay_d.strftime("%y-%m-%d") if show_pay_yy else pay_d.strftime("%m-%d")
+            )
+            last_pay_year = pay_y
+        rows.append(item)
+        extra_from = _add_months(assigned, 1)
+        n_extras = n_periods - 1
+        last_fill = None
+        for i in range(n_extras):
+            extra_s = _add_months(extra_from, i)
+            extra_e = _add_months(extra_from, i + 1)
+            if not extra_s or not extra_e:
+                break
+            if out_d and extra_s > out_d:
+                break
+            rows.append(
+                {
+                    "dt": "",
+                    "amt": "",
+                    "kind": "임대",
+                    "is_rent": True,
+                    "yy1": "",
+                    "start_md": extra_s.strftime("%m/%d"),
+                    "end_md": (extra_e - timedelta(days=1)).strftime("%m/%d"),
+                    "pay_md": "",
+                    "year_break": False,
+                    "tone": "",
+                    "amt_n": 0,
+                    "fill_row": True,
+                    "period_year": extra_s.year,
+                    "period_sort": extra_s.isoformat(),
+                }
+            )
+            last_fill = extra_s
+        if last_fill:
+            cursor = _add_months(last_fill, 1)
+            rem = amt % monthly if monthly else 0
+            slot_left = monthly - rem if rem else monthly
+        elif monthly > 0 and amt < slot_left:
+            cursor = assigned
+            slot_left -= amt
+        else:
+            cursor = _add_months(assigned, 1)
+            slot_left = monthly
+
+    head = [r for r in rows if r.get("kind") != "임대"]
+    rent_rows = [r for r in rows if r.get("kind") == "임대"]
+    rent_rows.sort(
+        key=lambda r: (
+            r.get("period_sort") or "9999-99-99",
+            1 if r.get("fill_row") else 0,
+            r.get("dt_full") or r.get("dt") or "",
+        )
+    )
+    rows = head + rent_rows
+    last_period_year = None
+    seen_rent = False
+    for item in rows:
+        if item.get("kind") != "임대" or not item.get("start_md"):
+            if item.get("yy1") == "보증":
+                seen_rent = True
+            continue
+        period_y = item.get("period_year")
+        show_yy = period_y is not None and period_y != last_period_year
+        item["year_break"] = bool(show_yy and seen_rent)
+        item["yy1"] = f"{period_y % 100:02d}" if show_yy else ""
+        if period_y is not None:
+            last_period_year = period_y
+        seen_rent = True
+
+    payments = rows
+    last_period = None
+    kept = []
+    for item in payments:
+        if item.get("kind") != "임대":
+            last_period = None
+            kept.append(item)
+            continue
+        if not item.get("start_md"):
+            kept.append(item)
+            continue
+        key = (item.get("period_year"), item.get("start_md"), item.get("end_md"))
+        if key == last_period:
+            if item.get("fill_row"):
+                continue
+            item["start_md"] = ""
+            item["end_md"] = ""
+        else:
+            last_period = key
+        kept.append(item)
+    payments = kept
+    rent["pay_pages"] = _paginate_pay_items(payments, bool(rent.get("day_amt")))
     util = {
         "elec": money(data.get("elec_amt")) if _to_int_amt(data.get("elec_amt")) else "",
         "water": money(data.get("sudo_amt")) if _to_int_amt(data.get("sudo_amt")) else "",
@@ -509,6 +809,7 @@ def _save_checkout(data, uid):
 
 @app.route("/checkout", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def checkout():
     """퇴실 정산 관리 (XP). 조회·저장·인쇄."""
     today = date.today().isoformat()
@@ -582,10 +883,23 @@ def checkout():
         elif data:
             f["ipju_seq"] = data.get("ipju_seq") or f["ipju_seq"]
 
+    pager = None
+    if data and data.get("payments"):
+        data["payments"], pager = _paginate(data["payments"])
+
+    if (request.args.get("partial") or "").strip() == "pays":
+        return render_template(
+            "checkout_pays.html",
+            form=f,
+            data=data or {"payments": []},
+            pager=pager,
+        )
+
     return render_template(
         "checkout.html",
         form=f,
         data=data,
+        pager=pager,
         building_label=_building_label(f["bunji1"], f["bunji2"])
         if f["bunji1"] and f["bunji2"]
         else "",
@@ -594,6 +908,7 @@ def checkout():
 
 @app.route("/checkout/list", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def checkout_list():
     """
     퇴실(예정)자 조회 및 변경처리 (XP「호수 퇴실자 내역 조회」).
@@ -664,14 +979,6 @@ def checkout_list():
     mode = (request.args.get("mode") or "all").strip().lower()
     if mode not in ("all", "out", "plan"):
         mode = "all"
-    per_page = 30
-    try:
-        page = int(request.args.get("page") or 1)
-    except (TypeError, ValueError):
-        page = 1
-    if page < 1:
-        page = 1
-
     # 최소 조건: 주소 · 호수 · 이름 중 하나 이상
     has_min_filter = bool(bunji1 or hosu or name)
     want_query = "q" in request.args
@@ -717,10 +1024,8 @@ def checkout_list():
             args,
         )
         total = int((cnt or {}).get("c") or 0)
-        total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
-        if page > total_pages:
-            page = total_pages
-        offset = (page - 1) * per_page
+        pager = _make_pager(total)
+        page = pager["page"]
 
         rows = db.query(
             f"""
@@ -731,7 +1036,7 @@ def checkout_list():
             ORDER BY COALESCE(out_dt, plan_out_dt) DESC, bunji1, bunji2, hosu
             LIMIT %s OFFSET %s
             """,
-            args + [per_page, offset],
+            args + [pager["per_page"], pager["offset"]],
         )
         for r in rows:
             has_out = r.get("out_dt") and (
@@ -802,9 +1107,8 @@ def checkout_list():
         else:
             empty_msg = f"조건에 맞는 {mode_lab} 이력이 없습니다."
 
-    pager = _build_pager(page, total_pages, page_block_size=6)
-    pager["total"] = total
-    pager["per_page"] = per_page
+    if not ran:
+        pager = _make_pager(0)
 
     return render_template(
         "checkout_list.html",
@@ -814,7 +1118,7 @@ def checkout_list():
             "hosu": hosu,
             "name": name,
             "mode": mode,
-            "page": page,
+            "page": pager["page"],
         },
         results=results,
         ran=ran,

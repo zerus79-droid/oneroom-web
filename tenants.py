@@ -19,6 +19,7 @@ from utils import (
     clamp_date_str,
     fmt_date,
     login_required,
+    require_write_access,
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
     tenant_is_past_out as _tenant_is_past_out,
@@ -399,6 +400,7 @@ def _saved_snapshot(form, was_insert, amounts):
 
 @app.route("/tenants/manage", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def tenant_manage():
     """입주자관리 · 입주 이력 등록/수정 (레거시 「입주 이력 등록」 창)"""
     buildings, rooms = _buildings_and_rooms()

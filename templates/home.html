@@ -36,7 +36,7 @@
         <span class="dash-kpi-circle st-navy">{{ stats.building_total }}</span>
         <span class="dash-kpi-lab">건물</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('buildings', next='rooms') }}">
+      <a class="dash-kpi" href="{{ url_for('vacancies', only_empty=0) }}">
         <span class="dash-kpi-circle st-info">{{ stats.room_total }}</span>
         <span class="dash-kpi-lab">전체 호수</span>
       </a>
@@ -49,7 +49,7 @@
         <span class="dash-kpi-lab">공실</span>
       </a>
       <a class="dash-kpi" href="{{ url_for('misu') }}">
-        <span class="dash-kpi-circle st-overdue">!</span>
+        <span class="dash-kpi-circle st-overdue">{{ stats.misu_total }}</span>
         <span class="dash-kpi-lab">미수조회</span>
       </a>
       <a class="dash-kpi" href="{{ url_for('checkout_list') }}">

@@ -1,72 +1,77 @@
 {% extends "base.html" %}
 {% block title %}{% if next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %} · 주택관리 시스템{% endblock %}
 {% block content %}
-<div class="legacy-sukum-panel card table-scroll">
+<div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">{% if next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %}</span>
-    {% if next_mode!='rooms' %}
-    <span class="caption-actions">
-      <a class="btn secondary" href="{{ url_for('building_new') }}">건물 신규 등록</a>
-    </span>
-    {% endif %}
   </div>
   <div class="legacy-sukum-body">
-  {% if buildings %}
-  <table class="legacy-grid">
-    <thead>
-      <tr>
-        <th class="tc">★주소</th>
-        <th class="tc">▶ 건물명</th>
-        <th class="tc">▶ 건물주명</th>
-        <th>전화</th>
-        <th>건축일</th>
-        <th class="tc">층수</th>
-        <th class="num">최초보증금</th>
-        <th class="num">관리수수료</th>
-        <th class="tc">전기료납부</th>
-        <th class="num col-nowrap">호수</th>
-        <th class="num col-nowrap">현재입주</th>
-        <th class="tc">메뉴</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for b in buildings %}
-      {% if next_mode=='rooms' %}
-      <tr class="click-row" onclick="location.href='{{ url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) }}'">
-      {% else %}
-      <tr class="click-row" onclick="location.href='{{ url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) }}'">
-      {% endif %}
-        <td class="tc col-nowrap"><strong>{{ b.bunji1|bunji_pair(b.bunji2) }}</strong></td>
-        <td class="tc">{{ b.juso or '' }}</td>
-        <td class="tc">{{ b.owner_nm or '' }}</td>
-        <td class="col-nowrap">{{ b.owner_tel|mask_phone }}</td>
-        <td class="col-nowrap">{{ b.building_dt or '' }}</td>
-        <td class="tc">{{ b.floor_no if b.floor_no is not none else '' }}</td>
-        <td class="num col-nowrap">{{ b.first_amt|money }}</td>
-        <td class="num col-nowrap">{{ b.man_cost|money }}</td>
-        <td class="tc col-nowrap">{{ b.elec_label or b.elec_gb or '' }}</td>
-        <td class="num col-nowrap">{{ b.room_cnt }}</td>
-        <td class="num col-nowrap">
-          {% if b.room_cnt == 0 and b.tenant_cnt == 0 %}
-          <span class="badge empty">미등록</span>
-          {% else %}
-          {{ b.tenant_cnt }}
-          {% endif %}
-        </td>
-        <td class="tc">
-          {% if next_mode=='rooms' %}
-          <a href="{{ url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) }}" onclick="event.stopPropagation()">호수</a>
-          {% else %}
-          <a href="{{ url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) }}" onclick="event.stopPropagation()">내역</a>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">등록된 건물이 없습니다.</p>
-  {% endif %}
+    <form class="filter-bar" method="get" action="{{ url_for('buildings') }}">
+      <div class="filter-bar-fields">
+        {% if next_mode=='rooms' %}<input type="hidden" name="next" value="rooms">{% endif %}
+        <div class="ls-row">
+          <label class="ls-lab">검색어</label>
+          <div class="ls-val">
+            <input id="bldg_q" name="q" value="{{ q or '' }}" placeholder="검색어를 입력하세요." autocomplete="off" class="ls-box">
+          </div>
+        </div>
+      </div>
+      <div class="filter-bar-btns filter-bar-btns-single">
+        <button type="submit" class="btn">검색</button>
+        <a class="btn" href="{{ url_for('buildings') }}">초기화</a>
+        {% if next_mode!='rooms' %}
+        <a class="btn secondary" href="{{ url_for('building_new') }}">신규등록</a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if buildings %}
+    {% for b in buildings %}
+    {% set href = url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) if next_mode=='rooms' else url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) %}
+    <article class="bldg-card">
+      <header class="bldg-card-head">
+        <a class="bldg-card-title" href="{{ href }}">{{ b.juso or '이름 없음' }} [{{ b.bunji1|bunji_pair(b.bunji2) }}]</a>
+      </header>
+      <div class="bldg-card-body">
+        <div class="bldg-card-left">
+          <div class="bldg-card-count">총 {{ b.room_cnt }}호수</div>
+          <div class="bldg-card-illust" aria-hidden="true">
+            <svg viewBox="0 0 120 120" width="120" height="120">
+              <circle cx="60" cy="60" r="56" fill="#e8eef4"/>
+              <rect x="34" y="38" width="52" height="52" rx="3" fill="#8fb4d4"/>
+              <rect x="38" y="28" width="44" height="12" rx="2" fill="#7aa3c7"/>
+              <rect x="42" y="46" width="10" height="10" fill="#f4f8fb"/>
+              <rect x="55" y="46" width="10" height="10" fill="#f4f8fb"/>
+              <rect x="68" y="46" width="10" height="10" fill="#f4f8fb"/>
+              <rect x="42" y="60" width="10" height="10" fill="#f4f8fb"/>
+              <rect x="55" y="60" width="10" height="10" fill="#f4f8fb"/>
+              <rect x="68" y="60" width="10" height="10" fill="#f4f8fb"/>
+              <rect x="54" y="74" width="12" height="16" fill="#6b8eab"/>
+            </svg>
+          </div>
+        </div>
+        <div class="bldg-card-mid">
+          <table class="bldg-card-table">
+            <tr><th>주소</th><td>{{ b.juso or '' }} {{ b.bunji1|bunji_pair(b.bunji2) }}</td></tr>
+            <tr><th>건물주</th><td>{{ b.owner_nm or '없음' }}{% if b.owner_tel %} · {{ b.owner_tel|mask_phone }}{% else %} · 미등록{% endif %}</td></tr>
+            <tr><th>층수</th><td>{% if b.floor_no is not none %}{{ b.floor_no }}층{% else %}없음{% endif %}</td></tr>
+            <tr><th>준공연도</th><td>{% if b.build_year %}{{ b.build_year }}년{% else %}없음{% endif %}</td></tr>
+            <tr><th>전기료납부</th><td>{{ b.elec_label or '없음' }}</td></tr>
+            <tr><th>계좌정보</th><td>{{ b.bank_disp }}</td></tr>
+          </table>
+          <nav class="bldg-card-actions">
+            <a href="{{ url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) }}">건물정보</a>
+            <a href="{{ url_for('search', bunji1=b.bunji1, bunji2=b.bunji2, tenant_status='all') }}">세입자정보</a>
+            <a href="{{ url_for('vacancies', bunji1=b.bunji1, bunji2=b.bunji2) }}">건물주요현황</a>
+            <a href="{{ url_for('payments', bunji1=b.bunji1, bunji2=b.bunji2) }}">수금 현황</a>
+          </nav>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+    {% else %}
+    <p class="empty">{% if q %}검색 결과가 없습니다.{% else %}등록된 건물이 없습니다.{% endif %}</p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

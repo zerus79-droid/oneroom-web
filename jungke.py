@@ -16,7 +16,9 @@ from utils import (
     login_required,
     money,
     pad_bunji as _pad_bunji,
+    paginate as _paginate,
     parse_money as _parse_money,
+    require_write_access,
 )
 
 
@@ -57,6 +59,7 @@ def _jungke_next_seq(jungke_dt):
 
 @app.route("/jungke", methods=["GET", "POST"])
 @login_required
+@require_write_access
 def jungke():
     """중개수수료 등록 · 기간 목록 (XP「중개수수료 등록」 → sjungke01)."""
     today = date.today()
@@ -250,10 +253,14 @@ def jungke():
             }
             building_label = _building_label(form["bunji1"], form["bunji2"])
 
+    pager = None
+    if results:
+        results, pager = _paginate(results)
     return render_template(
         "jungke.html",
         form=form,
         filters=filters,
         results=results,
         building_label=building_label,
+        pager=pager,
     )

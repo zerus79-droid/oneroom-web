@@ -15,6 +15,7 @@ from utils import (
     login_required,
     months_elapsed as _months_elapsed,
     pad_bunji as _pad_bunji,
+    paginate as _paginate,
     to_int_amt as _to_int_amt,
 )
 
@@ -134,6 +135,13 @@ def misu():
         # 미수 큰 순
         results.sort(key=lambda x: (-x["misu_amt"], x["bunji1"] or "", x["hosu"] or ""))
 
+    # 전체 건수 저장 (페이징 전)
+    total_count = len(results)
+
+    pager = None
+    if ran and results:
+        results, pager = _paginate(results)
+
     return render_template(
         "misu.html",
         filters={
@@ -147,4 +155,6 @@ def misu():
         results=results,
         ran=ran,
         total_misu=total_misu,
+        total_count=total_count,
+        pager=pager,
     )

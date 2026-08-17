@@ -1,0 +1,101 @@
+{# 조회 결과만. 전체 화면 또는 AJAX(partial=result|list) 공통. 필터 폼은 그대로. #}
+<div id="payments-result-wrap"
+     data-ipju-seq="{{ filters.ipju_seq or '' }}"
+     data-all-hist="{{ filters.all_hist or '' }}"
+     data-date-from="{{ filters.date_from or '' }}"
+     data-date-to="{{ filters.date_to or '' }}"
+     data-name="{{ filters.name or '' }}"
+     data-name-mode="{{ filters.name_mode or '' }}"
+     data-hosu="{{ filters.hosu or '' }}"
+     data-bunji1="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+     data-bunji2="{{ filters.bunji2|bunji if filters.bunji2 else '' }}">
+{% if name_list_mode and payment_groups is defined %}
+  {# 이름 동명이인 또는 호실 과거/전체 입주자 목록 — 행 클릭 시 그 이력 #}
+  <div class="panel-section-lab">
+    {% if picker_kind == 'room' %}
+      {% if filters.tenant_status == 'past' %}과거 입주자{% else %}입주자 선택{% endif %}
+      <span class="muted">
+        {{ filters.bunji1|bunji_pair(filters.bunji2) }} {{ filters.hosu }}호
+        · {{ pager.total if pager else payment_groups|length }}명 · 행 클릭 시 해당 이력
+      </span>
+    {% else %}
+      동명이인 · 「{{ filters.name }}」
+      <span class="muted">{{ pager.total if pager else payment_groups|length }}곳 · 행 클릭 시 상세</span>
+    {% endif %}
+  </div>
+  {% set pager_endpoint = 'payments' %}
+  {% set pager_label = '수금 목록 페이지' %}
+  {% set pager_query = {
+    'name': filters.name or none,
+    'name_mode': filters.name_mode or none,
+    'tenant_status': filters.tenant_status,
+    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+    'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+    'hosu': filters.hosu or none,
+    'ipju_seq': filters.ipju_seq or none,
+    'date_from': filters.date_from or none,
+    'date_to': filters.date_to or none,
+    'all_hist': filters.all_hist or none
+  } %}
+  {% include '_pager.html' %}
+  {% if payment_groups %}
+  <div class="panel-table-wrap table-scroll">
+    <table class="legacy-grid name-summary-table">
+      <thead>
+        <tr>
+          <th>세입자</th>
+          <th>주소</th>
+          <th>건물명</th>
+          <th>호실</th>
+          <th>입주순번</th>
+          <th>입주일</th>
+          <th>퇴실일</th>
+          <th class="num">수금건수</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in payment_groups %}
+        <tr class="click-row name-summary-row"
+            title="클릭: 해당 세입자 전체 수금(대체) 현황"
+            data-href="{{ url_for('payments', name=g.ipju_nm, bunji1=g.bunji1, bunji2=g.bunji2, hosu=g.hosu, ipju_seq=g.ipju_seq, all_hist=1, tenant_status=filters.tenant_status) }}">
+          <td>{{ g.ipju_nm or '(이름 없음)' }}</td>
+          <td class="col-nowrap">
+            <span class="bunji-link">{{ g.bunji1|bunji_pair(g.bunji2) }}</span>
+          </td>
+          <td>{{ g.juso or '' }}</td>
+          <td>{{ g.hosu }}</td>
+          <td>{{ g.ipju_seq or '-' }}</td>
+          <td class="col-nowrap">{{ g.ipju_dt|fmt_date if g.ipju_dt else '-' }}</td>
+          <td class="col-nowrap">{% if g.is_current %}거주중{% else %}{{ g.out_dt|fmt_date if g.out_dt else '-' }}{% endif %}</td>
+          <td class="num">
+            {# 이 세입자 전체 수금 건수. 화면에 남은 조회기간(pay_count)이 아님 #}
+            {{ g.hist_count if g.hist_count is defined else (g.pay_count if g.pay_count is defined else (g.payments|length if g.payments is defined else 0)) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel-table-wrap">
+    {% if picker_kind == 'room' %}
+      {% if filters.tenant_status == 'past' %}
+      <p class="empty">이 호실의 과거 입주자가 없습니다. 현 거주자만 있거나 입주 이력이 없습니다.</p>
+      {% else %}
+      <p class="empty">이 호실의 입주 이력이 없습니다.</p>
+      {% endif %}
+    {% else %}
+    <p class="empty">「{{ filters.name }}」 이름으로 등록된 입주자가 없습니다.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+{% elif payments %}
+  {% include "payments_list.html" %}
+{% elif is_fresh %}
+  <p class="empty payments-hint">조건을 입력한 뒤 「조회」하세요.</p>
+{% elif empty_hint %}
+  <p class="empty payments-hint">{{ empty_hint }}</p>
+{% else %}
+  <p class="empty payments-hint">조건에 맞는 수금이 없습니다.</p>
+{% endif %}
+</div>

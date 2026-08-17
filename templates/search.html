@@ -12,7 +12,8 @@
     {% endif %}
   </div>
   <div class="legacy-sukum-body">
-    <form method="get" autocomplete="off">
+    <form method="get" class="filter-bar" autocomplete="off">
+      <div class="filter-bar-fields">
       <div class="ls-row">
         <label class="ls-lab">이름 또는 전화번호</label>
         <div class="ls-val">
@@ -38,12 +39,6 @@
         </div>
       </div>
       <div class="ls-row">
-        <label class="ls-lab">순번</label>
-        <div class="ls-val">
-          <input name="ipju_seq" value="{{ ipju_seq }}" placeholder="예: 01" autocomplete="off" class="ls-box">
-        </div>
-      </div>
-      <div class="ls-row">
         <label class="ls-lab">상태</label>
         <div class="ls-val">
           <select name="tenant_status" id="tenant_status" onchange="this.form.submit()">
@@ -53,24 +48,36 @@
           </select>
         </div>
       </div>
-      <div class="ls-actions">
-        <button type="submit">검색</button>
-        <a class="btn secondary" href="{{ url_for('search') }}">초기화</a>
+      </div>
+      <div class="filter-bar-btns">
+        <button type="submit" class="btn">검색</button>
+        <a class="btn" href="{{ url_for('search') }}">초기화</a>
       </div>
     </form>
 
     <div class="panel-section-lab">검색 결과{% if total %} <span class="muted">{{ total }}건</span>{% elif results %} <span class="muted">{{ results|length }}건</span>{% endif %}</div>
+    {% set pager_endpoint = 'search' %}
+    {% set pager_label = '입주자 조회 페이지' %}
+    {% set pager_query = {
+      'q': q,
+      'bunji1': bunji1,
+      'bunji2': bunji2,
+      'hosu': hosu,
+      'ipju_seq': ipju_seq,
+      'tenant_status': tenant_status
+    } %}
+    {% include '_pager.html' %}
     <div class="panel-table-wrap table-scroll">
       {% if results %}
       <table class="legacy-grid">
         <thead>
           <tr>
             <th>상태</th>
+            <th>호실</th>
+            <th>순번</th>
             <th>이름</th>
             <th>전화</th>
             <th>주소</th>
-            <th>호실</th>
-            <th>순번</th>
             <th>입주</th>
             <th>퇴실</th>
             <th class="num">보증금</th>
@@ -88,13 +95,13 @@
               <span class="badge">거주</span>
               {% endif %}
             </td>
+            <td>{{ r.hosu }}</td>
+            <td>{{ r.ipju_seq }}</td>
             <td>
               <a href="{{ url_for('tenant_manage', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}">{{ r.ipju_nm or '' }}</a>
             </td>
             <td>{{ (r.ipju_tel1 or r.ipju_tel2 or '')|mask_phone }}</td>
             <td><a href="{{ url_for('building_detail', bunji1=r.bunji1, bunji2=r.bunji2) }}">{{ r.bunji1|bunji_pair(r.bunji2) }}</a></td>
-            <td>{{ r.hosu }}</td>
-            <td>{{ r.ipju_seq }}</td>
             <td>{{ r.ipju_dt|fmt_date }}</td>
             <td>{% if r.is_past %}{{ r.out_dt|fmt_date }}{% endif %}</td>
             <td class="num">{{ r.bojung_amt|money }}</td>
@@ -104,37 +111,6 @@
           {% endfor %}
         </tbody>
       </table>
-      {% if pager.total_pages > 1 %}
-      {% set pq = {
-        'q': q,
-        'bunji1': bunji1,
-        'bunji2': bunji2,
-        'hosu': hosu,
-        'ipju_seq': ipju_seq,
-        'tenant_status': tenant_status
-      } %}
-      <nav class="pager" aria-label="입주자 조회 페이지">
-        {% if pager.has_prev %}
-        <a class="pager-btn" href="{{ url_for('search', page=pager.prev_page, **pq) }}">‹ 이전</a>
-        {% else %}
-        <span class="pager-btn is-disabled">‹ 이전</span>
-        {% endif %}
-
-        {% for p in pager.page_window %}
-          {% if p == pager.page %}
-          <span class="pager-num is-current" aria-current="page">{{ p }}</span>
-          {% else %}
-          <a class="pager-num" href="{{ url_for('search', page=p, **pq) }}">{{ p }}</a>
-          {% endif %}
-        {% endfor %}
-
-        {% if pager.has_next %}
-        <a class="pager-btn" href="{{ url_for('search', page=pager.next_page, **pq) }}">다음 ›</a>
-        {% else %}
-        <span class="pager-btn is-disabled">다음 ›</span>
-        {% endif %}
-      </nav>
-      {% endif %}
       {% elif has_filter %}
       <p class="empty">검색 결과가 없습니다.</p>
       {% else %}

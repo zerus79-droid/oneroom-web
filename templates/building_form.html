@@ -3,7 +3,7 @@
 {% block content %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    {% if mode=='new' %}건물 내역 (신규){% else %}건물 내역 (수정){% endif %}
+    <span class="caption-title">{% if mode=='new' %}건물 내역 (신규){% else %}건물 내역 (수정){% endif %}</span>
   </div>
   <form method="post" class="legacy-sukum-body" id="building-form" autocomplete="off">
     <div class="ls-row">
@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <div class="ls-row">
+    <div class="ls-row ls-row-span">
       <label class="ls-lab star">건물명</label>
       <div class="ls-val">
         <input type="text" name="juso" value="{{ form.juso }}" maxlength="30" required placeholder="예: 간석동" class="ls-box">
@@ -65,10 +65,17 @@
       </div>
     </div>
 
-    <div class="ls-row">
+    <div class="ls-row ls-row-bank">
       <label class="ls-lab">은행계좌</label>
       <div class="ls-val">
-        <input type="text" name="bank_cd" value="{{ form.bank_cd }}" maxlength="30" class="ls-box">
+        <input type="text" name="bank_acc" value="{{ form.bank_acc or '' }}" maxlength="30" class="ls-box" placeholder="계좌번호" autocomplete="off">
+      </div>
+      <div class="ls-val">
+        <select name="bank_name" class="ls-select" title="은행">
+          {% for code, name in bank_options %}
+          <option value="{{ code }}" {% if form.bank_name==code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
       </div>
       <label class="ls-lab">전기료납부</label>
       <div class="ls-val">
@@ -160,7 +167,8 @@
     { name: "owner_tel", label: "전화" },
     { name: "building_dt", label: "건축일", normalize: dateNorm },
     { name: "floor_no", label: "층수" },
-    { name: "bank_cd", label: "은행계좌" },
+    { name: "bank_acc", label: "은행계좌" },
+    { name: "bank_name", label: "은행" },
     { name: "elec_gb", label: "전기료납부", display: elecLabel },
     { name: "first_amt", label: "최초보증금", normalize: moneyNorm, display: moneyDisp },
     { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp }

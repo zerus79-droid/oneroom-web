@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}서식 및 자료 · 주택관리 시스템{% endblock %}
+{% block content %}
+
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">서식 및 자료{% if form.mode == 'edit' %} (수정){% endif %}</span>
+    <span class="muted">{{ pager.total }}건</span>
+  </div>
+  <div class="legacy-sukum-body">
+  {% if flash_messages %}
+  <ul class="flash flash-below-form">
+    {% for cat, msg in flash_messages %}
+    <li class="{{ cat }}">{{ msg }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if can_write %}
+  <form method="post" id="doc-form" class="xp-form" autocomplete="off">
+    <input type="hidden" name="action" id="form_action" value="save">
+    <input type="hidden" name="mode" value="{{ form.mode }}">
+    <input type="hidden" name="orig_id" value="{{ form.id }}">
+
+    <div class="ls-row">
+      <label class="ls-lab star">제목</label>
+      <div class="ls-val">
+        <input type="text" name="title" id="title" class="ls-box" required
+               value="{{ form.title }}" maxlength="200" autocomplete="off">
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab">링크</label>
+      <div class="ls-val">
+        <input type="text" name="url" id="url" class="ls-box"
+               value="{{ form.url }}" maxlength="500" placeholder="https://..." autocomplete="off">
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab">내용</label>
+      <div class="ls-val">
+        <textarea name="content" id="content" class="ls-box" rows="4"
+                  placeholder="링크 없이 메모만 남길 수도 있습니다">{{ form.content }}</textarea>
+      </div>
+    </div>
+
+    <div class="ls-actions">
+      <button type="submit" class="btn" id="btn-doc-save" name="action" value="save">저장</button>
+      <button type="button" class="btn secondary" id="btn-doc-delete"
+              data-id="{{ form.id }}" data-title="{{ form.title }}"
+              {% if form.mode != 'edit' or not form.id %}disabled title="목록에서 자료를 선택한 뒤 삭제하세요"{% endif %}>삭제</button>
+      <button type="button" class="btn secondary" id="btn-doc-new">신규</button>
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="panel-section-lab">자료 목록 <span class="muted">{{ pager.total }}건</span></div>
+  <div class="panel-table-wrap table-scroll">
+    {% if rows %}
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th>제목</th>
+          <th class="tc">작성자</th>
+          <th class="tc">등록일</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{% if can_write %}click-row{% endif %}"
+            {% if can_write %}onclick="location.href='{{ url_for('docs', edit_id=r.id) }}'"{% endif %}>
+          <td>
+            {{ r.title }}
+            {% if r.url %}
+            <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer"
+               onclick="event.stopPropagation()" class="doc-link">열기 ↗</a>
+            {% endif %}
+          </td>
+          <td class="tc">{{ r.writer or '' }}</td>
+          <td class="tc col-nowrap">{{ r.created_disp }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">등록된 자료가 없습니다.</p>
+    {% endif %}
+  </div>
+  {% set pager_endpoint = 'docs' %}
+  {% include "_pager.html" %}
+  </div>
+</div>
+
+{% if can_write %}
+<script>
+(function () {
+  var form = document.getElementById('doc-form');
+  if (!form) return;
+  var act = document.getElementById('form_action');
+  var delBtn = document.getElementById('btn-doc-delete');
+  if (delBtn) {
+    delBtn.addEventListener('click', function () {
+      if (delBtn.disabled) return;
+      var title = delBtn.getAttribute('data-title') || '';
+      if (!window.confirm((title || '이 자료') + '를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.')) return;
+      if (act) act.value = 'delete';
+      HTMLFormElement.prototype.submit.call(form);
+    });
+  }
+  var newBtn = document.getElementById('btn-doc-new');
+  if (newBtn) {
+    newBtn.addEventListener('click', function () {
+      if (act) act.value = 'new';
+      HTMLFormElement.prototype.submit.call(form);
+    });
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}
+{% block flash %}{% endblock %}

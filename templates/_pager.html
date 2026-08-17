@@ -1,0 +1,26 @@
+{# 목록 공통 페이지 묶음. 호출 전:
+   pager, pager_endpoint 필수
+   pager_query(dict), pager_label 선택 #}
+{% if pager and pager.total_pages > 1 %}
+{% set _pq = pager_query if pager_query is defined else {} %}
+{% set _lab = pager_label if pager_label is defined else '목록 페이지' %}
+<nav class="pager" aria-label="{{ _lab }}">
+  {% if pager.has_next %}
+  <a class="pager-btn" href="{{ url_for(pager_endpoint, page=pager.next_page, **_pq) }}">다음 ›</a>
+  {% else %}
+  <span class="pager-btn is-disabled">다음 ›</span>
+  {% endif %}
+  {% for p in pager.page_window %}
+    {% if p == pager.page %}
+    <span class="pager-num is-current" aria-current="page">{{ p }}</span>
+    {% else %}
+    <a class="pager-num" href="{{ url_for(pager_endpoint, page=p, **_pq) }}">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if pager.has_prev %}
+  <a class="pager-btn" href="{{ url_for(pager_endpoint, page=pager.prev_page, **_pq) }}">‹ 이전</a>
+  {% else %}
+  <span class="pager-btn is-disabled">‹ 이전</span>
+  {% endif %}
+</nav>
+{% endif %}

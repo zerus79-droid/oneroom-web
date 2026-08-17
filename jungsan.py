@@ -4,7 +4,7 @@
 라우트와 그 전용 도우미 함수들을 모아둔 모듈입니다.
 """
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import redirect, render_template, request, url_for
 
@@ -19,6 +19,7 @@ from utils import (
     login_required,
     money,
     pad_bunji as _pad_bunji,
+    paginate as _paginate,
     to_int_amt as _to_int_amt,
 )
 
@@ -115,6 +116,9 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
     if not building:
         return {"error": "미등록 주소입니다.", "building": None}
 
+    # 건물주 관리수수료가 있으면 책임관리(월세 미입금도 대체). 없으면 일반관리.
+    is_resp = _to_int_amt(building.get("man_cost")) > 0
+
     # 저장된 정산서 (기준일 또는 그 달 말일)
     saved = db.query_one(
         """
@@ -179,6 +183,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
                     "ipkum_amt": 0,
                     "manage_desc": d.get("manage_desc") or "",
                     "dache_gb": d.get("dache_gb") or "",
+                    "dache_rent": 0,
                     "misu_amt": _to_int_amt(d.get("misu_amt")),
                     "is_empty": empty,
                 }
@@ -258,6 +263,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
                         "ipkum_amt": 0,
                         "manage_desc": "",
                         "dache_gb": "",
+                        "dache_rent": 0,
                         "misu_amt": 0,
                         "is_empty": True,
                     }
@@ -295,6 +301,13 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
                 (b1, b2, hosu.upper(), seq, month_start.isoformat(), month_end_s),
             )
             dache_amt = _to_int_amt((dache_row or {}).get("d"))
+            # 입금 = 실제 수금만. 책임관리: 월세 미입금분은 대체(지급에는 넣고 입금칸에는 안 넣음)
+            dache_rent = 0
+            jisi = ""
+            if is_resp:
+                dache_rent = max(0, rent - min(ipkum, rent))
+            elif ipkum < rent + manage:
+                jisi = "미납"
             rows.append(
                 {
                     "hosu": hosu,
@@ -306,8 +319,9 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
                     "rent_amt": rent,
                     "manage_amt": manage,
                     "ipkum_amt": ipkum,
-                    "manage_desc": "",
-                    "dache_gb": "대체" if dache_amt > 0 else "",
+                    "manage_desc": jisi,
+                    "dache_gb": "대체" if (dache_rent > 0 or dache_amt > 0) else "",
+                    "dache_rent": dache_rent,
                     "misu_amt": misu,
                     "is_empty": False,
                 }
@@ -339,8 +353,9 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
         man_cost = _to_int_amt(building.get("man_cost"))
         owner_suri = _to_int_amt((suri or {}).get("a"))
         jungke_cost = _to_int_amt((jungke or {}).get("a"))
-        # 당월지급액 = 입금합 − 관리수수료 − 수리 − 중개 (508-88 PDF와 일치)
-        pay_amt = max(0, sum_ipkum - man_cost - owner_suri - jungke_cost)
+        # 책임: 실입 + 월세대체 − 수수료. 일반: 실입만 − 수수료.
+        dache_sum = sum(_to_int_amt(r.get("dache_rent")) for r in rows)
+        pay_amt = max(0, sum_ipkum + dache_sum - man_cost - owner_suri - jungke_cost)
         summary = {
             "first_amt": _to_int_amt(building.get("first_amt")),
             "man_cost": man_cost,
@@ -352,7 +367,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
             "manage_tot": sum_manage,
             "bojung_tot": sum_bojung,
             "misu_tot": sum_misu,
-            "imdae_dache": sum_misu,  # 인쇄 임대료대체
+            "imdae_dache": dache_sum,
             "bojung_dache": 0,
             "note": "",
             "jungsan_dt": None,
@@ -385,6 +400,21 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
                     f"{(s.get('hosu') or '').strip()}호 {(s.get('suri_desc') or '').strip()}"
                 ).strip(),
             }
+        )
+
+    ipkum_sum = sum(_to_int_amt(r.get("ipkum_amt")) for r in rows)
+    dache_sum = sum(_to_int_amt(r.get("dache_rent")) for r in rows)
+    summary["ipkum_tot"] = ipkum_sum
+    if source != "saved":
+        summary["imdae_dache"] = dache_sum
+    if source != "saved" or _to_int_amt(summary.get("pay_amt")) <= 0:
+        summary["pay_amt"] = max(
+            0,
+            ipkum_sum
+            + dache_sum
+            - _to_int_amt(summary.get("man_cost"))
+            - _to_int_amt(summary.get("owner_suri"))
+            - _to_int_amt(summary.get("jungke_cost")),
         )
 
     cost_sum = (
@@ -431,9 +461,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
 
 def _jungsan_request_common():
     today = date.today()
-    default_as_of = date(
-        today.year, today.month, monthrange(today.year, today.month)[1]
-    ).isoformat()
+    # 월정기보고: 기본은 전월 말일 (당월은 수금이 아직 없어 지급액 0이 됨)
+    default_as_of = (date(today.year, today.month, 1) - timedelta(days=1)).isoformat()
     bunji1 = _pad_bunji(request.args.get("bunji1"))
     bunji2 = _pad_bunji(request.args.get("bunji2"))
     as_of_s = (request.args.get("as_of") or "").strip() or default_as_of
@@ -576,6 +605,9 @@ def jungsan_list():
             )
 
     years = list(range(today.year, today.year - 15, -1))
+    pager = None
+    if ran and results:
+        results, pager = _paginate(results)
     return render_template(
         "jungsan_list.html",
         filters={
@@ -589,4 +621,5 @@ def jungsan_list():
         ran=ran,
         sum_pay=sum_pay,
         month_label=f"{y}-{m:02d}",
+        pager=pager,
     )

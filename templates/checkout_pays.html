@@ -1,0 +1,42 @@
+{# 납부현황 표 + 페이저. 전체 화면 또는 AJAX(partial=pays) 공통. #}
+<div id="checkout-pays">
+  <h2 style="font-size:1rem;margin:16px 0 8px">납부현황
+    {% if pager and pager.total %}
+    <span class="muted" style="font-weight:400;font-size:0.85rem">
+      {{ pager.total }}건 · {{ pager.page }}/{{ pager.total_pages }}페이지
+    </span>
+    {% endif %}
+  </h2>
+  {% set pager_endpoint = 'checkout' %}
+  {% set pager_label = '납부현황 페이지' %}
+  {% set pager_query = {
+    'out_dt': form.out_dt,
+    'bunji1': form.bunji1|bunji if form.bunji1 else none,
+    'bunji2': form.bunji2|bunji if form.bunji2 else none,
+    'hosu': form.hosu,
+    'ipju_seq': form.ipju_seq
+  } %}
+  {% include '_pager.html' %}
+  <div class="table-scroll">
+    <table class="legacy-grid">
+      <thead>
+        <tr>
+          <th class="tc">일자</th>
+          <th class="num">금액</th>
+          <th class="num">실입</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in data.payments %}
+        <tr>
+          <td class="tc">{{ p.dt_full or p.dt }}</td>
+          <td class="num">{{ p.amt_disp }}</td>
+          <td class="num">{{ p.sil|money }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">수금 내역 없음</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

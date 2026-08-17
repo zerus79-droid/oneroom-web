@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}건물 내역 · 주택관리 시스템{% endblock %}
+{% block title %}건물 정보 · 주택관리 시스템{% endblock %}
 {% block content %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">건물 내역 · {{ building.bunji1|bunji_pair(building.bunji2) }}</span>
+    <span class="caption-title">건물 정보 · {{ building.bunji1|bunji_pair(building.bunji2) }}</span>
     {% if building.juso %}<span class="muted">{{ building.juso }}</span>{% endif %}
     <span class="caption-actions">
       <a class="btn secondary" href="{{ url_for('building_rooms', bunji1=building.bunji1, bunji2=building.bunji2) }}">호수</a>
@@ -11,37 +11,40 @@
       <a class="btn secondary" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}">수정</a>
     </span>
   </div>
-  <div class="legacy-sukum-body">
+  <div class="legacy-sukum-body building-view">
     <div class="ls-row">
       <label class="ls-lab">주소</label>
-      <div class="ls-val"><strong>{{ building.bunji1|bunji_pair(building.bunji2) }}</strong></div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.bunji1|bunji_pair(building.bunji2) }}"></div>
       <label class="ls-lab">건물명</label>
-      <div class="ls-val">{{ building.juso or '' }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.juso or '' }}"></div>
     </div>
     <div class="ls-row">
       <label class="ls-lab">건물주명</label>
-      <div class="ls-val">{{ building.owner_nm or '' }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.owner_nm or '' }}"></div>
       <label class="ls-lab">전화</label>
-      <div class="ls-val">{{ building.owner_tel|mask_phone }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.owner_tel or '' }}"></div>
     </div>
     <div class="ls-row">
       <label class="ls-lab">건축일</label>
-      <div class="ls-val">{{ building.building_dt or '' }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.building_dt|fmt_date }}"></div>
       <label class="ls-lab">층수</label>
-      <div class="ls-val">{{ building.floor_no if building.floor_no is not none else '' }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{% if building.floor_no is not none %}{{ building.floor_no }}{% endif %}"></div>
     </div>
     <div class="ls-row">
+      <label class="ls-lab">은행계좌</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.bank_disp }}"></div>
       <label class="ls-lab">전기료납부</label>
-      <div class="ls-val">{{ building.elec_label or building.elec_gb or '' }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.elec_label or building.elec_gb or '' }}"></div>
     </div>
     <div class="ls-row">
       <label class="ls-lab">최초보증금</label>
-      <div class="ls-val num">{{ building.first_amt|money }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.first_amt|money }}"></div>
       <label class="ls-lab">관리수수료</label>
-      <div class="ls-val num">{{ building.man_cost|money }}</div>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.man_cost|money }}"></div>
     </div>
     <div class="ls-actions">
-      <a class="btn secondary" href="{{ url_for('payment_new', bunji1=building.bunji1, bunji2=building.bunji2) }}">수금(대체) 등록</a>
+      <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}">수정</a>
+      <a class="btn secondary" href="{{ url_for('buildings') }}">목록</a>
     </div>
   </div>
 </div>

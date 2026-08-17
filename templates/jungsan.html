@@ -5,17 +5,11 @@
 <div class="legacy-sukum-panel card no-print">
   <div class="legacy-sukum-caption">
     <span class="caption-title">주소별 정산서 조회</span>
-    <span class="caption-actions">
-      {% if data and not data.error and data.rows %}
-      <a class="btn secondary" target="_blank"
-         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}">
-        결산현황 인쇄 (PDF)
-      </a>
-      {% endif %}
-    </span>
+    <span class="caption-actions"></span>
   </div>
-  <form method="get" class="legacy-sukum-body" autocomplete="off">
+  <form method="get" class="legacy-sukum-body filter-bar" data-enter-submit="1" autocomplete="off">
     <input type="hidden" name="q" value="1">
+    <div class="filter-bar-fields">
     <div class="ls-row">
       <label class="ls-lab star" for="bunji1">주소</label>
       <div class="ls-val">
@@ -48,9 +42,13 @@
         </div>
       </div>
     </div>
-    <div class="ls-actions">
+    </div>
+    <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn secondary" href="{{ url_for('jungsan') }}">초기화</a>
+      <a class="btn" href="{{ url_for('jungsan') }}">초기화</a>
+      <a class="btn" id="jungsan-print-btn" target="_blank" rel="noopener"
+         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, as_of=filters.as_of) }}"
+         title="결산현황 인쇄">인쇄</a>
     </div>
   </form>
 </div>
@@ -147,7 +145,7 @@
     저장된 정산서 기준입니다. 입금액은 해당 월 수금(월세+관리)으로 보강 표시합니다.
     {% else %}
     실시간 미리보기입니다. (확정 저장·일괄대체는 이후 단계에서 연결)
-    당월지급액 = 입금합 − 관리수수료 − 수리 − 중개 (참고용 추정)
+    입금은 실제 수금만. 책임관리 미입금 월세는 대체(지급에 포함, 입금칸에는 안 넣음). 일반관리는 미납 표기.
     {% endif %}
   </p>
 </div>
@@ -157,6 +155,23 @@
 <p class="empty no-print">주소와 기준일자를 넣고 「조회」하면 정산 내용이 <strong>화면 전체</strong>에 표시됩니다. (인쇄 없이도 확인 가능)</p>
 {% endif %}
 
+<script>
+(function () {
+  var btn = document.getElementById("jungsan-print-btn");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var q = new URLSearchParams();
+    q.set("q", "1");
+    var b1 = document.getElementById("bunji1");
+    var b2 = document.getElementById("bunji2");
+    var asOf = document.getElementById("as_of");
+    if (b1 && b1.value) q.set("bunji1", b1.value);
+    if (b2 && b2.value) q.set("bunji2", b2.value);
+    if (asOf && asOf.value) q.set("as_of", asOf.value);
+    btn.href = "{{ url_for('jungsan_print') }}?" + q.toString();
+  });
+})();
+</script>
 <style>
 @media print {
   .no-print, .topbar, .page-head-row { display: none !important; }

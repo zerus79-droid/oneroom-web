@@ -28,6 +28,55 @@ def login_required(fn):
     return wrapper
 
 
+def require_grade(*allowed_grades):
+    """등급별 접근 제한 데코레이터.
+    사용 예: @require_grade('U', 'A') - 무제한, 최고관리자만 접근 가능
+    """
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not session.get("sabun"):
+                return redirect(url_for("login"))
+            grade = (session.get("grade") or "").strip().upper()
+            if grade not in allowed_grades:
+                from flask import flash
+                flash("접근 권한이 없습니다.", "err")
+                return redirect(url_for("home"))
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def require_write_access(fn):
+    """쓰기 권한 필요 (C 등급 제외). A, B, U만 수정/삭제 가능."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("sabun"):
+            return redirect(url_for("login"))
+        grade = (session.get("grade") or "").strip().upper()
+        if grade == "C":
+            from flask import flash
+            flash("조회 전용 계정은 수정할 수 없습니다.", "err")
+            return redirect(url_for("home"))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_admin(fn):
+    """관리자 권한 필요 (U, A만 가능). 사용자 관리 등."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("sabun"):
+            return redirect(url_for("login"))
+        grade = (session.get("grade") or "").strip().upper()
+        if grade not in ("U", "A"):
+            from flask import flash
+            flash("관리자 권한이 필요합니다.", "err")
+            return redirect(url_for("home"))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def money(v):
     """모든 금액 표시 공통: 천 단위 콤마. 예: 250000 -> 250,000"""
     if v is None or v == "":
@@ -87,12 +136,14 @@ def fmt_bunji_pair(b1, b2=None):
 def mask_phone(v):
     """전화 마스킹: xxx-xxxx-xxxx → 중간 앞2자리·끝 2자리 **
     예: 010-9151-9635 → 010-**51-96**
+    지역번호: 02-123-4567 → 02-**3-45**, 031-123-4567 → 031-**3-45**
+    빈 값이면 '정보없음' 반환
     """
     if v is None:
-        return ""
+        return "정보없음"
     s = str(v).strip()
     if not s:
-        return ""
+        return "정보없음"
     parts = s.split("-")
     if len(parts) == 3:
         a, b, c = parts[0], parts[1], parts[2]
@@ -104,12 +155,20 @@ def mask_phone(v):
     # 하이픈 없이 숫자만
     d = re.sub(r"\D", "", s)
     if len(d) == 11:
-        # 3-4-4
+        # 3-4-4 (핸드폰 010)
         return f"{d[:3]}-**{d[5:7]}-{d[7:9]}**"
     if len(d) == 10 and d.startswith("02"):
         # 02 + 8 digits → 02-xxxx-xxxx
         mid, last = d[2:6], d[6:10]
         return f"02-**{mid[2:]}-{last[:2]}**"
+    if len(d) == 10 and d.startswith("0"):
+        # 핸드폰 0xx + 7 digits → 0xx-xxxx-xxx
+        prefix, mid, last = d[:3], d[3:6], d[6:10]
+        return f"{prefix}-**{mid[1:]}-{last[:2]}**"
+    if len(d) == 9:
+        # 지역번호 2자리 + 7자리 (예: 02-123-4567)
+        mid, last = d[2:5], d[5:9]
+        return f"{d[:2]}-**{mid[1:]}-{last[:2]}**"
     if len(d) >= 9:
         # 3-3-4 or 3-4-4 guess
         a, mid, last = d[:3], d[3:-4], d[-4:]
@@ -124,12 +183,13 @@ def mask_phone(v):
 def mask_jumin(v):
     """주민번호 마스킹: 생년월일 6자리 + 성별 1자리 + xxxxxx
     예: 9001011234567 → 900101-1xxxxxx
+    빈 값이면 '정보없음' 반환
     """
     if v is None:
-        return ""
+        return "정보없음"
     d = re.sub(r"\D", "", str(v).strip())
     if not d:
-        return ""
+        return "정보없음"
     if len(d) >= 7:
         return f"{d[:6]}-{d[6]}xxxxxx"
     if len(d) == 6:
@@ -372,7 +432,28 @@ def buildings_and_rooms():
     return buildings, rooms
 
 
-def build_pager(page, total_pages, *, page_block_size=6):
+# 목록 화면 공통. 화면마다 다시 짜지 말고 paginate / make_pager + templates/_pager.html
+PAGE_SIZE = 20
+PAGE_BLOCK_SIZE = 6
+
+
+def parse_page(value=None):
+    """?page= 를 1 이상 정수로. value 없으면 현재 request.args."""
+    if value is None:
+        try:
+            from flask import request
+
+            value = request.args.get("page")
+        except RuntimeError:
+            value = 1
+    try:
+        page = int(value or 1)
+    except (TypeError, ValueError):
+        page = 1
+    return max(1, page)
+
+
+def build_pager(page, total_pages, *, page_block_size=PAGE_BLOCK_SIZE):
     """페이지 번호: N개 단위 블록 (예: 1–6, 7–12). 이전/다음은 블록 점프."""
     page = max(1, int(page or 1))
     total_pages = max(1, int(total_pages or 1))
@@ -401,4 +482,28 @@ def build_pager(page, total_pages, *, page_block_size=6):
         "prev_page": prev_block_page,
         "next_page": next_block_page,
     }
+
+
+def make_pager(total, page=None, *, per_page=PAGE_SIZE, page_block_size=PAGE_BLOCK_SIZE):
+    """건수 기준 페이저. SQL LIMIT/OFFSET 은 pager['offset'], pager['per_page']."""
+    total = max(0, int(total or 0))
+    per_page = max(1, int(per_page or PAGE_SIZE))
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    page = parse_page(page)
+    page = min(page, total_pages)
+    pager = build_pager(page, total_pages, page_block_size=page_block_size)
+    pager["total"] = total
+    pager["per_page"] = per_page
+    pager["offset"] = (page - 1) * per_page
+    return pager
+
+
+def paginate(items, page=None, *, per_page=PAGE_SIZE, page_block_size=PAGE_BLOCK_SIZE):
+    """이미 가진 목록을 페이지당 건수로 자르고 페이저를 붙인다. (page_items, pager)."""
+    items = list(items or [])
+    pager = make_pager(
+        len(items), page, per_page=per_page, page_block_size=page_block_size
+    )
+    start = pager["offset"]
+    return items[start : start + pager["per_page"]], pager
 

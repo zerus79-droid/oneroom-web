@@ -83,7 +83,8 @@
   </form>
 
   <div class="panel-section-lab">중개수수료 목록</div>
-  <form method="get" id="jungke-list-filter" autocomplete="off">
+  <form method="get" id="jungke-list-filter" class="filter-bar" autocomplete="off">
+    <div class="filter-bar-fields">
     <div class="ls-row">
       <label class="ls-lab" for="q_bunji1">주소</label>
       <div class="ls-val">
@@ -124,12 +125,22 @@
         </div>
       </div>
     </div>
-    <div class="ls-actions">
+    </div>
+    <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn secondary" href="{{ url_for('jungke', reset=1) }}">초기화</a>
+      <a class="btn" href="{{ url_for('jungke', reset=1) }}">초기화</a>
     </div>
   </form>
 
+  {% set pager_endpoint = 'jungke' %}
+  {% set pager_label = '중개 목록 페이지' %}
+  {% set pager_query = {
+    'date_from': filters.date_from,
+    'date_to': filters.date_to,
+    'q_bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+    'q_bunji2': filters.bunji2|bunji if filters.bunji2 else none
+  } %}
+  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
     {% if results %}
     <table class="legacy-grid">

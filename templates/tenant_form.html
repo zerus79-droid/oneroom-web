@@ -22,6 +22,7 @@
   </ul>
   {% endif %}
   <form method="post" class="legacy-sukum-body tenant-reg-body" id="tenant-form" autocomplete="off">
+    <input type="text" name="autocomplete_dummy" style="display:none" autocomplete="off">
     <input type="hidden" name="mode" id="form_mode" value="{{ form.mode }}">
     <input type="hidden" name="action" id="form_action" value="save">
     <input type="hidden" id="form_out_dt" value="{{ form.out_dt or '' }}">
@@ -67,12 +68,12 @@
         <div class="tr-field">
           <label class="ls-lab tri">성명</label>
           <input type="text" name="ipju_nm" id="ipju_nm" class="ls-box" required
-                 value="{{ form.ipju_nm }}" autocomplete="off" maxlength="100">
+                 value="{{ form.ipju_nm }}" autocomplete="nope" maxlength="100">
         </div>
         <div class="tr-field">
           <label class="ls-lab">휴대1</label>
           <input type="text" name="ipju_tel1" id="ipju_tel1" class="ls-box"
-                 value="{{ form.ipju_tel1 }}" autocomplete="off" maxlength="14"
+                 value="{{ form.ipju_tel1 }}" autocomplete="nope" maxlength="14"
                  placeholder="010-">
         </div>
         <div class="tr-field">
@@ -94,7 +95,7 @@
         <div class="tr-field">
           <label class="ls-lab">휴대2</label>
           <input type="text" name="ipju_tel2" id="ipju_tel2" class="ls-box"
-                 value="{{ form.ipju_tel2 }}" autocomplete="off" maxlength="14"
+                 value="{{ form.ipju_tel2 }}" autocomplete="nope" maxlength="14"
                  placeholder="010-">
         </div>
         <div class="tr-field">
@@ -112,7 +113,7 @@
         <div class="tr-field">
           <label class="ls-lab">일반전화</label>
           <input type="text" name="ipju_tel3" id="ipju_tel3" class="ls-box"
-                 value="{{ form.ipju_tel3 }}" autocomplete="off" maxlength="14"
+                 value="{{ form.ipju_tel3 }}" autocomplete="nope" maxlength="14"
                  placeholder="02-... (선택)">
         </div>
       </div>

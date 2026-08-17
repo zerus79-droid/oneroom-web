@@ -8,6 +8,13 @@
     <span class="muted">{{ users|length }}명</span>
   </div>
   <div class="legacy-sukum-body">
+  {% if flash_messages %}
+  <ul class="flash flash-below-form">
+    {% for cat, msg in flash_messages %}
+    <li class="{{ cat }}">{{ msg }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   <form method="post" id="user-form" autocomplete="off">
     <input type="hidden" name="action" id="form_action" value="save">
     <input type="hidden" name="mode" value="{{ form.mode }}">
@@ -39,6 +46,11 @@
             <span>{{ label }}</span>
           </label>
           {% endfor %}
+          <span class="grade-help-inline">
+            <small class="muted">
+              (U:무제한 · A:최고관리자 · B:일반관리자 · C:조회전용)
+            </small>
+          </span>
         </div>
       </div>
     </div>
@@ -51,12 +63,23 @@
                {% if form.mode != 'edit' %}required{% endif %}>
       </div>
     </div>
+    <div class="ls-row">
+      <label class="ls-lab{% if form.mode != 'edit' %} star{% endif %}">비밀번호확인</label>
+      <div class="ls-val">
+        <input type="password" name="password2" id="password2" class="ls-box"
+               value="" maxlength="10" autocomplete="new-password"
+               placeholder="비밀번호 재입력"
+               {% if form.mode != 'edit' %}required{% endif %}>
+      </div>
+    </div>
 
     <div class="ls-actions">
-      <button type="submit" class="btn" data-action="save">저장</button>
-      <button type="submit" class="btn secondary" data-action="delete"
-              onclick="return confirm('이 사용자를 삭제할까요?');">삭제</button>
-      <button type="submit" class="btn secondary" data-action="new">신규</button>
+      <button type="submit" class="btn" id="btn-user-save" name="action" value="save">저장</button>
+      <button type="button" class="btn secondary" id="btn-user-delete"
+              data-sabun="{{ form.orig_sabun or form.sabun }}"
+              data-name="{{ form.s_name }}"
+              {% if form.mode != 'edit' or not form.orig_sabun %}disabled title="목록에서 사용자를 선택한 뒤 삭제하세요"{% endif %}>삭제</button>
+      <button type="button" class="btn secondary" id="btn-user-new">신규</button>
     </div>
   </form>
 
@@ -93,11 +116,46 @@
 (function () {
   var form = document.getElementById('user-form');
   if (!form) return;
-  form.querySelectorAll('button[data-action]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      document.getElementById('form_action').value = btn.getAttribute('data-action') || 'save';
+  var act = document.getElementById('form_action');
+  var p1 = document.getElementById('password');
+  var p2 = document.getElementById('password2');
+  function pwMatch() {
+    if (!p1 || !p2) return true;
+    return String(p1.value || '') === String(p2.value || '');
+  }
+  function blockIfPwBad(e) {
+    if (act && act.value && act.value !== 'save') return;
+    if (pwMatch()) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    window.alert('비밀번호와 확인이 일치하지 않습니다.');
+    if (p2) { p2.focus(); if (p2.select) p2.select(); }
+  }
+  form.addEventListener('submit', blockIfPwBad, true);
+  var delBtn = document.getElementById('btn-user-delete');
+  if (delBtn) {
+    delBtn.addEventListener('click', function () {
+      if (delBtn.disabled) return;
+      var sid = delBtn.getAttribute('data-sabun') || '';
+      var nm = delBtn.getAttribute('data-name') || '';
+      if (!sid) {
+        window.alert('삭제할 사용자를 목록에서 먼저 선택하세요.');
+        return;
+      }
+      var who = nm ? (nm + ' (' + sid + ')') : sid;
+      if (!window.confirm(who + ' 사용자를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.')) return;
+      if (act) act.value = 'delete';
+      HTMLFormElement.prototype.submit.call(form);
     });
-  });
+  }
+  var newBtn = document.getElementById('btn-user-new');
+  if (newBtn) {
+    newBtn.addEventListener('click', function () {
+      if (act) act.value = 'new';
+      HTMLFormElement.prototype.submit.call(form);
+    });
+  }
 })();
 </script>
 {% endblock %}
+{% block flash %}{% endblock %}

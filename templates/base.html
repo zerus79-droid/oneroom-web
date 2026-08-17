@@ -4,13 +4,36 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="autocomplete" content="off">
-  <title>{% block title %}주택관리 시스템{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=alertbtn2">
+  <title>{% block title %}주택관리시스템{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version('css/style.css') }}">
 </head>
 <body>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
-    // 상단 메뉴: 한 번에 하나만 열림 (전역 컨트롤러)
+    (function initHangulIme() {
+      function isNumericField(el) {
+        if (!el || !el.matches) return false;
+        return el.matches(
+          '[inputmode="numeric"],[inputmode="decimal"],[type="number"],[type="date"],[type="password"],' +
+          '.money-input,.ls-money-in,.ls-money,.hosu-input,.seq-field,.dp-y,.dp-m,.dp-d'
+        ) || !!(el.closest && el.closest('.bunji-pair-input,.date-parts'));
+      }
+      function applyIme(el) {
+        if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+        if (el.type === 'hidden' || el.type === 'checkbox' || el.type === 'radio' || el.type === 'button' || el.type === 'submit') return;
+        if (isNumericField(el)) {
+          el.style.imeMode = 'disabled';
+          if (!el.getAttribute('lang')) el.setAttribute('lang', 'en');
+          return;
+        }
+        el.style.imeMode = 'active';
+        if (!el.getAttribute('lang')) el.setAttribute('lang', 'ko');
+      }
+      document.addEventListener('focusin', function (e) { applyIme(e.target); });
+      Array.prototype.forEach.call(document.querySelectorAll('input, textarea'), applyIme);
+    })();
+
+    // 상단 메뉴: 한 번에 하나만 열림 (영역 컨트롤러)
     (function initTopNav() {
       var items = Array.prototype.slice.call(document.querySelectorAll('.nav-item'));
       if (!items.length) return;
@@ -61,7 +84,6 @@
         clearCloseTimer();
         closeTimer = setTimeout(function () {
           closeTimer = null;
-          // 다른 메뉴로 이미 옮겼으면 닫지 않음
           if (openItem && openItem !== item) return;
           closeNav(item);
         }, 120);
@@ -79,7 +101,6 @@
           if (!item.contains(e.relatedTarget)) scheduleClose(item);
         });
 
-        /* 클릭 시 토글 닫기 금지 — 호버로 열린 뒤 클릭해도 열린 채 유지 */
         button.addEventListener('click', function (e) {
           e.preventDefault();
           e.stopPropagation();
@@ -87,19 +108,56 @@
         });
       });
 
+      function closeUserMenu() {
+        var um = document.querySelector('.user-menu');
+        if (um) {
+          um.classList.remove('is-open');
+          var ib = um.querySelector('.user-icon-btn');
+          if (ib) ib.setAttribute('aria-expanded', 'false');
+        }
+      }
+      var userMenu = document.querySelector('.user-menu');
+      if (userMenu) {
+        var iconBtn = userMenu.querySelector('.user-icon-btn');
+        if (iconBtn) {
+          iconBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var open = userMenu.classList.contains('is-open');
+            closeAll();
+            if (open) closeUserMenu();
+            else {
+              userMenu.classList.add('is-open');
+              iconBtn.setAttribute('aria-expanded', 'true');
+            }
+          });
+        }
+      }
       document.addEventListener('click', function (event) {
-        if (event.target.closest && event.target.closest('.nav-item')) return;
-        clearCloseTimer();
-        closeAll();
+        var t = event.target;
+        var inNav = t.closest && t.closest('.nav-item');
+        var inUser = t.closest && t.closest('.user-menu');
+        if (!inNav) {
+          clearCloseTimer();
+          closeAll();
+        }
+        if (!inUser) closeUserMenu();
       });
       document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' || e.key === 'Esc') {
           clearCloseTimer();
           closeAll();
+          closeUserMenu();
         }
       });
+      window.closeTopNav = function () {
+        clearCloseTimer();
+        closeAll();
+        closeUserMenu();
+      };
     })();
-    // 브라우저 자동완성 제안 최소화
+
+    // 브라우저 자동완성 보안 최소화
     document.querySelectorAll('form').forEach(function (f) {
       f.setAttribute('autocomplete', 'off');
     });
@@ -109,13 +167,15 @@
       }
     });
 
-    // 날짜: 년/월/일 분리 입력 — 연 4자리 채우면 월로, 월 2자리면 일로 자동 이동
+    // 날짜: 년월일 분리 입력 (년 4자리 채우면 월로, 월 2자리 채우면 일로 자동 이동)
     function pad2(n) {
       n = String(n || '');
       return n.length >= 2 ? n.slice(0, 2) : n;
     }
 
     function bindDateParts(root) {
+      if (!root || root._datePartsBound) return;
+      root._datePartsBound = true;
       var y = root.querySelector('.dp-y');
       var m = root.querySelector('.dp-m');
       var d = root.querySelector('.dp-d');
@@ -177,14 +237,13 @@
         d.value = parts[3].padStart(2, '0');
       }
 
-      // 년·월·일: 전역 bindSelectAllFirstClick 이 처리 (첫 클릭 전체선택)
       if (window.bindSelectAllFirstClick) {
         window.bindSelectAllFirstClick(y);
         window.bindSelectAllFirstClick(m);
         window.bindSelectAllFirstClick(d);
       }
 
-      // 2자리 년도 보정: 00~29 → 20xx, 30~99 → 19xx (예: 24→2024, 85→1985)
+      // 2자리 연도 보정
       function expandYear(v) {
         var s = String(v || '').replace(/\D/g, '');
         if (s.length === 0) return '';
@@ -195,7 +254,6 @@
           return String(1900 + n);
         }
         if (s.length === 3) {
-          // 예: 996 → 1996 추정
           return '1' + s;
         }
         return s.slice(0, 4);
@@ -211,7 +269,6 @@
 
       y.addEventListener('input', function () {
         onlyDigits(y, 4);
-        // 2자리 입력 완료 시 바로 20xx/19xx 보정 후 월로
         if (y.value.length === 2) {
           y.value = expandYear(y.value);
           syncHidden();
@@ -242,7 +299,6 @@
           clampDay();
         }
         syncHidden();
-        // 일 2자리 완료 시: data-next-focus(CSS 선택자) 또는 data-next(다른 날짜 블록 id)
         if (d.value.length === 2) {
           var nextFocus = root.getAttribute('data-next-focus');
           if (nextFocus) {
@@ -281,7 +337,6 @@
         syncHidden();
       });
 
-      // Backspace on empty field goes to previous
       m.addEventListener('keydown', function (e) {
         if (e.key === 'Backspace' && !m.value) {
           y.focus();
@@ -293,7 +348,6 @@
         }
       });
 
-      // expose for 월 조회
       root._setDate = function (iso) {
         var p = (iso || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
         if (!p) return;
@@ -309,13 +363,11 @@
 
     document.querySelectorAll('.date-parts').forEach(bindDateParts);
 
-    // 전역: id로 date-parts 설정
     window.setDateParts = function (id, iso) {
       var root = document.getElementById(id);
       if (root && root._setDate) root._setDate(iso);
     };
 
-    // ── 년/월/일 · 주소 · 호실 조절 (방향키 ↑↓ 전용) ──
     function dateLastDay(yNum, mNum) {
       return new Date(yNum, mNum, 0).getDate();
     }
@@ -460,7 +512,7 @@
         } catch (e) {}
       }
     }
-    /** 건물(주소-2) 설정 + 호실을 그 건물 최소 호실로 */
+    /** 건물(주소-2) 설정 + 호실별 건물 최소 호실로 */
     function applyBuildingAtIndex(idx, focusEl) {
       var list = buildingList();
       if (!list.length) return false;
@@ -469,23 +521,18 @@
       var item = list[idx];
       var els = getBunjiEls();
       if (!els.b1 || !els.b2) return false;
-      // 방향키 조절 중: 4자리 주소 → 주소2 자동이동 방지
       window.__suppressBunjiAutoJump = true;
       try {
         els.b1.value = item.d1;
-        // 주소2가 0이면 화면에도 0 표시 (빈 칸이면 한쪽만 있는 것처럼 보임)
         els.b2.value = item.d2 === '' ? '0' : item.d2;
         setHosuToFirstForKey(item.key, true);
         if (els.hosu) {
           var rooms = hosuListForBuilding(item.key);
           els.hosu.value = rooms.length ? rooms[0] : '';
         }
-        // input 이벤트는 자동 점프를 유발하므로 보내지 않음
-        // 건물 힌트만 갱신
         try {
           var hint = document.getElementById('building-hint');
           if (hint && item) {
-            // 건물명만 표시 (주소 접두어 숨김)
             var label = (item.juso || '').trim() || '이름 없음';
             hint.innerHTML = '<strong>' + label + '</strong>';
             hint.classList.add('is-ok');
@@ -493,12 +540,10 @@
             hint.hidden = false;
           }
         } catch (eHint) {}
-        // 건물 변경으로 호실이 바뀌면 입주자도 즉시 갱신
         if (els.hosu && typeof window.onHosuValueChanged === 'function') {
           try { window.onHosuValueChanged(els.hosu.value); } catch (eH) {}
         }
         var focus = focusEl || els.b1;
-        // 포커스는 조절하던 칸에만 유지 (주소2로 강제 이동 금지)
         try {
           if (document.activeElement !== focus) {
             focus.focus({ preventScroll: true });
@@ -514,7 +559,7 @@
       }
       return true;
     }
-    /** 주소 ↑↓: 등록 건물 목록 순환, 호실도 최소값으로 */
+    /** 주소 방향키: 등록 건물 목록 순환 */
     function applyBuildingStep(focusEl, step) {
       var list = buildingList();
       if (!list.length || !step) return false;
@@ -531,7 +576,7 @@
       }
       return applyBuildingAtIndex(idx + step, focusEl);
     }
-    /** 호실 ↑↓: 해당 건물 등록 호실만 순환 */
+    /** 호실 방향키: 해당 건물 등록 호실로 순환 */
     function applyHosuStep(el, step) {
       if (!el || !step) return false;
       var list = hosuListForBuilding();
@@ -561,13 +606,12 @@
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       } catch (err3) {}
-      // 입주자 이름 실시간 갱신 (수금 등록 화면 등)
       if (typeof window.onHosuValueChanged === 'function') {
         try { window.onHosuValueChanged(el.value); } catch (err4) {}
       }
       return true;
     }
-    // 년·월·일 / 주소 / 호실: 방향키 ↑↓ 로 숫자 조절 (마우스 휠은 사용 안 함)
+
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
       var el = document.activeElement;
@@ -588,22 +632,15 @@
       }
     }, true);
 
-    /**
-     * 텍스트 입력: 1번째 마우스 클릭 = 전체 선택
-     *              2번째 클릭(이미 포커스) = 클릭한 위치에 커서
-     *              Tab 진입 시에도 전체 선택
-     */
     window.bindSelectAllFirstClick = function (el) {
       if (!el || el._selectAllFirstBound) return;
       el._selectAllFirstBound = true;
       el.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
-        // 이미 포커스 중 → 두 번째 클릭: 기본 동작(해당 위치 커서)
         if (document.activeElement === el) {
           el._selectAllPending = false;
           return;
         }
-        // 첫 클릭: mouseup 에서 전체 선택
         el._selectAllPending = true;
       });
       el.addEventListener('mouseup', function (e) {
@@ -616,7 +653,6 @@
         } catch (err) {}
       });
       el.addEventListener('focus', function () {
-        // Tab 등으로 포커스만 온 경우 (마우스 첫 클릭은 mouseup이 처리)
         if (el._selectAllPending) return;
         setTimeout(function () {
           if (document.activeElement !== el) return;
@@ -641,14 +677,13 @@
       if (isTextLikeInput(el)) window.bindSelectAllFirstClick(el);
     });
 
-    // 금액 입력: 입력 중 천 단위 콤마 (예: 300000 → 300,000)
+    // 금액 입력 콤마 포맷팅
     function formatMoneyInput(el) {
       var raw = String(el.value || '').replace(/[^\d]/g, '');
       if (raw === '') {
         el.value = '';
         return;
       }
-      // 앞자리 0 연속 제거 (0만 남기기)
       raw = String(parseInt(raw, 10));
       if (raw === 'NaN') {
         el.value = '';
@@ -656,16 +691,17 @@
       }
       el.value = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
-    document.querySelectorAll('input.money-input').forEach(function (el) {
+    function bindMoneyInputs(scope) {
+      (scope || document).querySelectorAll('input.money-input').forEach(function (el) {
+      if (el._moneyBound) return;
+      el._moneyBound = true;
       el.setAttribute('inputmode', 'numeric');
-      // 초기값도 콤마 정리
       if (el.value) formatMoneyInput(el);
       el.addEventListener('input', function () {
         var start = el.selectionStart;
         var oldLen = el.value.length;
         formatMoneyInput(el);
         var newLen = el.value.length;
-        // 커서 위치 보정 (콤마 추가/삭제 분)
         if (typeof start === 'number') {
           var pos = start + (newLen - oldLen);
           if (pos < 0) pos = 0;
@@ -675,13 +711,10 @@
       el.addEventListener('blur', function () {
         formatMoneyInput(el);
       });
-    });
+      });
+    }
+    bindMoneyInputs();
 
-    /**
-     * 주소 변경 시 예전 주소2 잔존 방지.
-     * 예: 508-88 조회 후 1139 입력·Enter → 1139-88(미등록)이 되지 않게
-     * 주소가 바뀌면 주소2(·호실) 비우고, Enter 시 주소2로 이동.
-     */
     (function bindBunji1ChangeClearsBunji2() {
       function digitsOf(el) {
         return String(el && el.value != null ? el.value : '').replace(/\D/g, '');
@@ -694,7 +727,6 @@
             'input[name="bunji2"], #bunji2, input.bunji2-input, input[name="q_bunji2"], #q_bunji2'
           );
           if (b2in) return b2in;
-          // 페어 안 두 번째 칸
           var inputs = wrap.querySelectorAll('input');
           if (inputs.length >= 2) return inputs[1];
         }
@@ -719,7 +751,6 @@
           try { b2.dispatchEvent(new Event('change', { bubbles: true })); } catch (e2) {}
         }
         var hosu = findHosuNear(b1);
-        // 호실도 이전 건물 값이 남지 않게 (있을 때만)
         if (hosu && String(hosu.value || '').trim()) {
           hosu.value = '';
           try { hosu.dispatchEvent(new Event('input', { bubbles: true })); } catch (e3) {}
@@ -728,7 +759,6 @@
             try { window.onHosuValueChanged(''); } catch (e5) {}
           }
         }
-        // 건물 힌트 초기화
         try {
           var hint = document.getElementById('building-hint');
           if (hint) {
@@ -748,50 +778,49 @@
           try { b2.focus(); b2.select(); } catch (err2) {}
         }
       }
-      var b1List = document.querySelectorAll(
-        'input#bunji1, input[name="bunji1"], input.bunji1-input, input#q_bunji1, input[name="q_bunji1"]'
-      );
-      b1List.forEach(function (b1) {
-        if (!b1 || b1._bunjiClearBound) return;
-        b1._bunjiClearBound = true;
-        b1._bunjiDigitsAtFocus = digitsOf(b1);
-
-        b1.addEventListener('focus', function () {
+      function bindBunjiClearAll() {
+        document.querySelectorAll(
+          'input#bunji1, input[name="bunji1"], input.bunji1-input, input#q_bunji1, input[name="q_bunji1"]'
+        ).forEach(function (b1) {
+          if (!b1 || b1._bunjiClearBound) return;
+          b1._bunjiClearBound = true;
           b1._bunjiDigitsAtFocus = digitsOf(b1);
+          b1.addEventListener('focus', function () {
+            b1._bunjiDigitsAtFocus = digitsOf(b1);
+          });
+          b1.addEventListener('input', function () {
+            if (window.__suppressBunjiAutoJump) return;
+            var now = digitsOf(b1);
+            var was = b1._bunjiDigitsAtFocus;
+            if (now !== was) {
+              clearPairAfterB1(b1);
+              b1._bunjiClearedForEdit = true;
+            }
+          });
+          b1.addEventListener('blur', function () {
+            b1._bunjiClearedForEdit = false;
+            b1._bunjiDigitsAtFocus = digitsOf(b1);
+          });
         });
-
-        b1.addEventListener('input', function () {
-          if (window.__suppressBunjiAutoJump) return;
-          var now = digitsOf(b1);
-          var was = b1._bunjiDigitsAtFocus;
-          // 포커스 시 값과 달라지면(수정 중) 주소2·호실 비움
-          if (now !== was) {
-            clearPairAfterB1(b1);
-            // 이후 비교 기준을 갱신하면 매 글자마다 반복 clear — 한 번 비운 뒤 was 를 현재로
-            // 단, 완전히 새 값 입력을 계속 인식하도록 was 는 포커스 시점 유지 + 이미 비웠으면 스킵
-            b1._bunjiClearedForEdit = true;
-          }
-        });
-
-        // Enter/Tab 주소 검사는 전역 bindGlobalAddressGate 에서 처리
-
-        b1.addEventListener('blur', function () {
-          b1._bunjiClearedForEdit = false;
-          b1._bunjiDigitsAtFocus = digitsOf(b1);
-        });
-      });
-      // 다른 모듈에서 재사용
+      }
+      bindBunjiClearAll();
+      window.rebindBunjiClear = bindBunjiClearAll;
       window.__findBunji2For = findBunji2For;
       window.__findHosuNear = findHosuNear;
       window.__clearPairAfterB1 = clearPairAfterB1;
     })();
+
+    window.rebindPageWidgets = function () {
+      document.querySelectorAll('form').forEach(function (f) {
+        f.setAttribute('autocomplete', 'off');
+      });
+      document.querySelectorAll('.date-parts').forEach(bindDateParts);
+      bindMoneyInputs();
+      if (window.rebindBunjiClear) window.rebindBunjiClear();
+      if (window.rebindAddressGate) window.rebindAddressGate();
+    };
   });
 
-  /**
-   * 커스텀 알림 팝업 — 확실히 닫히게.
-   * 확인 / 아무 곳 클릭 / Esc / Enter
-   * 닫은 직후 0.5초간 같은 검증 팝업 재표시 방지 (포커스·blur 루프)
-   */
   window.dismissAppAlert = function () {
     var nodes = document.querySelectorAll('.app-alert-overlay, #app-alert-overlay');
     for (var i = 0; i < nodes.length; i++) {
@@ -805,22 +834,15 @@
   window.isAppAlertOpen = function () {
     return !!window.__appAlertOpen || !!document.querySelector('.app-alert-overlay');
   };
-  /** 방금 알림 닫은 직후인지 (재팝업 억제용) */
   window.shouldSkipAlert = function () {
     if (window.isAppAlertOpen()) return true;
     if (window.__alertQuietUntil && Date.now() < window.__alertQuietUntil) return true;
     return false;
   };
 
-  /**
-   * appAlert(message, onClose, focusTarget)
-   * 확인(Esc·바깥 클릭) 후 focusTarget 이 있으면 그 입력칸으로 이동
-   */
   window.appAlert = function (message, onClose, focusTarget) {
-    // 이미 열려 있으면 메시지만 갱신하거나 기존 닫고 새로
     window.dismissAppAlert();
 
-    // onClose 자리에 요소가 오면 focusTarget 으로 해석
     if (onClose && typeof onClose !== 'function' && onClose.nodeType === 1) {
       focusTarget = onClose;
       onClose = null;
@@ -843,7 +865,6 @@
     btn.type = 'button';
     btn.className = 'app-alert-btn';
     btn.textContent = '확인';
-    /* 공통 button 스타일(짙은 글자) 덮어쓰기 — 흰 글자 고정 */
     btn.style.cssText = [
       'display:block',
       'width:100%',
@@ -886,7 +907,6 @@
       var focusTo = window.__appAlertFocusTarget || focusTarget || null;
       window.__appAlertFocusTarget = null;
       window.dismissAppAlert();
-      // 닫은 직후 blur/검증이 다시 alert 띄우지 못하게
       window.__alertQuietUntil = Date.now() + 600;
       window.__suppressBunjiAutoJump = true;
       setTimeout(function () {
@@ -894,7 +914,6 @@
         if (typeof onClose === 'function') {
           try { onClose(); } catch (e1) {}
         }
-        // 확인 후 잘못 입력한 칸으로 이동
         if (focusTo && focusTo.nodeType === 1) {
           try {
             focusTo.focus({ preventScroll: false });
@@ -912,14 +931,12 @@
         close(e);
       }
     }
-    // click만 사용 (mousedown preventDefault 시 일부 환경에서 안 닫힘)
     btn.addEventListener('click', function (e) {
       close(e);
     });
     overlay.addEventListener('click', function (e) {
       close(e);
     });
-    // 박스 클릭도 닫기 (버블로 overlay까지 감)
     box.addEventListener('click', function (e) {
       close(e);
     });
@@ -928,17 +945,12 @@
       try { btn.focus(); } catch (e) {}
     }, 0);
   };
-  // 호환: 기존 alert 호출도 같은 동작 (재팝업 억제 시 무시)
+
   window.alert = function (message) {
     if (window.shouldSkipAlert && window.shouldSkipAlert()) return;
     window.appAlert(message);
   };
 
-  /**
-   * 건물·호실 방향키 조절용 데이터 등록.
-   * buildings: [{ bunji1, bunji2, juso }, ...]
-   * rooms: [{ bunji1, bunji2, hosu }, ...]
-   */
   window.registerBuildingWheelData = function (buildings, rooms) {
     function p4(v) {
       var s = String(v == null ? '' : v).replace(/\D/g, '');
@@ -951,7 +963,6 @@
       if (!s) return '';
       return String(parseInt(s, 10));
     }
-    // 건물 목록: 주소 숫자 오름차순
     var blist = [];
     (buildings || []).forEach(function (b) {
       var p1 = p4(b.bunji1);
@@ -973,7 +984,6 @@
     });
     window.__buildingList = blist;
 
-    // 건물별 호실 (오름차순)
     var map = {};
     (rooms || []).forEach(function (r) {
       var h = String(r.hosu || '').trim().toUpperCase();
@@ -989,11 +999,11 @@
     });
     window.__hosuByBuilding = map;
   };
-  // 하위 호환
+
   window.registerHosuWheelData = function (rooms) {
     window.registerBuildingWheelData(window.__pendingBuildings || [], rooms);
   };
-  // 페이지 스크립트가 먼저 돌며 넣어 둔 목록 반영
+
   if (window.__pendingBuildingData) {
     window.registerBuildingWheelData(
       window.__pendingBuildingData.buildings,
@@ -1002,9 +1012,6 @@
     window.__pendingBuildingData = null;
   }
 
-  /**
-   * 주소·호실 비어 있으면 가장 낮은 건물 + 그 건물 최소 호실로 채움
-   */
   window.applyDefaultBuildingHosu = function () {
     var list = window.__buildingList || [];
     if (!list.length) return false;
@@ -1054,7 +1061,6 @@
     return true;
   };
 
-  // Esc 전역: 알림 창 강제 닫기 (다른 핸들러보다 우선)
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' && e.key !== 'Esc') return;
     if (window.isAppAlertOpen && window.isAppAlertOpen()) {
@@ -1065,10 +1071,6 @@
     }
   }, true);
 
-  /**
-   * 「← 뒤로」: 브라우저 뒤로가기.
-   * 이전 페이지가 없거나 외부 유입이면 fallback(기본 /home)으로.
-   */
   window.goBack = function (fallbackUrl) {
     var fb = fallbackUrl || '/home';
     try {
@@ -1083,11 +1085,6 @@
     return false;
   };
 
-  /**
-   * 전역 주소 게이트 (모든 페이지 공통)
-   * 기본 원칙: 주소1 / 주소1+2 / 호수 잘못 입력 시 에러 + Enter·Tab 다음 칸 이동 금지
-   * data-skip-addr-check="1" 인 input/form 은 제외
-   */
   (function bindGlobalAddressGate() {
     function focusEl(el) {
       if (!el) return;
@@ -1098,7 +1095,6 @@
       return String(el && el.value != null ? el.value : '').replace(/\D/g, '');
     }
     function alertMsg(msg, focusTarget) {
-      // 확인 누르면 focusTarget 칸으로 이동
       if (window.appAlert) window.appAlert(msg, null, focusTarget || null);
       else {
         window.alert(msg);
@@ -1180,9 +1176,7 @@
     }
     function skipped(el) {
       if (!el) return true;
-      if (el.getAttribute('data-skip-addr-check') === '1') return true;
-      if (el.form && el.form.getAttribute('data-skip-addr-check') === '1') return true;
-      return false;
+      return el.getAttribute('data-skip-addr-check') === '1';
     }
 
     window.checkAddrBunji1 = function (b1, next, stayEl) {
@@ -1198,16 +1192,13 @@
         .then(function (d) {
           if (!d || !d.found) {
             setBuildingLabelNear(b1, (d && d.label) || '미등록 주소', false);
-            alertMsg(
-              (d && d.message) || ('주소 「' + a + '」 은(는) 등록된 건물이 없습니다.\n주소를 다시 확인하세요.'),
-              stay
-            );
+            // 팝업 대신 라벨로만 표시
             return;
           }
           if (typeof next === 'function') next(d);
         })
         .catch(function () {
-          alertMsg('주소 확인 중 오류가 났습니다.', stay);
+          alertMsg('주소 확인 중 오류가 발생했습니다.', stay);
         });
     };
 
@@ -1222,14 +1213,13 @@
         alertMsg('주소2를 입력하세요.', b2);
         return;
       }
-      // 주소 쌍 전체가 틀리면 주소1 부터 다시 (stayEl 로 덮어쓰지 않음)
       fetch('/api/building?bunji1=' + encodeURIComponent(a) + '&bunji2=' + encodeURIComponent(b), { credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (!d || !d.found) {
             setBuildingLabelNear(b1, (d && d.label) || '미등록 주소', false);
             alertMsg(
-              (d && d.message) || ('주소 「' + a + '-' + b + '」 은(는) 등록된 건물이 없습니다.\n주소를 다시 확인하세요.'),
+              (d && d.message) || ('주소 ' + a + '-' + b + '은(는) 등록된 건물이 아닙니다.\n주소를 다시 확인하세요.'),
               b1
             );
             return;
@@ -1238,7 +1228,7 @@
           if (typeof next === 'function') next(d);
         })
         .catch(function () {
-          alertMsg('주소 확인 중 오류가 났습니다.', b1);
+          alertMsg('주소 확인 중 오류가 발생했습니다.', b1);
         });
     };
 
@@ -1264,7 +1254,6 @@
         .then(function (d) {
           if (!d || !d.found) {
             setBuildingLabelNear(b1, (d && d.label) || '미등록 주소', false);
-            // 주소 자체가 틀림 → 주소1부터
             alertMsg((d && d.message) || '등록되지 않은 주소입니다. 주소를 확인하세요.', b1);
             return;
           }
@@ -1276,23 +1265,26 @@
           if (typeof next === 'function') next(d);
         })
         .catch(function () {
-          alertMsg('호수 확인 중 오류가 났습니다.', stay);
+          alertMsg('호수 확인 중 오류가 발생했습니다.', stay);
         });
     };
 
     function isAdvanceKey(e) {
       return e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey);
     }
+    function isArrowKey(e) {
+      return e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+    }
     function stopKey(e) {
       e.preventDefault();
       e.stopPropagation();
-      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     }
 
     function bindB1(b1) {
       if (!b1 || b1._addrGateBound) return;
       b1._addrGateBound = true;
       b1.addEventListener('keydown', function (e) {
+        if (isArrowKey(e)) return;
         if (!isAdvanceKey(e) || skipped(b1) || window.__suppressBunjiAutoJump) return;
         stopKey(e);
         var now = digits(b1);
@@ -1311,13 +1303,23 @@
       if (!b2 || b2._addrGateBound) return;
       b2._addrGateBound = true;
       b2.addEventListener('keydown', function (e) {
+        if (isArrowKey(e)) return;
         if (!isAdvanceKey(e) || skipped(b2) || window.__suppressBunjiAutoJump) return;
         stopKey(e);
         var b1 = findB1Near(b2);
         var hosu = findHosu(b2);
         window.checkAddrBuilding(b1, b2, function () {
-          if (hosu) focusEl(hosu);
-          else focusNextAfter(b2);
+          if (hosu) {
+            focusEl(hosu);
+            return;
+          }
+          var form = b2.form || (b1 && b1.form);
+          if (form && form.getAttribute('data-enter-submit') === '1') {
+            if (typeof form.requestSubmit === 'function') form.requestSubmit();
+            else form.submit();
+            return;
+          }
+          focusNextAfter(b2);
         });
       }, true);
     }
@@ -1325,22 +1327,38 @@
       if (!hosu || hosu._addrGateBound) return;
       hosu._addrGateBound = true;
       hosu.addEventListener('keydown', function (e) {
+        if (isArrowKey(e)) return;
         if (!isAdvanceKey(e) || skipped(hosu) || window.__suppressBunjiAutoJump) return;
-        // 호수 칸이 비어 있고 조회 필터용(필수 아님)이면 통과
         var h = String(hosu.value || '').trim();
         var required = hosu.required || hosu.getAttribute('data-require-hosu') === '1';
         if (!h && !required) return;
         stopKey(e);
         var b1 = findB1Near(hosu);
         var b2 = findB2(b1 || hosu);
-        window.checkAddrRoom(b1, b2, hosu, function () { focusNextAfter(hosu); }, hosu);
+        window.checkAddrRoom(b1, b2, hosu, function () {
+          var form = hosu.form;
+          if (typeof window.onHosuEnter === 'function') {
+            window.onHosuEnter(hosu);
+            return;
+          }
+          if (form && form.getAttribute('data-enter-submit') === '1') {
+            if (typeof form.requestSubmit === 'function') form.requestSubmit();
+            else form.submit();
+            return;
+          }
+          var nextFocus = hosu.getAttribute('data-next-focus');
+          if (nextFocus) {
+            var nf = document.querySelector(nextFocus);
+            if (nf) {
+              focusEl(nf);
+              return;
+            }
+          }
+          focusNextAfter(hosu);
+        }, hosu);
       }, true);
     }
 
-    /**
-     * 조회/저장 버튼(마우스 클릭) 제출 시에도 팝업 검사
-     * — Enter/Tab 과 동일 원칙 (서버 빨간 메시지만 뜨지 않게)
-     */
     function bindFormSubmit(form) {
       if (!form || form._addrSubmitBound) return;
       if (form.getAttribute('data-skip-addr-check') === '1') return;
@@ -1351,7 +1369,6 @@
       form._addrSubmitBound = true;
 
       form.addEventListener('submit', function (e) {
-        // native form.submit() 재진입 허용
         if (form._addrSubmitOk) {
           form._addrSubmitOk = false;
           return;
@@ -1366,7 +1383,6 @@
         var needB = !!(b1.required || (b2 && b2.required));
         var needH = !!(hosu && (hosu.required || hosu.getAttribute('data-require-hosu') === '1'));
 
-        // 주소·호수 아무 것도 안 넣었고 필수도 아니면 (이름만 조회 등) 통과
         if (!a && !b && !h && !needB && !needH) return;
 
         e.preventDefault();
@@ -1375,21 +1391,17 @@
 
         function allowSubmit() {
           form._addrSubmitOk = true;
-          // HTMLFormElement.prototype.submit — 리스너 없이 전송
           HTMLFormElement.prototype.submit.call(form);
         }
 
-        // 호수가 있거나 필수면 주소+호수 검사
         if (hosu && (h || needH)) {
           window.checkAddrRoom(b1, b2, hosu, allowSubmit, h ? hosu : (b ? b2 : b1));
           return;
         }
-        // 주소 쌍
         if (a && b) {
           window.checkAddrBuilding(b1, b2, allowSubmit, b2);
           return;
         }
-        // 주소1만
         if (a) {
           window.checkAddrBunji1(b1, function () {
             if (needB && b2 && !b) {
@@ -1432,16 +1444,16 @@
 {% if current_user %}
 <header class="topbar legacy-top">
   <div class="legacy-top-inner">
-  <a class="brand{% if nav_section == 'home' %} is-nav-current{% endif %}" href="{{ url_for('home') }}">주택관리 시스템</a>
+  <a class="brand{% if nav_section == 'home' %} is-nav-current{% endif %}" href="{{ url_for('home') }}">주택관리시스템</a>
   <nav class="legacy-nav" aria-label="주 메뉴">
     <div class="nav-item{% if nav_section == 'base' %} is-active{% endif %}" data-nav="base">
       <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'base' %}aria-current="true"{% endif %}>기초 내역 관리</button>
+              {% if nav_section == 'base' %}aria-current="true"{% endif %}>기초 관리</button>
       <div class="nav-drop">
         <a href="{{ url_for('buildings') }}"
-           class="{% if nav_endpoint == 'buildings' and request.args.get('next') != 'rooms' %}is-current{% endif %}">건물 내역 조회</a>
+           class="{% if nav_endpoint == 'buildings' and request.args.get('next') != 'rooms' %}is-current{% endif %}">건물 조회</a>
         <a href="{{ url_for('buildings', next='rooms') }}"
-           class="{% if nav_endpoint == 'buildings' and request.args.get('next') == 'rooms' or nav_endpoint == 'building_rooms' or nav_endpoint == 'room_new' %}is-current{% endif %}">호수 내역 조회</a>
+           class="{% if nav_endpoint == 'buildings' and request.args.get('next') == 'rooms' or nav_endpoint == 'building_rooms' or nav_endpoint == 'room_new' %}is-current{% endif %}">호수 조회</a>
         <a href="{{ url_for('vacancies') }}"
            class="{% if nav_endpoint == 'vacancies' %}is-current{% endif %}">공실 현황 조회</a>
         <a href="{{ url_for('users') }}"
@@ -1495,27 +1507,36 @@
               {% if nav_section == 'payment' %}aria-current="true"{% endif %}>수금관리</button>
       <div class="nav-drop">
         <a href="{{ url_for('payment_new') }}"
-           class="{% if nav_endpoint == 'payment_new' %}is-current{% endif %}">수금(대체) 등록</a>
+           class="{% if nav_endpoint == 'payment_new' %}is-current{% endif %}">수금(입금) 등록</a>
         <a href="{{ url_for('payments', fresh=1) }}"
-           class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(대체) 현황</a>
+           class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(입금) 현황</a>
         <a href="{{ url_for('jungke', reset=1) }}"
-           class="{% if nav_endpoint == 'jungke' %}is-current{% endif %}">중개수수료등록</a>
+           class="{% if nav_endpoint == 'jungke' %}is-current{% endif %}">중개수수료등</a>
         <a href="{{ url_for('misu') }}"
            class="{% if nav_endpoint == 'misu' %}is-current{% endif %}">미수금 현황 조회</a>
       </div>
     </div>
+    <div class="nav-item{% if nav_section == 'help' %} is-active{% endif %}" data-nav="help">
+      <button class="nav-label" type="button" aria-expanded="false"
+              {% if nav_section == 'help' %}aria-current="true"{% endif %}>도움말</button>
+      <div class="nav-drop">
+        <a href="{{ url_for('docs') }}"
+           class="{% if nav_endpoint == 'docs' %}is-current{% endif %}">서식 및 자료</a>
+      </div>
+    </div>
   </nav>
   <span class="user">
-    {{ current_user.name }} ({{ current_user.sabun }})
+    <a href="{{ url_for('users', sabun=current_user.sabun) }}" class="user-icon-btn"
+       title="{{ current_user.name }} ({{ current_user.sabun }})"
+       aria-label="사용자 관리 {{ current_user.name }}">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-person-fill" viewBox="0 0 16 16" style="vertical-align: middle;" aria-hidden="true"><path d="M3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3zm5-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+    </a>
     <a class="btn-logout" href="{{ url_for('logout') }}">로그아웃</a>
   </span>
   </div>
 </header>
 {% endif %}
-<main class="wrap">
-  {# 전역 flash 1회 로드 — 각 페이지에서 flash_messages 변수로 사용 가능.
-     기본은 본문 아래에 표시. 중간 배치가 필요하면 본문에서 쓰고
-     {% block flash %}{% endblock %} 로 하단 중복을 막으면 됨. #}
+<main class="wrap" id="app-main">
   {% set flash_messages = get_flashed_messages(with_categories=true) %}
   {% block content %}{% endblock %}
   {% block flash %}
@@ -1528,5 +1549,232 @@
   {% endif %}
   {% endblock %}
 </main>
+{% if current_user %}
+<script>
+(function () {
+  var main = document.getElementById('app-main') || document.querySelector('main.wrap');
+  if (!main) return;
+
+  var tracked = [];
+  var origDocAdd = document.addEventListener.bind(document);
+  var origDocRemove = document.removeEventListener.bind(document);
+  var origWinAdd = window.addEventListener.bind(window);
+  var origWinRemove = window.removeEventListener.bind(window);
+  function trackWrap(origAdd, obj) {
+    return function (type, fn, opts) {
+      if (window.__trackPageListeners && type !== 'DOMContentLoaded') {
+        tracked.push({ obj: obj, type: type, fn: fn, opts: opts });
+      }
+      return origAdd(type, fn, opts);
+    };
+  }
+  document.addEventListener = trackWrap(origDocAdd, document);
+  window.addEventListener = trackWrap(origWinAdd, window);
+  setTimeout(function () { window.__trackPageListeners = true; }, 0);
+
+  function clearPageListeners() {
+    tracked.forEach(function (t) {
+      try {
+        if (t.obj === document) origDocRemove(t.type, t.fn, t.opts);
+        else origWinRemove(t.type, t.fn, t.opts);
+      } catch (e) {}
+    });
+    tracked = [];
+  }
+
+  function replayScripts(root) {
+    var list = Array.prototype.slice.call(root.querySelectorAll('script'));
+    list.forEach(function (old) {
+      var s = document.createElement('script');
+      Array.prototype.forEach.call(old.attributes || [], function (a) {
+        s.setAttribute(a.name, a.value);
+      });
+      s.text = old.textContent || '';
+      if (old.parentNode) old.parentNode.replaceChild(s, old);
+    });
+  }
+
+  function syncHeader(doc) {
+    var neu = doc.querySelector('.legacy-top-inner');
+    var cur = document.querySelector('.legacy-top-inner');
+    if (!neu || !cur) return;
+    var nb = neu.querySelector('.brand');
+    var ob = cur.querySelector('.brand');
+    if (nb && ob) ob.className = nb.className;
+    var newItems = neu.querySelectorAll('.nav-item');
+    var oldItems = cur.querySelectorAll('.nav-item');
+    for (var i = 0; i < oldItems.length; i++) {
+      var ni = newItems[i];
+      if (!ni) break;
+      oldItems[i].classList.toggle('is-active', ni.classList.contains('is-active'));
+      var ol = oldItems[i].querySelector('.nav-label');
+      var nl = ni.querySelector('.nav-label');
+      if (ol && nl) {
+        if (nl.hasAttribute('aria-current')) ol.setAttribute('aria-current', 'true');
+        else ol.removeAttribute('aria-current');
+      }
+      var oa = oldItems[i].querySelectorAll('.nav-drop a');
+      var na = ni.querySelectorAll('.nav-drop a');
+      for (var j = 0; j < oa.length; j++) {
+        if (!na[j]) break;
+        oa[j].classList.toggle('is-current', na[j].classList.contains('is-current'));
+      }
+    }
+  }
+
+  function isFullNavPath(path) {
+    path = String(path || '');
+    if (/logout/i.test(path)) return true;
+    if (/print/i.test(path)) return true;
+    return false;
+  }
+  function isAppGetLink(a) {
+    if (!a || a.tagName !== 'A') return false;
+    if (a.target === '_blank' || a.hasAttribute('download')) return false;
+    if (a.classList.contains('btn-logout') || a.closest('.btn-logout')) return false;
+    if (a.getAttribute('data-full-nav') === '1') return false;
+    var href = a.getAttribute('href') || '';
+    if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return false;
+    try {
+      var dest = new URL(a.href, location.origin);
+      if (dest.origin !== location.origin) return false;
+      if (isFullNavPath(dest.pathname)) return false;
+    } catch (err) {
+      return false;
+    }
+    return true;
+  }
+  function hrefFromClickRow(el) {
+    var row = el && el.closest && el.closest('tr.click-row, .click-row');
+    if (!row) return '';
+    if (row.getAttribute('data-href')) return row.getAttribute('data-href');
+    var oc = row.getAttribute('onclick') || '';
+    var m = oc.match(/location\.href\s*=\s*['"]([^'"]+)['"]/);
+    return m ? m[1] : '';
+  }
+
+  var loading = false;
+  var bar = document.getElementById('shell-progress');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'shell-progress';
+    bar.setAttribute('aria-hidden', 'true');
+    var top = document.querySelector('header.topbar');
+    if (top) top.appendChild(bar);
+    else document.body.insertBefore(bar, main);
+  }
+  function startShellFx() {
+    document.body.classList.add('is-shell-nav');
+    main.classList.remove('shell-in');
+    main.classList.add('shell-swap');
+    bar.classList.add('is-on');
+  }
+  function endShellFx() {
+    main.classList.remove('shell-swap');
+    main.classList.add('shell-in');
+    bar.classList.remove('is-on');
+    document.body.classList.remove('is-shell-nav');
+  }
+  function loadShell(url, push) {
+    if (loading) return;
+    var dest;
+    try { dest = new URL(url, location.origin); } catch (e) { location.href = url; return; }
+    if (dest.origin !== location.origin) { location.href = dest.href; return; }
+    loading = true;
+    var started = Date.now();
+    startShellFx();
+    fetch(dest.href, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch', 'X-Shell-Nav': '1' }
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('bad');
+        return r.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var newMain = doc.getElementById('app-main') || doc.querySelector('main.wrap');
+        if (!newMain || !doc.querySelector('header.topbar')) {
+          location.href = dest.href;
+          return;
+        }
+        var wait = Math.max(0, 280 - (Date.now() - started));
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            clearPageListeners();
+            window.__trackPageListeners = true;
+            main.innerHTML = newMain.innerHTML;
+            replayScripts(main);
+            syncHeader(doc);
+            document.title = doc.title || document.title;
+            if (window.rebindPageWidgets) window.rebindPageWidgets();
+            if (window.closeTopNav) window.closeTopNav();
+            if (push) history.pushState({ shell: 1 }, '', dest.pathname + dest.search + dest.hash);
+            try { window.scrollTo(0, 0); } catch (e2) {}
+            resolve();
+          }, wait);
+        });
+      })
+      .catch(function () { location.href = dest.href; })
+      .then(function () {
+        loading = false;
+        var m = document.getElementById('app-main') || document.querySelector('main.wrap');
+        if (m) main = m;
+        endShellFx();
+      });
+  }
+
+  window.loadShellNav = function (url, push) {
+    loadShell(url, push !== false);
+  };
+
+  origDocAdd('click', function (e) {
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;
+    var a = e.target.closest && e.target.closest('a');
+    if (isAppGetLink(a)) {
+      e.preventDefault();
+      e.stopPropagation();
+      loadShell(a.href, true);
+      return;
+    }
+    var rowHref = hrefFromClickRow(e.target);
+    if (rowHref && !e.target.closest('a, button, input, label, select, textarea')) {
+      e.preventDefault();
+      e.stopPropagation();
+      loadShell(rowHref, true);
+    }
+  }, true);
+
+  origDocAdd('submit', function (e) {
+    if (e.defaultPrevented) return;
+    var form = e.target;
+    if (!form || !form.tagName || form.tagName !== 'FORM') return;
+    var method = String(form.getAttribute('method') || 'get').toLowerCase();
+    if (method && method !== 'get') return;
+    if (form.getAttribute('data-full-nav') === '1') return;
+    if (form.querySelector('input[type="password"]')) return;
+    var action = form.getAttribute('action') || location.pathname;
+    var dest;
+    try { dest = new URL(action, location.origin); } catch (err) { return; }
+    if (dest.origin !== location.origin || isFullNavPath(dest.pathname)) return;
+    e.preventDefault();
+    var fd = new FormData(form);
+    if (e.submitter && e.submitter.name) fd.set(e.submitter.name, e.submitter.value);
+    var q = new URLSearchParams();
+    fd.forEach(function (v, k) {
+      if (String(v).trim() !== '') q.set(k, v);
+    });
+    var qs = q.toString();
+    loadShell(dest.pathname + (qs ? ('?' + qs) : ''), true);
+  });
+
+  origWinAdd('popstate', function (e) {
+    if (!document.getElementById('app-main') && !document.querySelector('main.wrap')) return;
+    if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+    loadShell(location.href, false);
+  }, true);
+})();
+</script>
+{% endif %}
 </body>
 </html>

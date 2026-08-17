@@ -17,7 +17,7 @@ def nav_context():
         "vacancies": ("base", "기초 내역 관리", "공실 현황 조회"),
         "users": ("base", "기초 내역 관리", "사용자관리"),
         "password_change": ("base", "기초 내역 관리", "비밀번호변경"),
-        "building_detail": ("base", "기초 내역 관리", "건물 내역"),
+        "building_detail": ("base", "기초 내역 관리", "건물 정보"),
         "building_rooms": ("base", "기초 내역 관리", "호수 내역 조회"),
         "building_new": ("base", "기초 내역 관리", "건물 등록"),
         "building_edit": ("base", "기초 내역 관리", "건물 수정"),
@@ -36,6 +36,7 @@ def nav_context():
         "payments": ("payment", "수금관리", "기간별 수금(대체) 현황"),
         "jungke": ("payment", "수금관리", "중개수수료등록"),
         "misu": ("payment", "수금관리", "미수금 현황 조회"),
+        "docs": ("help", "도움말", "서식 및 자료"),
     }
     # buildings?next=rooms 는 같은 endpoint — 화면명만 보정
     sec = table.get(ep)

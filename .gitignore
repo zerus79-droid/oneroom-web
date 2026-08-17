@@ -7,3 +7,4 @@ __pycache__/
 _shots/
 tenant_shot.png
 temp_probe.py
+sinbee_mariadb.sql

@@ -17,7 +17,9 @@
     </span>
   </div>
   <div class="legacy-sukum-body payments-panel-body">
-  <form method="get" id="filter-payments-form" autocomplete="off">
+  <form method="get" id="filter-payments-form" class="filter-bar" autocomplete="off"
+        data-skip-addr-check="1">
+    <div class="filter-bar-fields">
     <div class="ls-row">
       <label class="ls-lab">세입자 이름</label>
       <div class="ls-val">
@@ -64,17 +66,17 @@
         <div class="bunji-pair-input">
           <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
                  inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="508"
-                 autocomplete="off" title="주소 · 휠: 등록 건물 순환">
+                 autocomplete="off" title="주소 · ↑↓: 등록 건물 순환">
           <span class="bunji-sep">-</span>
           <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
                  inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="88"
-                 autocomplete="off" title="주소2 · 휠: 등록 건물 순환" aria-label="주소2">
+                 autocomplete="off" title="주소2 · ↑↓: 등록 건물 순환" aria-label="주소2">
         </div>
       </div>
       <label class="ls-lab">호실</label>
       <div class="ls-val">
         <input name="hosu" id="hosu" class="hosu-input ls-box" value="{{ filters.hosu or '' }}"
-               placeholder="예: 201" autocomplete="off" title="휠: 해당 건물 등록 호실 순환">
+               placeholder="예: 201" autocomplete="off" title="↑↓: 해당 건물 등록 호실 순환">
         {# 세입자 상세 조회 시에만 유지. 메뉴 초기 진입 시에는 없음 #}
         {% if filters.ipju_seq %}
         <input type="hidden" name="ipju_seq" id="ipju_seq" value="{{ filters.ipju_seq }}">
@@ -132,132 +134,13 @@
         </div>
       </div>
     </div>
-    <div class="ls-actions payments-actions">
+    </div>
+    <div class="filter-bar-btns">
       <button type="submit" class="btn" id="btn-search">조회</button>
     </div>
   </form>
 
-{% if name_list_mode and payment_groups is defined %}
-  {# 세입자 이름 검색: 동명이인(2곳 이상)만 여기 — 1명은 서버에서 바로 상세로 이동 #}
-  <div class="panel-section-lab">
-    동명이인 · 「{{ filters.name }}」
-    <span class="muted">{{ payment_groups|length }}곳 · 행 클릭 시 상세</span>
-  </div>
-  {% if payment_groups %}
-  <div class="panel-table-wrap table-scroll">
-    <table class="legacy-grid name-summary-table">
-      <thead>
-        <tr>
-          <th>세입자</th>
-          <th>주소</th>
-          <th>건물명</th>
-          <th>호실</th>
-          <th>입주순번</th>
-          <th class="num">수금건수</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in payment_groups %}
-        {% set g_from = g.hist_from or filters.date_from %}
-        {% set g_to = filters.date_to %}
-        <tr class="click-row name-summary-row"
-            title="클릭: 해당 세입자 전체 수금(대체) 현황"
-            data-href="{{ url_for('payments', name=g.ipju_nm, bunji1=g.bunji1, bunji2=g.bunji2, hosu=g.hosu, ipju_seq=g.ipju_seq, all_hist=1, tenant_status=filters.tenant_status) }}"
-            onclick="if(window.showSearching)showSearching('내역 불러오는 중…'); location.href=this.getAttribute('data-href');">
-            {# 선택 후 해당 세입자 전체 납부 내역 #}
-          <td>{{ g.ipju_nm or '(이름 없음)' }}</td>
-          <td class="col-nowrap">
-            <span class="bunji-link">{{ g.bunji1|bunji_pair(g.bunji2) }}</span>
-          </td>
-          <td>{{ g.juso or '' }}</td>
-          <td>{{ g.hosu }}</td>
-          <td>{{ g.ipju_seq or '-' }}</td>
-          <td class="num">
-            {{ g.pay_count if g.pay_count is defined else (g.payments|length if g.payments is defined else 0) }}
-            {% if (g.pay_count is defined and g.pay_count == 0 or g.payments is defined and not g.payments) and g.hist_count %}
-            <span class="muted">(전체 {{ g.hist_count }})</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="panel-table-wrap">
-    <p class="empty">「{{ filters.name }}」 이름으로 등록된 입주자가 없습니다.</p>
-  </div>
-  {% endif %}
-{% elif payments %}
-  <div class="panel-section-lab" id="payments-list-card">
-    수금 목록
-    <span class="muted">
-      {% if filters.name %}{{ filters.name }} · {% endif %}
-      {% if filters.bunji1 %}{{ filters.bunji1|bunji_pair(filters.bunji2) }} · {% endif %}
-      {% if filters.hosu %}{{ filters.hosu }}호 · {% endif %}
-      {{ filters.date_from }} ~ {{ filters.date_to }} · {{ payments|length }}건
-    </span>
-  </div>
-  <div class="panel-table-wrap table-scroll">
-  <table class="legacy-grid" id="payments-table">
-    <thead>
-      <tr>
-        <th>수금일</th>
-        <th>주소</th>
-        <th>호</th>
-        <th>세입자</th>
-        <th>성격</th>
-        <th>종류</th>
-        <th class="num">실수금액</th>
-        <th class="num">대체금액</th>
-        <th class="tc">삭제</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in payments %}
-      {% set pdt = (p.sukum_dt|string)[:10] %}
-      <tr>
-        <td class="col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
-        <td class="col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
-        <td>{{ p.hosu }}</td>
-        <td>{{ p.ipju_nm or '' }}</td>
-        <td>{{ p.char_nm or p.sukum_char }}</td>
-        <td>{{ p.gb_nm or p.sukum_gb }}</td>
-        <td class="num">{{ p.su_sil_amt|money }}</td>
-        <td class="num">{{ p.su_dache_amt|money }}</td>
-        <td class="tc">
-          <input type="checkbox" class="pay-del-check"
-                 data-sukum-dt="{{ pdt }}"
-                 data-sukum-seq="{{ p.sukum_seq }}"
-                 data-bunji1="{{ p.bunji1 }}"
-                 data-bunji2="{{ p.bunji2 }}"
-                 data-hosu="{{ p.hosu }}"
-                 title="삭제 선택"
-                 aria-label="삭제 선택 {{ pdt }} {{ p.sukum_seq }}">
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <div class="payments-list-footer" style="padding:8px 10px;border-top:1px solid var(--box-border);background:#fff;">
-    <p class="muted" style="margin:0;">
-      조회 기간 {{ filters.date_from }} ~ {{ filters.date_to }}
-      {% if filters.ipju_seq %} · 해당 세입자 납부 내역{% endif %}
-    </p>
-    <div class="payments-del-actions">
-      <label class="pay-del-all-lab">
-        <input type="checkbox" id="pay-del-all" title="전체 선택">
-        <span class="pay-del-all-text">전체</span>
-      </label>
-      <button type="button" class="btn pay-del-btn" id="btn-pay-delete" disabled>삭제</button>
-    </div>
-  </div>
-  </div>
-{% elif is_fresh %}
-  <p class="empty payments-hint">조건을 입력한 뒤 「조회」하세요.</p>
-{% else %}
-  <p class="empty payments-hint">조건에 맞는 수금이 없습니다.</p>
-{% endif %}
+{% include "payments_result.html" %}
   </div>
 </div>
 <script>
@@ -282,6 +165,7 @@ function applyYearMonth() {
 var _searchLoadingTimer = null;
 var _searchActive = false;
 var _searchCancelled = false;
+var _paymentsAbort = null;
 
 function isSearching() {
   return _searchActive || document.body.classList.contains('is-searching');
@@ -308,6 +192,10 @@ function cancelSearching() {
   }
   _searchCancelled = true;
   _searchActive = false;
+  if (_paymentsAbort) {
+    try { _paymentsAbort.abort(); } catch (e0) {}
+    _paymentsAbort = null;
+  }
   // 이미 form submit 으로 넘어가던 요청 중단
   try {
     if (typeof window.stop === 'function') window.stop();
@@ -315,6 +203,8 @@ function cancelSearching() {
   try {
     if (document.execCommand) document.execCommand('Stop');
   } catch (e2) {}
+  var wrap = document.getElementById('payments-result-wrap');
+  if (wrap) wrap.style.opacity = '';
   hideSearching();
 }
 function showSearching(msg) {
@@ -379,12 +269,27 @@ function getPaymentsForm() {
       || document.querySelector('form.legacy-sukum-body')
       || document.querySelector('form.filter-payments');
 }
-/** 세입자 구분(현/과거/전체) 변경 시 즉시 조회 */
+function clearIpjuLock(form) {
+  var root = form || getPaymentsForm() || document;
+  var ipju = document.getElementById('ipju_seq') || root.querySelector('input[name="ipju_seq"]');
+  if (ipju && ipju.parentNode) ipju.parentNode.removeChild(ipju);
+  var ah = root.querySelector ? root.querySelector('input[name="all_hist"]') : document.querySelector('input[name="all_hist"]');
+  if (ah && ah.parentNode) ah.parentNode.removeChild(ah);
+}
+/** 세입자 구분(현/과거/전체) 변경 시 이전 순번 잠금 해제 후 조회 */
+var _tenantQueryAt = 0;
 function onTenantStatusChange(el) {
   var form = (el && el.form) || getPaymentsForm();
   if (!form) return;
-  showSearching('조회 중…');
-  // requestSubmit: form submit 이벤트(주소 검증·로딩) 유지. 없으면 submit
+  var now = Date.now();
+  if (now - _tenantQueryAt < 80) return;
+  _tenantQueryAt = now;
+  // 이전 조회(508-88 김인규 등)의 순번·이름 잠금을 버리고, 지금 칸의 주소·호실로 조회
+  clearIpjuLock(form);
+  var nameEl = document.getElementById('name');
+  var nameMode = document.getElementById('name_mode');
+  if (nameEl) nameEl.value = '';
+  if (nameMode) nameMode.value = '';
   if (typeof form.requestSubmit === 'function') {
     form.requestSubmit();
   } else {
@@ -402,9 +307,10 @@ function applyToday() {
     document.getElementById('date_to').value = today;
   }
   clearNameForQuery();
-  showSearching('조회 중…');
   const form = getPaymentsForm();
-  if (form) form.submit();
+  if (!form) return;
+  if (typeof form.requestSubmit === 'function') form.requestSubmit();
+  else form.submit();
 }
 // 주소/주소2: 숫자만, 미등록 주소 경고, 주소 4자리/ - 시 주소2로 이동
 (function () {
@@ -416,6 +322,147 @@ function applyToday() {
   var form = getPaymentsForm();
   var dateFrom = document.getElementById('date_from');
   var dateTo = document.getElementById('date_to');
+
+  function ensureHidden(name, val, id) {
+    if (!form) return;
+    var el = form.querySelector('input[name="' + name + '"]');
+    if (!el) {
+      el = document.createElement('input');
+      el.type = 'hidden';
+      el.name = name;
+      if (id) el.id = id;
+      form.appendChild(el);
+    }
+    el.value = val;
+  }
+  function removeHidden(name) {
+    var root = form || document;
+    var el = (name === 'ipju_seq' && document.getElementById('ipju_seq'))
+      || root.querySelector('input[name="' + name + '"]');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function syncFormFromResult() {
+    var wrap = document.getElementById('payments-result-wrap');
+    if (!wrap || !form) return;
+    var seq = wrap.getAttribute('data-ipju-seq') || '';
+    var ah = wrap.getAttribute('data-all-hist') || '';
+    var df = wrap.getAttribute('data-date-from') || '';
+    var dt = wrap.getAttribute('data-date-to') || '';
+    var nm = wrap.getAttribute('data-name');
+    var nmMode = wrap.getAttribute('data-name-mode') || '';
+    if (seq) ensureHidden('ipju_seq', seq, 'ipju_seq');
+    else removeHidden('ipju_seq');
+    if (ah) ensureHidden('all_hist', ah);
+    else removeHidden('all_hist');
+    if (df && dateFrom) {
+      dateFrom.value = df;
+      if (window.setDateParts) window.setDateParts('date_from_parts', df);
+    }
+    if (dt && dateTo) {
+      dateTo.value = dt;
+      if (window.setDateParts) window.setDateParts('date_to_parts', dt);
+    }
+    var hb1 = wrap.getAttribute('data-bunji1') || '';
+    var hb2 = wrap.getAttribute('data-bunji2') || '';
+    var hh = wrap.getAttribute('data-hosu') || '';
+    // 사용자가 방금 넣은 주소·호실을 이전 조회 결과로 덮어쓰지 않음
+    if (b1 && hb1 && !String(b1.value || '').replace(/\D/g, '')) b1.value = hb1;
+    if (b2 && hb2 && !String(b2.value || '').replace(/\D/g, '')) b2.value = hb2;
+    if (hosu && hh && !String(hosu.value || '').trim()) hosu.value = hh;
+    if (nameEl && nm && !String(nameEl.value || '').trim()) nameEl.value = nm;
+    if (nameMode) nameMode.value = nmMode;
+    var cap = document.querySelector('.caption-actions a.btn');
+    if (cap && cap.getAttribute('href')) {
+      try {
+        var cu = new URL(cap.getAttribute('href'), location.origin);
+        var hb1 = wrap.getAttribute('data-bunji1') || '';
+        var hb2 = wrap.getAttribute('data-bunji2') || '';
+        var hh = wrap.getAttribute('data-hosu') || '';
+        if (hb1) cu.searchParams.set('bunji1', hb1); else cu.searchParams.delete('bunji1');
+        if (hb2) cu.searchParams.set('bunji2', hb2); else cu.searchParams.delete('bunji2');
+        if (hh) cu.searchParams.set('hosu', hh); else cu.searchParams.delete('hosu');
+        cap.setAttribute('href', cu.pathname + cu.search);
+      } catch (eCap) {}
+    }
+  }
+  function formActionUrl(submitter) {
+    if (!form) return location.pathname;
+    var fd = new FormData(form);
+    if (submitter && submitter.name) fd.set(submitter.name, submitter.value);
+    // 화면에 보이는 주소·호실을 그대로 씀 (이전 조회 숨은 값보다 우선)
+    if (b1) fd.set('bunji1', onlyDigits(b1, 4));
+    if (b2) fd.set('bunji2', onlyDigits(b2, 4));
+    if (hosu) fd.set('hosu', normHosuVal(hosu.value));
+    // 라디오/조회는 그 호의 현·과거를 다시 고름. 예전 입주 순번·이름은 제외
+    fd.delete('ipju_seq');
+    if (nameMode && nameMode.value === '1' && nameEl && String(nameEl.value || '').trim()
+        && !onlyDigits(b1, 4) && !onlyDigits(b2, 4)) {
+      fd.set('name', String(nameEl.value || '').trim());
+      fd.set('name_mode', '1');
+    } else {
+      fd.delete('name');
+      fd.delete('name_mode');
+    }
+    var q = new URLSearchParams();
+    fd.forEach(function (v, k) {
+      if (String(v).trim() !== '') q.set(k, v);
+    });
+    var qs = q.toString();
+    return location.pathname + (qs ? ('?' + qs) : '');
+  }
+  var _resultLoading = false;
+  var _resultGen = 0;
+  function loadPaymentsResult(urlStr, opts) {
+    opts = opts || {};
+    var wrap = document.getElementById('payments-result-wrap');
+    if (!wrap) { location.href = urlStr; return; }
+    var url;
+    try { url = new URL(urlStr, location.origin); } catch (err) { location.href = urlStr; return; }
+    if (url.pathname.indexOf('/payments') === -1) { location.href = urlStr; return; }
+    url.searchParams.set('partial', 'result');
+    if (_paymentsAbort) {
+      try { _paymentsAbort.abort(); } catch (eAb) {}
+    }
+    _paymentsAbort = (typeof AbortController === 'function') ? new AbortController() : null;
+    _resultLoading = true;
+    var gen = ++_resultGen;
+    if (opts.overlay) showSearching(opts.msg || '조회 중…');
+    wrap.style.opacity = '0.55';
+    var fetchOpts = { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } };
+    if (_paymentsAbort) fetchOpts.signal = _paymentsAbort.signal;
+    fetch(url.toString(), fetchOpts)
+      .then(function (r) { if (!r.ok) throw new Error('bad'); return r.text(); })
+      .then(function (html) {
+        if (gen !== _resultGen || _searchCancelled) return;
+        if (html.indexOf('id="payments-result-wrap"') < 0 && html.indexOf("id='payments-result-wrap'") < 0) {
+          throw new Error('not-partial');
+        }
+        var next = document.getElementById('payments-result-wrap');
+        if (next) next.outerHTML = html;
+        syncFormFromResult();
+        bindPayDelete();
+        if (opts.push !== false) {
+          var clean = new URL(urlStr, location.origin);
+          clean.searchParams.delete('partial');
+          history.pushState({ paymentsResult: 1 }, '', clean.pathname + clean.search);
+        }
+        if (opts.overlay) hideSearching();
+      })
+      .catch(function (err) {
+        if (err && err.name === 'AbortError') {
+          var curA = document.getElementById('payments-result-wrap');
+          if (curA) curA.style.opacity = '';
+          return;
+        }
+        location.href = urlStr;
+      })
+      .then(function () {
+        _resultLoading = false;
+        var cur = document.getElementById('payments-result-wrap');
+        if (cur) cur.style.opacity = '';
+      });
+  }
+  window.loadPaymentsResult = loadPaymentsResult;
 
   var buildingHintEl = document.getElementById('building-hint');
   var lastPopupKey = '';
@@ -596,10 +643,17 @@ function applyToday() {
       if (e.key === 'Backspace' && !b2.value) {
         b1.focus();
       }
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (e.key === 'Tab' && e.shiftKey) return;
         e.preventDefault();
+        if (!onlyDigits(b2, 4)) {
+          window.alert('주소2를 입력하세요.');
+          b2.focus();
+          b2.select && b2.select();
+          return;
+        }
         var res = checkBuilding({ showPopup: true });
-        if (res && res.found === false) return;
+        if (!res || res.found !== true) return;
         if (hosu) { hosu.focus(); hosu.select && hosu.select(); }
       }
     });
@@ -664,7 +718,19 @@ function applyToday() {
   if (hosu) {
     hosu.addEventListener('input', function () {
       lastHosuPopupKey = '';
+      clearIpjuLock(form);
     });
+    if (b1) {
+      b1.addEventListener('input', function () { clearIpjuLock(form); });
+    }
+    if (b2) {
+      b2.addEventListener('input', function () { clearIpjuLock(form); });
+    }
+    if (form) {
+      form.querySelectorAll('input[name="tenant_status"]').forEach(function (r) {
+        r.addEventListener('click', function () { onTenantStatusChange(r); });
+      });
+    }
     hosu.addEventListener('blur', function () {
       var h = normHosuVal(hosu.value);
       hosu.value = h;
@@ -679,17 +745,45 @@ function applyToday() {
       e.preventDefault();
       hosu.value = normHosuVal(hosu.value);
       if (!hosu.value) return;
-      var res = checkHosu({ showPopup: true });
-      if (res && res.found === false) return;
-      // 통과 시 조회 폼 제출은 하지 않음(날짜 입력 가능)
+      submitTenantHistory();
     });
   }
+
+  function todayIso() {
+    var t = new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return t.getFullYear() + '-' + p(t.getMonth() + 1) + '-' + p(t.getDate());
+  }
+  function selectedTenantStatus() {
+    var r = form ? form.querySelector('input[name="tenant_status"]:checked') : null;
+    return r ? r.value : 'current';
+  }
+  /** 주소·호실 Enter/조회: 지금 칸 기준으로 조회. 예전 순번 API 잠금 없음 */
+  function submitTenantHistory() {
+    if (!form || !hasBunji() || !hosu || !normHosuVal(hosu.value)) return;
+    var res = checkHosu({ showPopup: true });
+    if (res && res.found === false) return;
+    hosu.value = normHosuVal(hosu.value);
+    if (nameEl) nameEl.value = '';
+    if (nameMode) nameMode.value = '';
+    clearIpjuLock(form);
+    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+    else form.submit();
+  }
+  window.onHosuEnter = submitTenantHistory;
 
   // 조회 / 월 조회 버튼: 이름 조건 지우고 기간 조회 (submit 핸들러에서 주소 검증)
   var btnSearch = document.getElementById('btn-search');
   var btnUseYm = document.getElementById('btn-use-ym');
   if (btnSearch) {
-    btnSearch.addEventListener('click', function () {
+    btnSearch.addEventListener('click', function (e) {
+      if (hasBunji() && hosu && normHosuVal(hosu.value)) {
+        e.preventDefault();
+        if (nameEl) nameEl.value = '';
+        if (nameMode) nameMode.value = '';
+        submitTenantHistory();
+        return;
+      }
       clearNameForQuery();
     });
   }
@@ -750,7 +844,10 @@ function applyToday() {
         }
       }
 
-      showSearching(isNameSearch ? '이름 검색 중…' : '조회 중…');
+      e.preventDefault();
+      loadPaymentsResult(formActionUrl(e.submitter), {
+        msg: isNameSearch ? '이름 검색 중…' : '조회 중…'
+      });
     });
   }
 
@@ -779,13 +876,13 @@ function applyToday() {
     if (dateFrom) dateFrom.value = '';
     if (dateTo) dateTo.value = '';
     if (nameMode) nameMode.value = '1';
-    showSearching('이름 검색 중…');
     // submit 직전에 취소됐으면 중단
     if (_searchCancelled) {
       hideSearching();
       return;
     }
-    form.submit();
+    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+    else form.submit();
   }
   if (nameEl && form) {
     nameEl.addEventListener('keydown', function (e) {
@@ -802,15 +899,7 @@ function applyToday() {
     });
   }
 
-  // 동명이인 행 클릭 시에도 검색 중 표시
-  document.querySelectorAll('tr.name-summary-row').forEach(function (tr) {
-    tr.addEventListener('click', function () {
-      showSearching('내역 불러오는 중…');
-    });
-  });
-
-  // ── 수금 내역 삭제 체크박스 ──
-  (function bindPayDelete() {
+  function bindPayDelete() {
     var btn = document.getElementById('btn-pay-delete');
     var all = document.getElementById('pay-del-all');
     var checks = function () {
@@ -867,7 +956,7 @@ function applyToday() {
             if (typeof hideSearching === 'function') hideSearching();
             if (data && data.ok) {
               window.alert(data.message || (data.deleted + '건 삭제했습니다.'));
-              location.reload();
+              loadPaymentsResult(location.href, { push: false, msg: '조회 중…' });
             } else {
               window.alert((data && data.message) || '삭제에 실패했습니다.');
               btn.disabled = false;
@@ -883,7 +972,29 @@ function applyToday() {
       });
     }
     syncBtn();
-  })();
+  }
+  bindPayDelete();
+
+  document.addEventListener('click', function (e) {
+    var row = e.target.closest('#payments-result-wrap tr.name-summary-row');
+    if (row && !e.target.closest('a')) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;
+      var href = row.getAttribute('data-href');
+      if (!href) return;
+      e.preventDefault();
+      loadPaymentsResult(href, { msg: '내역 불러오는 중…' });
+      return;
+    }
+    var a = e.target.closest('#payments-result-wrap a.pager-num, #payments-result-wrap a.pager-btn');
+    if (!a || !a.getAttribute('href')) return;
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;
+    e.preventDefault();
+    loadPaymentsResult(a.href, { msg: '조회 중…' });
+  });
+  window.addEventListener('popstate', function () {
+    if (!document.getElementById('payments-result-wrap')) return;
+    loadPaymentsResult(location.href, { push: false, msg: '조회 중…' });
+  });
 
 })();
 </script>

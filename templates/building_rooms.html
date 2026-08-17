@@ -58,6 +58,10 @@
           <a href="{{ url_for('payment_new', bunji1=building.bunji1, bunji2=building.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}">수금</a>
           ·
           <a href="{{ url_for('payments', bunji1=building.bunji1, bunji2=building.bunji2, hosu=r.hosu) }}">내역</a>
+          {% else %}
+          <form method="post" action="{{ url_for('room_delete', bunji1=building.bunji1, bunji2=building.bunji2, hosu=r.hosu) }}" style="display:inline;" onsubmit="return confirm('호수 {{ r.hosu }}를 삭제하시겠습니까?');">
+            <button type="submit" class="btn-link" style="padding:0;border:none;background:none;color:#ef4444;cursor:pointer;text-decoration:underline;">삭제</button>
+          </form>
           {% endif %}
         </td>
       </tr>

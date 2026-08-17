@@ -7,14 +7,14 @@ from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
-from utils import login_required
+from utils import login_required, require_admin
 
 
 # 사용자 등급 (XP 사용자관리: A / B / C / 무제한)
 GRADE_OPTIONS = [
-    ("A", "A"),
-    ("B", "B"),
-    ("C", "C"),
+    ("A", "최고관리자"),
+    ("B", "일반관리자"),
+    ("C", "조회전용"),
     ("U", "무제한"),
 ]
 
@@ -51,6 +51,7 @@ def _extract_user_form(form):
         "s_name": (form.get("s_name") or "").strip(),
         "grade": _normalize_user_grade(form.get("grade")),
         "password": (form.get("password") or "").strip(),
+        "password2": (form.get("password2") or "").strip(),
         "mode": (form.get("mode") or "new").strip(),
         "orig_sabun": (form.get("orig_sabun") or "").strip(),
     }
@@ -67,11 +68,15 @@ def _validate_user_form(data, *, require_password):
         return "비밀번호는 10자 이내입니다."
     if require_password and not data["password"]:
         return "신규 사용자는 비밀번호를 입력하세요."
+    if data["password"] or data["password2"]:
+        if data["password"] != data["password2"]:
+            return "비밀번호와 확인이 일치하지 않습니다."
     return None
 
 
 @app.route("/users", methods=["GET", "POST"])
 @login_required
+@require_admin
 def users():
     """기초 내역 · 사용자관리 (sawon_m). XP「사용자」화면."""
     uid = session.get("sabun") or ""
@@ -83,13 +88,13 @@ def users():
 
         form = _extract_user_form(request.form)
         if action == "delete":
-            target = form["orig_sabun"] or form["sabun"]
-            if not target:
-                flash("삭제할 사용자를 목록에서 선택하세요.", "err")
-                return redirect(url_for("users"))
+            if form.get("mode") != "edit" or not form.get("orig_sabun"):
+                flash("삭제할 사용자를 목록에서 선택한 뒤 삭제하세요.", "err")
+                return _render_users_page(form)
+            target = form["orig_sabun"]
             if target == uid:
                 flash("현재 로그인 중인 계정은 삭제할 수 없습니다.", "err")
-                return redirect(url_for("users"))
+                return _render_users_page(form)
             try:
                 n = db.execute("DELETE FROM sawon_m WHERE sabun=%s", (target,))
                 if n:
@@ -105,8 +110,10 @@ def users():
             require_password=(form["mode"] != "edit" or not form["orig_sabun"]),
         )
         if err:
+            form["password"] = ""
+            form["password2"] = ""
             flash(err, "err")
-            return redirect(url_for("users"))
+            return _render_users_page(form)
 
         try:
             if form["mode"] == "edit" and form["orig_sabun"]:
@@ -153,18 +160,11 @@ def users():
         return redirect(url_for("users"))
 
     # GET
-    rows = db.query(
-        """
-        SELECT sabun, s_name, grade, sys_dt
-        FROM sawon_m
-        ORDER BY sabun
-        """
-    )
-    for r in rows:
-        r["grade_label"] = _grade_label(r.get("grade"))
-
     form = _empty_user_form()
     edit_sabun = (request.args.get("sabun") or "").strip()
+    # sabun 파라미터가 없으면 현재 로그인한 사용자를 기본으로 선택
+    if not edit_sabun:
+        edit_sabun = (session.get("sabun") or "").strip()
     if edit_sabun:
         row = db.query_one(
             "SELECT sabun, s_name, grade FROM sawon_m WHERE sabun=%s",
@@ -180,13 +180,31 @@ def users():
                 "s_name": row.get("s_name") or "",
                 "grade": g,
                 "password": "",
+                "password2": "",
                 "orig_sabun": row.get("sabun") or "",
             }
 
+    return _render_users_page(form)
+
+
+def _user_rows():
+    rows = db.query(
+        """
+        SELECT sabun, s_name, grade, sys_dt
+        FROM sawon_m
+        ORDER BY sabun
+        """
+    )
+    for r in rows:
+        r["grade_label"] = _grade_label(r.get("grade"))
+    return rows
+
+
+def _render_users_page(form):
     return render_template(
         "users.html",
         form=form,
-        users=rows,
+        users=_user_rows(),
         grade_options=GRADE_OPTIONS,
     )
 
@@ -225,7 +243,11 @@ def password_change():
             return redirect(url_for("password_change"))
         if new_pw != new_pw2:
             flash("새 비밀번호와 확인이 일치하지 않습니다.", "err")
-            return redirect(url_for("password_change"))
+            return render_template(
+                "password.html",
+                sabun=row.get("sabun") or sabun,
+                s_name=row.get("s_name") or s_name,
+            )
         if new_pw == old_pw:
             flash("기존 비밀번호와 다른 비밀번호를 입력하세요.", "err")
             return redirect(url_for("password_change"))
