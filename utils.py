@@ -437,6 +437,141 @@ def next_sukum_seq(sukum_dt, bunji1, bunji2, hosu):
     return f"{next_n:04d}"
 
 
+def parse_bunji_src(src):
+    """요청 dict(args/form)에서 bunji1/bunji2 를 뽑음. 'bunji' 통합 필드 우선."""
+    bunji_raw = (src.get("bunji") or "").strip()
+    if bunji_raw:
+        return parse_bunji_input(bunji_raw)
+    return (
+        pad_bunji((src.get("bunji1") or "").strip()),
+        pad_bunji((src.get("bunji2") or "").strip()),
+    )
+
+
+def pad_ipju_seq(seq):
+    """입주순번을 2자리로 맞춤 (숫자면 zfill, 아니면 그대로)."""
+    seq = str(seq or "").strip()
+    if seq.isdigit():
+        return seq.zfill(2)
+    return seq
+
+
+def tenant_key(bunji1, bunji2, hosu, ipju_seq):
+    """세입자 식별 키(주소·주소2·호수·순번, 대소문자/자리수 정규화)."""
+    return (
+        bunji1 or "",
+        bunji2 or "",
+        (hosu or "").strip().upper(),
+        pad_ipju_seq(ipju_seq),
+    )
+
+
+def iso_min_date(v):
+    """DB에서 나온 날짜값(문자/datetime/date)을 ISO 문자열로. 무효값이면 None."""
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    s = str(v)[:10]
+    return s if len(s) >= 10 else None
+
+
+def lookup_current_tenant(bunji1, bunji2, hosu):
+    """호실의 현재 입주자(거주 우선). 없으면 최신 이력 1건."""
+    hosu = (hosu or "").strip().upper()
+    if not (bunji1 and bunji2 and hosu):
+        return None
+    cols = """
+        bunji1, bunji2, hosu, ipju_seq, ipju_nm, out_dt,
+        rent_amt, manage_amt, bojung_amt, yechi_amt,
+        ipju_dt, ipju_tel1, ipju_tel2, misu_tot
+    """
+    # 거주 중 (out_dt 없음)
+    row = db.query_one(
+        f"""
+        SELECT {cols}
+        FROM bd03_det
+        WHERE bunji1=%s AND bunji2=%s
+          AND UPPER(TRIM(hosu))=%s
+          AND (out_dt IS NULL OR out_dt < '1000-01-01')
+        ORDER BY CAST(ipju_seq AS UNSIGNED) DESC
+        LIMIT 1
+        """,
+        (bunji1, bunji2, hosu),
+    )
+    if row:
+        return row
+    # 퇴실 포함 최신
+    return db.query_one(
+        f"""
+        SELECT {cols}
+        FROM bd03_det
+        WHERE bunji1=%s AND bunji2=%s
+          AND UPPER(TRIM(hosu))=%s
+        ORDER BY CAST(ipju_seq AS UNSIGNED) DESC
+        LIMIT 1
+        """,
+        (bunji1, bunji2, hosu),
+    )
+
+
+def first_date_for_tenant(b1, b2, h, seq=""):
+    """특정 입주자(주소·호·입주순번) 최초 입주일/수금일"""
+    h = (h or "").strip().upper()
+    b1 = pad_bunji(b1)
+    b2 = pad_bunji(b2)
+    if not (b1 and b2 and h):
+        return None
+    seq = (seq or "").strip()
+    if seq.isdigit():
+        seq = seq.zfill(2)
+    if seq:
+        row = db.query_one(
+            """
+            SELECT MIN(dt) AS mn FROM (
+              SELECT d.ipju_dt AS dt
+              FROM bd03_det d
+              WHERE d.bunji1=%s AND d.bunji2=%s
+                AND UPPER(TRIM(d.hosu))=%s
+                AND LPAD(TRIM(d.ipju_seq),2,'0')=LPAD(TRIM(%s),2,'0')
+                AND d.ipju_dt IS NOT NULL AND d.ipju_dt > '1000-01-01'
+              UNION ALL
+              SELECT s.sukum_dt AS dt
+              FROM sukum01 s
+              WHERE s.bunji1=%s AND s.bunji2=%s
+                AND UPPER(TRIM(s.hosu))=%s
+                AND LPAD(TRIM(s.ipju_seq),2,'0')=LPAD(TRIM(%s),2,'0')
+                AND s.sukum_dt IS NOT NULL AND s.sukum_dt > '1000-01-01'
+            ) t
+            """,
+            (b1, b2, h, seq, b1, b2, h, seq),
+        )
+    else:
+        row = db.query_one(
+            """
+            SELECT MIN(dt) AS mn FROM (
+              SELECT d.ipju_dt AS dt
+              FROM bd03_det d
+              WHERE d.bunji1=%s AND d.bunji2=%s
+                AND UPPER(TRIM(d.hosu))=%s
+                AND d.ipju_dt IS NOT NULL AND d.ipju_dt > '1000-01-01'
+              UNION ALL
+              SELECT s.sukum_dt AS dt
+              FROM sukum01 s
+              WHERE s.bunji1=%s AND s.bunji2=%s
+                AND UPPER(TRIM(s.hosu))=%s
+                AND s.sukum_dt IS NOT NULL AND s.sukum_dt > '1000-01-01'
+            ) t
+            """,
+            (b1, b2, h, b1, b2, h),
+        )
+    if not row or not row.get("mn"):
+        return None
+    return iso_min_date(row["mn"])
+
+
 def buildings_and_rooms():
     """화면 검증용: 등록 건물·호실 목록"""
     buildings = db.query(

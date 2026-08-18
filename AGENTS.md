@@ -32,7 +32,9 @@ Claude Code 사용 한도가 다 떨어지면 그동안은 Grok이 메인 역할
 | `tenants.py` | 입주 이력 등록/수정/삭제 + `/api/next_ipju_seq` `/api/tenant_load` |
 | `search.py` | 입주자 이력 조회 |
 | `users.py` | 사용자관리, 비밀번호변경 |
-| `payments.py` | 수금 현황/등록, `/api/building` `/api/current_tenant` `/api/payments/delete` |
+| `payments.py` | 수금현황 목록/검색 (`/payments`) |
+| `payment_register.py` | 수금(대체) 등록 (`/payments/new`) |
+| `payments_api.py` | 공용 API `/api/building` `/api/current_tenant` `/api/payments/delete` (다른 화면도 씀) |
 | `checkout.py` | 퇴실 정산, 목록, 계약해지 인쇄 |
 | `repair.py` | 수리 |
 | `misu.py` | 미수금 |
@@ -52,7 +54,8 @@ Claude Code 사용 한도가 다 떨어지면 그동안은 Grok이 메인 역할
 3. **라우트를 Blueprint로 바꾸거나 `app.py`로 다시 합치지 말 것.**
 4. **자동 음성 요약 하지 말 것.** (주인 요청으로 끔)
 5. **커밋은 주인이 시키기 전엔 하지 말 것.** (이 인수인계 커밋은 예외로 이미 함)
-6. **새 폴더·Blueprint 금지.** 화면별 파일 분리는 끝났음 (구조는 "나쁜 편 아님", SQL을 화면 파일에서 빼는 추가 재설계 하지 말 것).
+6. **새 폴더·Blueprint 금지.** 화면 파일이 여러 독립된 관심사(목록/등록/공용 API 등)를 섞고 있어서 AI가 작업 하나에 파일 전체를 읽어야 하는 경우엔, 같은 루트 폴더 안에서 flat한 `.py` 파일로 더 쪼갤 수 있음(2026-08-18, `payments.py`→`payments.py`+`payment_register.py`+`payments_api.py` 사례 참고). 단, 진짜 하나의 개념(계산 엔진+그걸 쓰는 라우트, 건물+호실처럼 계층적으로 묶인 도메인 등)을 억지로 쪼개진 말 것 — 목적은 토큰 절약이지 파일 개수 늘리기가 아님. Blueprint·서브폴더·SQLAlchemy는 여전히 금지.
+   - **`checkout.py`(1193줄)는 분리 안 하기로 결정함 (2026-08-18)**: 4개 라우트가 계산/인쇄 엔진(~450줄)을 공유해서, 쪼개도 계산 로직 고칠 땐 결국 엔진 전체를 읽어야 함 — 목록/페이징 작업만 이득(1193→~650), 계산 작업엔 이득 없음. 효과가 작아서 그냥 유지하기로 함. 다시 제안하지 말 것.
 
 ## UX / 데이터 규칙
 

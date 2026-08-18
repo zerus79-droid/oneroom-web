@@ -34,6 +34,8 @@ import jungsan as jungsan_routes  # noqa: F401
 import jungke as jungke_routes  # noqa: F401
 import misu as misu_routes  # noqa: F401
 import payments as payments_routes  # noqa: F401
+import payment_register as payment_register_routes  # noqa: F401
+import payments_api as payments_api_routes  # noqa: F401
 import repair as repair_routes  # noqa: F401
 import search as search_routes  # noqa: F401
 import tenants as tenants_routes  # noqa: F401
