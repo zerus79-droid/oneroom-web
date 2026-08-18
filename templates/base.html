@@ -1508,6 +1508,8 @@
       <div class="nav-drop">
         <a href="{{ url_for('payment_new') }}"
            class="{% if nav_endpoint == 'payment_new' %}is-current{% endif %}">수금(입금) 등록</a>
+        <a href="{{ url_for('payments_import') }}"
+           class="{% if nav_endpoint == 'payments_import' %}is-current{% endif %}">파일등록</a>
         <a href="{{ url_for('payments', fresh=1) }}"
            class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(입금) 현황</a>
         <a href="{{ url_for('jungke', reset=1) }}"

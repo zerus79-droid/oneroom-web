@@ -1911,6 +1911,22 @@ body.is-searching {
   box-sizing: border-box;
   line-height: 1.2;
 }
+.xp-form .xp-field input[type="file"].ls-box {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  max-width: 22em;
+}
+.xp-form .xp-field input[type="file"].ls-box::file-selector-button {
+  align-self: center;
+  margin: 0 10px 0 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(44, 62, 80, 0.42);
+  border-radius: var(--border-radius);
+  background: rgba(44, 62, 80, 0.10);
+  color: var(--chrome);
+  cursor: pointer;
+}
 .xp-form .xp-field .ls-val {
   display: flex;
   flex-wrap: nowrap;

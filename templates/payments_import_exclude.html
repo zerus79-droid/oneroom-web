@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}제외항목 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">제외항목</span>
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('payments_import') }}">입금파일 자동반영으로</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body xp-form">
+    <p class="panel-inline-note">
+      여기 등록한 이름/글자가 입금 적요에 포함되면, 입금파일 자동반영의 매칭 결과에 아예 표시되지 않습니다.
+    </p>
+
+    <div class="panel-section-lab">등록된 제외 항목 <span class="muted">{{ exclude_keywords|length }}건</span></div>
+    <div class="xp-inline" style="flex-wrap:wrap;gap:6px;margin-bottom:12px;">
+      {% for kw in exclude_keywords %}
+      <form method="post" style="display:inline-flex;align-items:center;gap:4px;">
+        <input type="hidden" name="action" value="exclude_del">
+        <input type="hidden" name="keyword_id" value="{{ kw.id }}">
+        <span class="st-badge empty">{{ kw.keyword }}</span>
+        <button type="submit" class="btn secondary" style="min-height:auto;height:auto;padding:2px 8px;">삭제</button>
+      </form>
+      {% else %}
+      <span class="muted">등록된 제외 항목 없음</span>
+      {% endfor %}
+    </div>
+
+    <form method="post" class="xp-inline" autocomplete="off">
+      <input type="hidden" name="action" value="exclude_add">
+      <input type="text" name="keyword" class="ls-box" placeholder="제외할 이름/글자 입력" style="max-width:14em;" required>
+      <button type="submit" class="btn">제외 추가</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

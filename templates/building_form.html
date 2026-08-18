@@ -68,7 +68,9 @@
     <div class="ls-row ls-row-bank">
       <label class="ls-lab">은행계좌</label>
       <div class="ls-val">
-        <input type="text" name="bank_acc" value="{{ form.bank_acc or '' }}" maxlength="30" class="ls-box" placeholder="계좌번호" autocomplete="off">
+        <input type="text" name="bank_acc" value="{{ form.bank_acc or '' }}" maxlength="30" class="ls-box"
+               placeholder="계좌번호" autocomplete="off" inputmode="numeric"
+               oninput="this.value=this.value.replace(/[^0-9-]/g,'')">
       </div>
       <div class="ls-val">
         <select name="bank_name" class="ls-select" title="은행">
@@ -87,6 +89,17 @@
       </div>
     </div>
 
+    <div class="ls-row ls-row-span">
+      <label class="ls-lab star">관리형태</label>
+      <div class="ls-val">
+        <select name="mgmt_gb" class="ls-select">
+          {% for code, name in mgmt_options %}
+          <option value="{{ code }}" {% if form.mgmt_gb==code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
     <div class="ls-row">
       <label class="ls-lab">최초보증금</label>
       <div class="ls-val">
@@ -99,7 +112,7 @@
     </div>
 
     <p class="panel-inline-note">
-      전기료납부: 각세대별(B) / 관리비에 포함(A) · 주소는 화면 앞 0 없이, 저장 시 4자리
+      전기료납부: 각세대별(B) / 관리비에 포함(A) · 관리형태: 책임관리(우리 통장으로 수금, 임대료만 정산) / 일반관리(임대인 통장으로 직접 입금, 관리비 별도 청구) · 주소는 화면 앞 0 없이, 저장 시 4자리
     </p>
     <div class="ls-actions">
       <button type="submit">{% if mode=='new' %}등록{% else %}수정 저장{% endif %}</button>
@@ -153,6 +166,11 @@
     var k = String(code == null ? "" : code).trim().toUpperCase();
     return map[k] != null ? map[k] : k;
   }
+  function mgmtLabel(code) {
+    var map = { "R": "책임관리", "G": "일반관리" };
+    var k = String(code == null ? "" : code).trim().toUpperCase();
+    return map[k] != null ? map[k] : "미지정";
+  }
   function dateNorm(v) {
     return String(v == null ? "" : v).trim().slice(0, 10);
   }
@@ -170,6 +188,7 @@
     { name: "bank_acc", label: "은행계좌" },
     { name: "bank_name", label: "은행" },
     { name: "elec_gb", label: "전기료납부", display: elecLabel },
+    { name: "mgmt_gb", label: "관리형태", display: mgmtLabel },
     { name: "first_amt", label: "최초보증금", normalize: moneyNorm, display: moneyDisp },
     { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp }
   ];

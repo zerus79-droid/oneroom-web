@@ -11,6 +11,7 @@ import db
 from app_instance import app
 from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
+    account_digits as _account_digits,
     fmt_bunji_pair,
     login_required,
     money,
@@ -26,6 +27,13 @@ ELEC_OPTIONS = [
     ("B", "각세대별"),
     ("A", "관리비에 포함"),
     ("", "미지정"),
+]
+
+# 관리형태(mgmt_gb) — 책임관리: 세입자 입금이 우리 통장으로 들어와 임대료만 임대인 정산.
+# 일반관리: 세입자 입금이 임대인 통장으로 직접 들어가고 우리는 관리비를 별도 청구.
+MGMT_OPTIONS = [
+    ("R", "책임관리"),
+    ("G", "일반관리"),
 ]
 
 BANK_OPTIONS = [
@@ -89,7 +97,15 @@ def _apply_bank_fields(form, raw=None):
 
 
 def _building_selects():
-    return {"elec_options": ELEC_OPTIONS, "bank_options": BANK_OPTIONS}
+    return {"elec_options": ELEC_OPTIONS, "bank_options": BANK_OPTIONS, "mgmt_options": MGMT_OPTIONS}
+
+
+def _mgmt_label(v):
+    key = (v or "").strip().upper()
+    for code, name in MGMT_OPTIONS:
+        if code == key:
+            return name
+    return "미지정"
 
 
 def _elec_label(v):
@@ -114,6 +130,13 @@ def _normalize_elec_gb(value):
     return elec_gb
 
 
+def _normalize_mgmt_gb(value):
+    mgmt_gb = (value or "").strip().upper()
+    if mgmt_gb not in ("R", "G"):
+        return "R"
+    return mgmt_gb
+
+
 def _extract_building_form_values(form):
     return {
         "bunji1": _pad_bunji(form.get("bunji1")),
@@ -124,6 +147,7 @@ def _extract_building_form_values(form):
         "building_dt": (form.get("building_dt") or "").strip(),
         "bank_cd": _join_bank_cd(form.get("bank_name"), form.get("bank_acc") or form.get("bank_cd")),
         "elec_gb": _normalize_elec_gb(form.get("elec_gb")),
+        "mgmt_gb": _normalize_mgmt_gb(form.get("mgmt_gb")),
         "floor_no": _coerce_building_floor_no(form.get("floor_no")),
         "man_cost": _parse_money(form.get("man_cost")),
         "first_amt": _parse_money(form.get("first_amt")),
@@ -159,6 +183,18 @@ def _check_duplicate_building(data):
     return None
 
 
+def _validate_account_number(data):
+    """계좌번호 검증. 은행·건물마다 자릿수·대시 규칙이 달라(구계좌, 휴대폰번호 계좌 등)
+    특정 자릿수를 강제하지 않고 자릿수만 너무 짧은지(오타 의심) 확인.
+    책임관리 건물은 우리 관리사무소 통장을 여러 건물이 같이 쓰는 게 정상이라 중복은 허용."""
+    acc_digits = _account_digits(data.get("bank_cd"))
+    if not acc_digits:
+        return None
+    if not (8 <= len(acc_digits) <= 20):
+        return "계좌번호 자릿수를 확인하세요 (숫자 8~20자리, 휴대폰번호 계좌 포함)."
+    return None
+
+
 def _validate_building(data, *, for_insert=False):
     err = _validate_required_building_fields(data)
     if err:
@@ -167,11 +203,12 @@ def _validate_building(data, *, for_insert=False):
         err = _check_duplicate_building(data)
         if err:
             return err
-    return None
+    return _validate_account_number(data)
 
 
 def _decorate_building_card(r):
     r["elec_label"] = _elec_label(r.get("elec_gb"))
+    r["mgmt_label"] = _mgmt_label(r.get("mgmt_gb"))
     _apply_bank_fields(r)
     dt = r.get("building_dt")
     r["build_year"] = str(dt)[:4] if dt else ""
@@ -467,6 +504,7 @@ def building_new():
         "man_cost": "",
         "first_amt": "",
         "elec_gb": "B",
+        "mgmt_gb": "R",
     }
     if request.method == "POST":
         data = _building_from_form(request.form, for_insert=True)
@@ -492,11 +530,11 @@ def building_new():
                 """
                 INSERT INTO bd01 (
                     bunji1, bunji2, juso, building_dt, floor_no, bank_cd,
-                    owner_nm, owner_tel, man_cost, first_amt, elec_gb,
+                    owner_nm, owner_tel, man_cost, first_amt, elec_gb, mgmt_gb,
                     del_yn, uid, sys_dt
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     'N', %s, NOW()
                 )
                 """,
@@ -512,6 +550,7 @@ def building_new():
                     data["man_cost"],
                     data["first_amt"],
                     data["elec_gb"] or None,
+                    data["mgmt_gb"],
                     data["uid"],
                 ),
             )
@@ -747,6 +786,7 @@ def _building_form_from_row(b):
         "man_cost": b.get("man_cost"),
         "first_amt": b.get("first_amt"),
         "elec_gb": (b.get("elec_gb") or "").strip().upper(),
+        "mgmt_gb": _normalize_mgmt_gb(b.get("mgmt_gb")),
     }
     return _apply_bank_fields(form)
 
@@ -763,6 +803,7 @@ def _building_orig_for_js(form):
         "bank_name": form.get("bank_name") or "",
         "bank_acc": form.get("bank_acc") or "",
         "elec_gb": form.get("elec_gb") or "",
+        "mgmt_gb": form.get("mgmt_gb") or "",
         "first_amt": money(form.get("first_amt")),
         "man_cost": money(form.get("man_cost")),
     }
@@ -776,6 +817,7 @@ _BUILDING_CHANGE_FIELDS = (
     ("floor_no", "층수"),
     ("bank_cd", "은행계좌"),
     ("elec_gb", "전기료납부"),
+    ("mgmt_gb", "관리형태"),
     ("first_amt", "최초보증금"),
     ("man_cost", "관리수수료"),
 )
@@ -792,7 +834,7 @@ def _norm_building_val(key, v):
         return int(v)
     if key == "building_dt":
         return (str(v)[:10] if v else "")
-    if key == "elec_gb":
+    if key in ("elec_gb", "mgmt_gb"):
         return (str(v).strip().upper() if v else "")
     return ("" if v is None else str(v)).strip()
 
@@ -802,6 +844,8 @@ def _disp_building_val(key, v):
         return money(v) if v is not None else "빈값"
     if key == "elec_gb":
         return _elec_label(v)
+    if key == "mgmt_gb":
+        return _mgmt_label(v)
     if v is None or v == "":
         return "빈값"
     return str(v)
@@ -877,6 +921,7 @@ def building_edit(bunji1, bunji2):
                     man_cost=%s,
                     first_amt=%s,
                     elec_gb=%s,
+                    mgmt_gb=%s,
                     uid=%s,
                     sys_dt=NOW()
                 WHERE bunji1=%s AND bunji2=%s
@@ -891,6 +936,7 @@ def building_edit(bunji1, bunji2):
                     data["man_cost"],
                     data["first_amt"],
                     data["elec_gb"] or None,
+                    data["mgmt_gb"],
                     data["uid"],
                     bunji1,
                     bunji2,

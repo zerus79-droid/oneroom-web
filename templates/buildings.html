@@ -54,6 +54,7 @@
           <table class="bldg-card-table">
             <tr><th>주소</th><td>{{ b.juso or '' }} {{ b.bunji1|bunji_pair(b.bunji2) }}</td></tr>
             <tr><th>건물주</th><td>{{ b.owner_nm or '없음' }}{% if b.owner_tel %} · {{ b.owner_tel|mask_phone }}{% else %} · 미등록{% endif %}</td></tr>
+            <tr><th>관리형태</th><td>{{ b.mgmt_label or '없음' }}</td></tr>
             <tr><th>층수</th><td>{% if b.floor_no is not none %}{{ b.floor_no }}층{% else %}없음{% endif %}</td></tr>
             <tr><th>준공연도</th><td>{% if b.build_year %}{{ b.build_year }}년{% else %}없음{% endif %}</td></tr>
             <tr><th>전기료납부</th><td>{{ b.elec_label or '없음' }}</td></tr>

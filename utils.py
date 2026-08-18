@@ -417,6 +417,26 @@ def tenant_is_past_out(out_dt) -> bool:
     return False
 
 
+def account_digits(s):
+    """계좌번호에서 숫자만 추출 (은행마다 대시 규칙이 달라 숫자만 비교/검증에 사용)."""
+    return re.sub(r"\D", "", str(s or ""))
+
+
+def next_sukum_seq(sukum_dt, bunji1, bunji2, hosu):
+    """순번: 같은 수금일 + 건물(주소) + 호실 에서만 증가"""
+    max_seq = db.query_one(
+        """
+        SELECT MAX(CAST(sukum_seq AS UNSIGNED)) AS mx
+        FROM sukum01
+        WHERE sukum_dt >= %s AND sukum_dt < %s + INTERVAL 1 DAY
+          AND bunji1=%s AND bunji2=%s AND hosu=%s
+        """,
+        (sukum_dt + " 00:00:00", sukum_dt, bunji1, bunji2, hosu),
+    )
+    next_n = int((max_seq or {}).get("mx") or 0) + 1
+    return f"{next_n:04d}"
+
+
 def buildings_and_rooms():
     """화면 검증용: 등록 건물·호실 목록"""
     buildings = db.query(

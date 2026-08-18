@@ -37,6 +37,10 @@
       <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.elec_label or building.elec_gb or '' }}"></div>
     </div>
     <div class="ls-row">
+      <label class="ls-lab">관리형태</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.mgmt_label or '' }}"></div>
+    </div>
+    <div class="ls-row">
       <label class="ls-lab">최초보증금</label>
       <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.first_amt|money }}"></div>
       <label class="ls-lab">관리수수료</label>

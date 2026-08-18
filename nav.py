@@ -33,6 +33,7 @@ def nav_context():
         "repairs": ("repair", "수리", "수리내역조회"),
         "repair_new": ("repair", "수리", "수리내역등록"),
         "payment_new": ("payment", "수금관리", "수금(대체) 등록"),
+        "payments_import": ("payment", "수금관리", "파일등록"),
         "payments": ("payment", "수금관리", "기간별 수금(대체) 현황"),
         "jungke": ("payment", "수금관리", "중개수수료등록"),
         "misu": ("payment", "수금관리", "미수금 현황 조회"),

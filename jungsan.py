@@ -110,14 +110,19 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
     month_end_s = month_end.isoformat()
 
     building = db.query_one(
-        "SELECT bunji1, bunji2, juso, owner_nm, first_amt, man_cost FROM bd01 WHERE bunji1=%s AND bunji2=%s",
+        "SELECT bunji1, bunji2, juso, owner_nm, first_amt, man_cost, mgmt_gb FROM bd01 WHERE bunji1=%s AND bunji2=%s",
         (b1, b2),
     )
     if not building:
         return {"error": "미등록 주소입니다.", "building": None}
 
-    # 건물주 관리수수료가 있으면 책임관리(월세 미입금도 대체). 없으면 일반관리.
-    is_resp = _to_int_amt(building.get("man_cost")) > 0
+    # 관리형태(mgmt_gb): 책임관리(R, 월세 미입금도 대체)/일반관리(G).
+    # 옛 건물 중 관리형태 미지정분은 관리수수료 유무로 추정(과거 로직 호환).
+    mgmt_gb = (building.get("mgmt_gb") or "").strip().upper()
+    if mgmt_gb in ("R", "G"):
+        is_resp = mgmt_gb == "R"
+    else:
+        is_resp = _to_int_amt(building.get("man_cost")) > 0
 
     # 저장된 정산서 (기준일 또는 그 달 말일)
     saved = db.query_one(
@@ -416,6 +421,9 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
             - _to_int_amt(summary.get("owner_suri"))
             - _to_int_amt(summary.get("jungke_cost")),
         )
+    if is_resp:
+        # 책임관리: 송금수수료 등으로 실제 송금은 천원 단위 버림 (예: 3,323,333 → 3,323,000)
+        summary["pay_amt"] = (_to_int_amt(summary.get("pay_amt")) // 1000) * 1000
 
     cost_sum = (
         _to_int_amt(summary.get("man_cost"))
@@ -569,7 +577,7 @@ def jungsan_list():
             args.append(bunji2)
         rows = db.query(
             f"""
-            SELECT j.*, b.juso, b.owner_nm
+            SELECT j.*, b.juso, b.owner_nm, b.mgmt_gb, b.man_cost AS b_man_cost
             FROM jungsan_m j
             LEFT JOIN bd01 b ON b.bunji1=j.bunji1 AND b.bunji2=j.bunji2
             WHERE {" AND ".join(where)}
@@ -580,6 +588,14 @@ def jungsan_list():
         )
         for r in rows:
             pay = _to_int_amt(r.get("pay_amt"))
+            mgmt_gb = (r.get("mgmt_gb") or "").strip().upper()
+            is_resp = (
+                mgmt_gb == "R" if mgmt_gb in ("R", "G")
+                else _to_int_amt(r.get("b_man_cost")) > 0
+            )
+            if is_resp:
+                # 책임관리: 실제 송금은 천원 단위 버림 (jungsan.py 정산 미리보기와 동일 규칙)
+                pay = (pay // 1000) * 1000
             sum_pay += pay
             as_of = fmt_date(r.get("jungsan_dt")) or month_end.isoformat()
             results.append(

@@ -30,6 +30,7 @@ from utils import (
     login_required,
     require_write_access,
     money,
+    next_sukum_seq as _next_sukum_seq,
     pad_bunji as _pad_bunji,
     paginate as _paginate,
     parse_bunji_input as _parse_bunji_input,
@@ -799,21 +800,6 @@ def _recent_payments(bunji1="", bunji2="", hosu="", sukum_dt="", limit=80):
             cache[key],
         )
     return rows
-
-
-def _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu):
-    """순번: 같은 수금일 + 건물(주소) + 호실 에서만 증가"""
-    max_seq = db.query_one(
-        """
-        SELECT MAX(CAST(sukum_seq AS UNSIGNED)) AS mx
-        FROM sukum01
-        WHERE sukum_dt >= %s AND sukum_dt < %s + INTERVAL 1 DAY
-          AND bunji1=%s AND bunji2=%s AND hosu=%s
-        """,
-        (sukum_dt + " 00:00:00", sukum_dt, bunji1, bunji2, hosu),
-    )
-    next_n = int((max_seq or {}).get("mx") or 0) + 1
-    return f"{next_n:04d}"
 
 
 def _lookup_current_tenant(bunji1, bunji2, hosu):

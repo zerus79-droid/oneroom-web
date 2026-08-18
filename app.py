@@ -29,6 +29,7 @@ from utils import (
 import building as building_routes  # noqa: F401
 import checkout as checkout_routes  # noqa: F401
 import docs as docs_routes  # noqa: F401
+import sukum_import as sukum_import_routes  # noqa: F401
 import jungsan as jungsan_routes  # noqa: F401
 import jungke as jungke_routes  # noqa: F401
 import misu as misu_routes  # noqa: F401

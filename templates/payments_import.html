@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}입금파일 자동반영 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">입금파일 자동반영</span>
+    <span class="caption-actions">
+      <a class="btn secondary" href="{{ url_for('payments_import_exclude') }}">제외항목</a>
+    </span>
+  </div>
+  <div class="legacy-sukum-body xp-form">
+    <form method="post" enctype="multipart/form-data" class="filter-bar" autocomplete="off">
+      <input type="hidden" name="action" value="parse">
+      <div class="filter-bar-fields">
+        <div class="xp-grid">
+          <div class="xp-field xp-field-wide">
+            <label class="ls-lab">건물</label>
+            <select name="bunji1_bunji2" class="ls-select" onchange="
+              var v=this.value.split('|');
+              this.form.bunji1.value=v[0]||'';
+              this.form.bunji2.value=v[1]||'';
+            ">
+              <option value="">자동 감지 (선택 안 하면 파일에서 이름으로 찾음)</option>
+              {% for b in buildings %}
+              <option value="{{ b.bunji1 }}|{{ b.bunji2 }}" {% if b.bunji1==bunji1 and b.bunji2==bunji2 %}selected{% endif %}>
+                {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
+              </option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="bunji1" value="{{ bunji1 }}">
+            <input type="hidden" name="bunji2" value="{{ bunji2 }}">
+          </div>
+          <div class="xp-field xp-field-wide">
+            <label class="ls-lab">입금파일</label>
+            <input type="file" name="bank_file" accept=".xls,.xlsx,.xlsm" class="ls-box">
+          </div>
+        </div>
+      </div>
+      <div class="filter-bar-btns">
+        <button type="submit" class="btn">불러오기 · 매칭</button>
+      </div>
+    </form>
+
+    <p class="panel-inline-note">
+      건물을 선택하면 그 건물로 바로 매칭하고, 선택하지 않으면 적요(입금자명)를 전체 건물의
+      현재 입주자 이름과 비교해서 건물을 자동으로 찾습니다.
+    </p>
+
+    {% if rows is not none %}
+    <div class="panel-section-lab">
+      건물
+      {% if building_label %}<span class="muted">{{ building_label }}{% if auto_detected %} (자동 감지됨){% endif %}</span>{% endif %}
+    </div>
+    <form method="get" class="filter-bar" autocomplete="off">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="filter-bar-fields">
+        <div class="xp-grid">
+          <div class="xp-field">
+            <label class="ls-lab">건물 다시 선택</label>
+            <select name="bunji1_bunji2" class="ls-select" {% if not bunji1 %}autofocus{% endif %} onchange="
+              var v=this.value.split('|');
+              this.form.bunji1.value=v[0]||'';
+              this.form.bunji2.value=v[1]||'';
+            ">
+              <option value="">건물 선택</option>
+              {% for b in buildings %}
+              <option value="{{ b.bunji1 }}|{{ b.bunji2 }}" {% if b.bunji1==bunji1 and b.bunji2==bunji2 %}selected{% endif %}>
+                {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
+              </option>
+              {% endfor %}
+            </select>
+            {% if not bunji1 %}<span class="st-badge overdue">건물을 선택하세요</span>{% endif %}
+            <input type="hidden" name="bunji1" value="{{ bunji1 }}">
+            <input type="hidden" name="bunji2" value="{{ bunji2 }}">
+          </div>
+        </div>
+      </div>
+      <div class="filter-bar-btns filter-bar-btns-single">
+        <button type="submit" class="btn secondary">이 건물로 다시 매칭</button>
+      </div>
+    </form>
+
+    <div class="panel-section-lab">매칭 결과 <span class="muted">{{ rows|length }}건</span></div>
+    <form method="post" id="exclude-quick-form" action="{{ url_for('payments_import_exclude') }}" style="display:none">
+      <input type="hidden" name="action" value="exclude_add">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="keyword" id="exclude-quick-keyword">
+    </form>
+    <form method="post" id="apply-form">
+      <input type="hidden" name="action" value="apply">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="panel-table-wrap table-scroll">
+        <table class="legacy-grid">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="tc">상태</th>
+              <th class="tc">거래일</th>
+              <th class="tc">매칭 호실</th>
+              <th>적요(입금자명)</th>
+              <th class="num">입금액</th>
+              <th>세입자</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+            {% set needs_dropdown = r.status=='unmatched' or (r.status=='matched' and (r.needs_pick or r.amount_flag)) %}
+            {% set current_value = (r.hosu + '|' + r.ipju_seq) if r.hosu else '' %}
+            <tr class="import-row import-{{ r.status }}">
+              <td class="tc">
+                <input type="checkbox" name="apply_idx" value="{{ loop.index0 }}"
+                       {% if r.status=='matched' and not r.amount_flag and not r.needs_pick %}checked
+                       {% elif r.status=='duplicate' %}disabled{% endif %}>
+              </td>
+              <td class="tc">
+                {% if r.status=='matched' and r.needs_pick %}<span class="st-badge wait">확인필요(복수호실)</span>
+                {% elif r.status=='matched' and r.amount_flag %}<span class="st-badge wait">확인필요</span>
+                {% elif r.status=='matched' %}<span class="st-badge paid">반영예정</span>
+                {% elif r.status=='duplicate' %}<span class="st-badge">날짜중복</span>
+                {% else %}<span class="st-badge overdue">미매칭</span>{% endif %}
+              </td>
+              <td class="tc col-nowrap">{{ r.date }}</td>
+              <td class="tc">
+                {% if needs_dropdown %}
+                <select name="manual_{{ loop.index0 }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
+                  <option value="">호실 선택{% if current_value %} (지금: {{ r.hosu }}호 {{ r.tenant_nm }}){% endif %}</option>
+                  {% for opt in r.room_options %}
+                  <option value="{{ opt.value }}" {% if opt.value==current_value %}selected{% endif %}>{{ opt.label }}</option>
+                  {% endfor %}
+                </select>
+                {% else %}
+                {{ r.hosu or '-' }}
+                {% endif %}
+              </td>
+              <td>{{ r.name }}</td>
+              <td class="num">{{ r.amount|money }}</td>
+              <td>{{ r.tenant_nm or '' }}</td>
+              <td class="tc">
+                {% if r.status=='unmatched' %}
+                <button type="button" class="btn secondary exclude-quick-btn" data-name="{{ r.name }}"
+                        style="min-height:auto;height:auto;padding:2px 8px;">제외</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="filter-bar-btns filter-bar-btns-single" style="justify-content:flex-end;">
+        <button type="submit" class="btn">선택 항목 반영</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.import-duplicate { opacity: .55; }
+.import-unmatched { opacity: .7; }
+</style>
+<script>
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest && e.target.closest('.exclude-quick-btn');
+  if (!btn) return;
+  var kwField = document.getElementById('exclude-quick-keyword');
+  var form = document.getElementById('exclude-quick-form');
+  if (!kwField || !form) return;
+  kwField.value = btn.getAttribute('data-name') || '';
+  form.submit();
+});
+</script>
+{% endblock %}
