@@ -114,12 +114,17 @@
       padding-right: 8px;
     }
     tbody tr:last-child td {
-      border-bottom: 1px solid #333;
+      border-bottom: 2px solid #333 !important;
     }
     tfoot td {
       border-top: 2px solid #333;
       border-bottom: none;
       font-weight: 700;
+    }
+    /* 표 border-collapse 렌더링과 무관하게 확실히 보이는 마감선 */
+    .table-end-line {
+      height: 0;
+      border-top: 1px solid #333;
     }
     @media print {
       .toolbar { display: none !important; }
@@ -133,15 +138,24 @@
   <form method="get" class="toolbar">
     <input type="hidden" name="bunji1" value="{{ bunji1|bunji }}">
     <input type="hidden" name="bunji2" value="{{ bunji2|bunji }}">
+    {% if building_wide %}
     <label>기간
       <input type="date" name="date_from" value="{{ date_from }}">
       ~
       <input type="date" name="date_to" value="{{ date_to }}">
     </label>
+    {% else %}
+    <input type="hidden" name="hosu" value="{{ hosu }}">
+    <input type="hidden" name="name" value="{{ name }}">
+    <input type="hidden" name="only_misu" value="{{ '1' if only_misu else '0' }}">
+    <label>기준일자
+      <input type="date" name="as_of" value="{{ as_of }}">
+    </label>
+    {% endif %}
     <button type="submit">적용</button>
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary"
-       href="{{ url_for('misu', bunji1=bunji1|bunji, bunji2=bunji2|bunji, nav_from='base') }}">닫기</a>
+       href="{{ url_for('misu', bunji1=bunji1|bunji, bunji2=bunji2|bunji, hosu=hosu, name=name, as_of=as_of, only_misu=('1' if only_misu else '0'), nav_from='base') }}">닫기</a>
     <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
   </form>
 
@@ -149,8 +163,17 @@
   <div class="sheet{% if not loop.last %} page-break{% endif %}">
     <h1 class="title">수금(대체)현황</h1>
     <div class="head-row">
-      <span class="head-left">구 분 : {{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}</span>
-      <span class="head-center">기간 : {{ date_from }} ~ {{ date_to }}</span>
+      <span class="head-left">구 분 :
+        {% if building_wide %}{{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}
+        {% else %}
+          {% if building_name %}{{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}{% endif %}
+          {% if hosu %}{{ hosu }}호{% endif %}
+          {% if name %}「{{ name }}」 검색{% endif %}
+        {% endif %}
+      </span>
+      <span class="head-center">
+        {% if building_wide %}기간 : {{ date_from }} ~ {{ date_to }}{% else %}기준일자 : {{ as_of }}{% endif %}
+      </span>
       <span class="head-right">Page : {{ loop.index }}/{{ total_pages }}</span>
     </div>
     <table class="grid">
@@ -160,7 +183,7 @@
           <th>성명</th>
           <th>입주일자</th>
           <th>미수잔액</th>
-          <th>대체금액</th>
+          <th>대체잔액</th>
           <th>보증금</th>
           <th>임대료</th>
           <th>관리비</th>
@@ -174,8 +197,8 @@
           <td class="left">공실</td>
           <td>—</td>
           <td class="num">—</td>
-          <td class="num">—</td>
-          <td class="num">—</td>
+          <td>—</td>
+          <td>—</td>
           <td class="num">—</td>
           <td class="num">—</td>
         </tr>
@@ -185,8 +208,8 @@
           <td class="left">{{ r.ipju_nm or '' }}</td>
           <td>{{ r.ipju_dt|fmt_date }}</td>
           <td class="num">{{ r.misu_amt|money }}</td>
-          <td class="num">{{ r.dache_amt|money }}</td>
-          <td class="num">{{ r.bojung_amt|money }}</td>
+          <td>{{ r.dache_amt|money }}</td>
+          <td>{{ r.bojung_amt|money }}</td>
           <td class="num">{{ r.rent_amt|money }}</td>
           <td class="num">{{ r.manage_amt|money }}</td>
         </tr>
@@ -206,6 +229,7 @@
       </tfoot>
       {% endif %}
     </table>
+    {% if loop.last %}<div class="table-end-line"></div>{% endif %}
   </div>
   {% endfor %}
 </body>

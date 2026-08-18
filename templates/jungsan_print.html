@@ -129,7 +129,11 @@
       html, body { background: #fff; }
       .toolbar { display: none !important; }
       .sheet {
-        width: auto; min-height: 0; margin: 0; padding: 0;
+        width: auto;
+        min-height: 0;
+        margin: 0;
+        /* 표가 용지 끝에 붙으면 미수내역 오른쪽 1px 세로줄이 잘림 */
+        padding: 0 3mm 0 0;
         box-shadow: none;
       }
     }
@@ -176,10 +180,10 @@
           <td>{{ r.hosu }}</td>
           <td class="left">{{ r.ipju_nm_disp }}</td>
           <td>{{ r.ipju_dt_disp }}</td>
-          <td class="num">{{ r.bojung_disp }}</td>
+          <td>{{ r.bojung_disp }}</td>
           <td>{{ r.wolse_disp }}</td>
           <td class="num">{{ r.manage_disp }}</td>
-          <td class="num">{{ r.ipkum_disp }}</td>
+          <td>{{ r.ipkum_disp }}</td>
           <td class="left">{{ r.jisi_disp }}</td>
           <td class="num">{{ r.misu_disp }}</td>
         </tr>
@@ -189,10 +193,10 @@
         <tr>
           <th colspan="2">합　　계</th>
           <th>{{ data.totals.tenant_cnt }}세대</th>
-          <th class="num">{{ '{:,}'.format(data.totals.bojung_man) if data.totals.bojung_man else '' }}</th>
-          <th class="num">{{ data.totals.rent_man }}</th>
+          <th>{{ '{:,}'.format(data.totals.bojung_man) if data.totals.bojung_man else '' }}</th>
+          <th>{{ data.totals.rent_man }}</th>
           <th class="num">{{ data.totals.manage_man_disp }}</th>
-          <th class="num">{{ data.totals.ipkum_amt|money }}</th>
+          <th>{{ data.totals.ipkum_amt|money }}</th>
           <th></th>
           <th class="num">{{ data.totals.misu_amt|money }}</th>
         </tr>
@@ -213,6 +217,9 @@
       <div class="blk right">
         <div><span class="lab">임대료대체</span> <span class="amt">{{ data.summary.imdae_dache|money }}</span></div>
         <div><span class="lab">보증금대체</span> <span class="amt">{{ data.summary.bojung_dache|money }}</span></div>
+        {% if data.summary.claim_tot %}
+        <div><span class="lab">선불청구</span> <span class="amt">{{ data.summary.claim_tot|money }}</span></div>
+        {% endif %}
       </div>
     </div>
 

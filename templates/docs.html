@@ -8,14 +8,6 @@
     <span class="muted">{{ pager.total }}건</span>
   </div>
   <div class="legacy-sukum-body">
-  {% if flash_messages %}
-  <ul class="flash flash-below-form">
-    {% for cat, msg in flash_messages %}
-    <li class="{{ cat }}">{{ msg }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
   {% if can_write %}
   <form method="post" id="doc-form" class="xp-form" autocomplete="off">
     <input type="hidden" name="action" id="form_action" value="save">
@@ -60,7 +52,7 @@
     <table class="legacy-grid">
       <thead>
         <tr>
-          <th>제목</th>
+          <th class="tc">제목</th>
           <th class="tc">작성자</th>
           <th class="tc">등록일</th>
         </tr>

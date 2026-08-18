@@ -72,39 +72,39 @@
       <table class="legacy-grid">
         <thead>
           <tr>
-            <th>상태</th>
-            <th>호실</th>
-            <th>순번</th>
-            <th>이름</th>
-            <th>전화</th>
-            <th>주소</th>
-            <th>입주</th>
-            <th>퇴실</th>
-            <th class="num">보증금</th>
-            <th class="num">임대료</th>
-            <th class="num">관리수수료</th>
+            <th class="tc">상태</th>
+            <th class="tc">호실</th>
+            <th class="tc">순번</th>
+            <th class="tc">이름</th>
+            <th class="tc">전화</th>
+            <th class="tc">주소</th>
+            <th class="tc">입주</th>
+            <th class="tc">퇴실</th>
+            <th class="tc">보증금</th>
+            <th class="tc">임대료</th>
+            <th class="tc">관리수수료</th>
           </tr>
         </thead>
         <tbody>
           {% for r in results %}
           <tr>
-            <td>
+            <td class="tc">
               {% if r.is_past %}
-              <span class="badge out">퇴실</span>
+              <span class="st-badge empty">퇴실</span>
               {% else %}
-              <span class="badge">거주</span>
+              <span class="st-badge paid">거주</span>
               {% endif %}
             </td>
-            <td>{{ r.hosu }}</td>
-            <td>{{ r.ipju_seq }}</td>
+            <td class="tc">{{ r.hosu }}</td>
+            <td class="tc">{{ r.ipju_seq }}</td>
             <td>
               <a href="{{ url_for('tenant_manage', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}">{{ r.ipju_nm or '' }}</a>
             </td>
             <td>{{ (r.ipju_tel1 or r.ipju_tel2 or '')|mask_phone }}</td>
-            <td><a href="{{ url_for('building_detail', bunji1=r.bunji1, bunji2=r.bunji2, nav_from='tenant') }}">{{ r.bunji1|bunji_pair(r.bunji2) }}</a></td>
-            <td>{{ r.ipju_dt|fmt_date }}</td>
-            <td>{% if r.is_past %}{{ r.out_dt|fmt_date }}{% endif %}</td>
-            <td class="num">{{ r.bojung_amt|money }}</td>
+            <td class="tc"><a href="{{ url_for('building_detail', bunji1=r.bunji1, bunji2=r.bunji2, nav_from='tenant') }}">{{ r.bunji1|bunji_pair(r.bunji2) }}</a></td>
+            <td class="tc">{{ r.ipju_dt|fmt_date }}</td>
+            <td class="tc">{% if r.is_past %}{{ r.out_dt|fmt_date }}{% endif %}</td>
+            <td class="tc">{{ r.bojung_amt|money }}</td>
             <td class="num">{{ r.rent_amt|money }}</td>
             <td class="num">{{ r.manage_amt|money }}</td>
           </tr>

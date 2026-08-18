@@ -63,14 +63,6 @@
     </div>
   </form>
 
-  {% if flash_messages %}
-  <ul class="flash flash-below-form">
-    {% for cat, msg in flash_messages %}
-    <li class="{{ cat }}">{{ msg }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
   <div class="panel-section-lab">
     퇴실 · 예정 목록
     {% if ran and pager.total %}
@@ -101,7 +93,7 @@
           <th class="tc">주소</th>
           <th class="tc">호수</th>
           <th class="tc">순번</th>
-          <th>성명</th>
+          <th class="tc">성명</th>
           <th class="tc">구분</th>
           <th class="tc">주민번호</th>
           <th class="tc">입주일자</th>
@@ -111,8 +103,8 @@
           {% if filters.mode != 'out' %}
           <th class="tc">퇴실예정일</th>
           {% endif %}
-          <th class="num">보증금</th>
-          <th class="num">임대료</th>
+          <th class="tc">보증금</th>
+          <th class="tc">임대료</th>
           <th class="tc">처리</th>
         </tr>
       </thead>
@@ -144,7 +136,7 @@
           {% if filters.mode != 'out' %}
           <td class="tc col-nowrap">{{ r.plan_out_dt_disp }}</td>
           {% endif %}
-          <td class="num">{{ r.bojung_amt|money }}</td>
+          <td class="tc">{{ r.bojung_amt|money }}</td>
           <td class="num">{{ r.rent_amt|money }}</td>
           <td class="tc">
             <a href="{{ url_for('checkout', bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, ipju_seq=r.ipju_seq, out_dt=r.kind_dt|fmt_date) }}">정산</a>
@@ -172,9 +164,7 @@
     </form>
 
     {% elif want_query or ran %}
-    <ul class="flash flash-below-form">
-      <li class="err">{{ empty_msg or '조건에 맞는 퇴실·예정 이력이 없습니다.' }}</li>
-    </ul>
+    <p class="empty">{{ empty_msg or '조건에 맞는 퇴실·예정 이력이 없습니다.' }}</p>
     {% else %}
     <p class="empty">주소 · 호수 · 이름 중 하나 이상 입력한 뒤 「조회」하세요.</p>
     {% endif %}

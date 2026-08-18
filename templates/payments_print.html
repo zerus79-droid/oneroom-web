@@ -106,12 +106,17 @@
       padding-right: 8px;
     }
     tbody tr:last-child td {
-      border-bottom: 1px solid #333;
+      border-bottom: 2px solid #333 !important;
     }
     tfoot td {
       border-top: 2px solid #333;
       border-bottom: none;
       font-weight: 700;
+    }
+    /* 표 border-collapse 렌더링과 무관하게 확실히 보이는 마감선 */
+    .table-end-line {
+      height: 0;
+      border-top: 1px solid #333;
     }
     @media print {
       .toolbar { display: none !important; }
@@ -181,6 +186,7 @@
       </tfoot>
       {% endif %}
     </table>
+    {% if loop.last %}<div class="table-end-line"></div>{% endif %}
   </div>
   {% endfor %}
 </body>

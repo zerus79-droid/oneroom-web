@@ -37,6 +37,8 @@ def nav_context():
         "tenant_manage": ("tenant", "입주자관리", "입주자 이력 관리"),
         "jungsan": ("month", "월정기보고", "주소별 정산서 작성"),
         "jungsan_print": ("month", "월정기보고", "결산현황 인쇄"),
+        "jungsan_dache": ("month", "월정기보고", "주소별 정산서 작성"),
+        "jungsan_dache_undo": ("month", "월정기보고", "주소별 정산서 작성"),
         "jungsan_list": ("month", "월정기보고", "월별 정산서 조회"),
         "checkout": ("checkout", "퇴실 정산 관리", "퇴실 정산 관리"),
         "checkout_list": ("checkout", "퇴실 정산 관리", "퇴실(예정)자 조회"),

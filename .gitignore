@@ -9,3 +9,4 @@ tenant_shot.png
 temp_probe.py
 sinbee_mariadb.sql
 _import_tmp/
+backups/

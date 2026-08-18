@@ -51,7 +51,7 @@ def _building_room_rows(bunji1, bunji2, as_of_s, dache_from=None):
          AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
         LEFT JOIN (
             SELECT bunji1, bunji2, hosu, ipju_seq,
-                   SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)) AS paid
+                   SUM(COALESCE(su_sil_amt,0)) AS paid
             FROM sukum01
             WHERE sukum_char='01' AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
               AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
@@ -77,6 +77,50 @@ def _building_room_rows(bunji1, bunji2, as_of_s, dache_from=None):
     return db.query(sql, args)
 
 
+def _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s):
+    """주소/호수/이름으로 좁힌 현재입주자 행 (공실 없음, 건물 하나가 아닐 수도 있음)."""
+    where = [_CURRENT_TENANT_SQL]
+    args = []
+    if bunji1:
+        where.append("d.bunji1=%s")
+        args.append(bunji1)
+    if bunji2:
+        where.append("d.bunji2=%s")
+        args.append(bunji2)
+    if hosu:
+        where.append("UPPER(TRIM(d.hosu))=%s")
+        args.append(hosu)
+    if name:
+        where.append("d.ipju_nm LIKE %s")
+        args.append(f"%{name}%")
+
+    # 기준일 이전 입주 현재 거주자 + 기준일까지 월세+관리 수금 합
+    sql = f"""
+        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.ipju_dt,
+               d.rent_amt, d.manage_amt, d.bojung_amt,
+               COALESCE(p.paid, 0) AS paid,
+               COALESCE(p.paid_dache, 0) AS paid_dache
+        FROM bd03_det d
+        LEFT JOIN (
+            SELECT bunji1, bunji2, hosu, ipju_seq,
+                   SUM(COALESCE(su_sil_amt,0)) AS paid,
+                   SUM(COALESCE(su_dache_amt,0)) AS paid_dache
+            FROM sukum01
+            WHERE sukum_char='01'
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+              AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+            GROUP BY bunji1, bunji2, hosu, ipju_seq
+        ) p
+          ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2
+         AND UPPER(TRIM(p.hosu))=UPPER(TRIM(d.hosu)) AND p.ipju_seq=d.ipju_seq
+        WHERE {" AND ".join(where)}
+          AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
+        ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
+        LIMIT 2000
+    """
+    return db.query(sql, [as_of_s, *args, as_of_s])
+
+
 def _room_row_to_result(r, *, as_of, building_wide, bunji1="", bunji2=""):
     is_vacant = building_wide and not r.get("ipju_nm")
     rent = _to_int_amt(r.get("rent_amt"))
@@ -85,8 +129,10 @@ def _room_row_to_result(r, *, as_of, building_wide, bunji1="", bunji2=""):
     months = _months_elapsed(r.get("ipju_dt"), as_of)
     expected = monthly * months
     paid = _to_int_amt(r.get("paid"))
-    dache_amt = _to_int_amt(r.get("paid_dache"))
+    dache_cum = _to_int_amt(r.get("paid_dache"))
     misu_amt = 0 if is_vacant else max(0, expected - paid)
+    # 세입자에게 아직 받을 대체 잔액. 누적 대체가 아니라 미수 한도 안.
+    dache_amt = 0 if is_vacant else min(dache_cum, misu_amt)
     return {
         "bunji1": r.get("bunji1") or bunji1,
         "bunji2": r.get("bunji2") or bunji2,
@@ -159,46 +205,7 @@ def misu():
         if building_wide:
             rows = _building_room_rows(bunji1, bunji2, as_of_s)
         else:
-            where = [_CURRENT_TENANT_SQL]
-            args = []
-            if bunji1:
-                where.append("d.bunji1=%s")
-                args.append(bunji1)
-            if bunji2:
-                where.append("d.bunji2=%s")
-                args.append(bunji2)
-            if hosu:
-                where.append("UPPER(TRIM(d.hosu))=%s")
-                args.append(hosu)
-            if name:
-                where.append("d.ipju_nm LIKE %s")
-                args.append(f"%{name}%")
-
-            # 기준일 이전 입주 현재 거주자 + 기준일까지 월세+관리 수금 합
-            sql = f"""
-                SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.ipju_dt,
-                       d.rent_amt, d.manage_amt, d.bojung_amt,
-                       COALESCE(p.paid, 0) AS paid,
-                       COALESCE(p.paid_dache, 0) AS paid_dache
-                FROM bd03_det d
-                LEFT JOIN (
-                    SELECT bunji1, bunji2, hosu, ipju_seq,
-                           SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)) AS paid,
-                           SUM(COALESCE(su_dache_amt,0)) AS paid_dache
-                    FROM sukum01
-                    WHERE sukum_char='01'
-                      AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-                      AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-                    GROUP BY bunji1, bunji2, hosu, ipju_seq
-                ) p
-                  ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2
-                 AND UPPER(TRIM(p.hosu))=UPPER(TRIM(d.hosu)) AND p.ipju_seq=d.ipju_seq
-                WHERE {" AND ".join(where)}
-                  AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
-                ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-                LIMIT 2000
-            """
-            rows = db.query(sql, [as_of_s, *args, as_of_s])
+            rows = _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s)
 
         for r in rows:
             row = _room_row_to_result(
@@ -250,17 +257,25 @@ def misu():
 @app.route("/misu/print")
 @login_required
 def misu_print():
-    """미수 현황 인쇄 — 건물 하나 전체(공실 포함), 별도 인쇄 전용 템플릿.
+    """미수 현황 인쇄 — 별도 인쇄 전용 템플릿.
 
-    XP 레거시 「수금(대체)현황」 출력물 형식 참고. 화면(misu.html)과 달리
-    기간(대체금액 집계 시작일)을 지정할 수 있음 — 미수잔액은 항상 기간 종료일
-    기준 누적, 대체금액만 그 기간으로 한정.
+    건물 하나 전체(공실 포함)를 볼 땐 XP 레거시 「수금(대체)현황」 출력물
+    형식 참고해서 기간(대체금액 집계 시작일)을 지정할 수 있음 — 미수잔액은
+    항상 기간 종료일 기준 누적, 대체금액만 그 기간으로 한정.
+    호수·이름으로 좁힌 결과(공실 없음)는 화면(misu.html)과 동일하게 기준일
+    하나로 계산해서 화면에 보이는 것과 같은 목록을 그대로 인쇄함.
     """
     today = date.today()
     bunji1 = _pad_bunji(request.args.get("bunji1"))
     bunji2 = _pad_bunji(request.args.get("bunji2"))
+    hosu = (request.args.get("hosu") or "").strip().upper()
+    name = (request.args.get("name") or "").strip()
+    only_misu = request.args.get("only_misu") == "1"
+    building_wide = bool(bunji1 and bunji2 and not hosu and not name)
+
     date_from = (request.args.get("date_from") or "").strip() or date(today.year, 1, 1).isoformat()
     date_to = (request.args.get("date_to") or "").strip() or today.isoformat()
+    as_of_s = (request.args.get("as_of") or "").strip() or date_to
 
     results = []
     total_misu = 0
@@ -268,7 +283,7 @@ def misu_print():
     total_bojung = 0
     total_rent = 0
     total_manage = 0
-    if bunji1 and bunji2:
+    if building_wide:
         try:
             as_of = datetime.strptime(date_to[:10], "%Y-%m-%d").date()
         except ValueError:
@@ -291,6 +306,27 @@ def misu_print():
             1 if (x["hosu"] or "")[:1].isdigit() else 2,
             x["hosu"] or "",
         ))
+    elif bunji1 or bunji2 or hosu or name:
+        try:
+            as_of = datetime.strptime(as_of_s[:10], "%Y-%m-%d").date()
+        except ValueError:
+            as_of = today
+            as_of_s = as_of.isoformat()
+
+        rows = _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s)
+        for r in rows:
+            row = _room_row_to_result(
+                r, as_of=as_of, building_wide=False, bunji1=bunji1, bunji2=bunji2,
+            )
+            if only_misu and row["misu_amt"] <= 0:
+                continue
+            total_misu += row["misu_amt"]
+            total_dache += row["dache_amt"]
+            total_bojung += _to_int_amt(row["bojung_amt"])
+            total_rent += row["rent_amt"]
+            total_manage += row["manage_amt"]
+            results.append(row)
+        results.sort(key=lambda x: (-x["misu_amt"], x["bunji1"] or "", x["hosu"] or ""))
 
     pages = [
         results[i:i + _PRINT_ROWS_PER_PAGE]
@@ -299,12 +335,17 @@ def misu_print():
 
     return render_template(
         "misu_print.html",
+        building_wide=building_wide,
         bunji1=bunji1,
         bunji2=bunji2,
-        building_name=_building_label(bunji1, bunji2),
+        hosu=hosu,
+        name=name,
+        only_misu=only_misu,
+        building_name=_building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
         addr_label=_fmt_bunji_pair(bunji1, bunji2) if bunji1 and bunji2 else "",
         date_from=date_from,
         date_to=date_to,
+        as_of=as_of_s,
         pages=pages,
         total_pages=len(pages),
         total_count=len(results),

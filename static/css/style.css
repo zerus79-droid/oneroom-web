@@ -284,6 +284,12 @@ tr:hover td {
 }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .tc { text-align: center; }
+.legacy-grid thead th,
+.legacy-grid th.tc,
+.legacy-grid td.tc,
+.legacy-grid tfoot th.tc {
+  text-align: center !important;
+}
 .table-scroll {
   overflow-x: auto;
   border-radius: 10px;
@@ -604,6 +610,17 @@ table td.num {
   color: #000 !important;
   -webkit-text-fill-color: #000;
 }
+.legacy-grid td .st-badge,
+.legacy-grid td .badge {
+  -webkit-text-fill-color: unset !important;
+}
+.legacy-grid td .st-badge.paid { color: #1b5e20 !important; }
+.legacy-grid td .st-badge.empty { color: #455a64 !important; }
+.legacy-grid td .st-badge.wait { color: #e65100 !important; }
+.legacy-grid td .st-badge.overdue { color: #b71c1c !important; }
+.legacy-grid td .st-badge.info { color: #0d47a1 !important; }
+.legacy-grid td .badge { color: #3730a3 !important; }
+.legacy-grid td .badge.out { color: #4b5563 !important; }
 /* 헤더(th)는 전부 흰 글씨 — num/tc 클래스 무관 */
 .legacy-grid th,
 .legacy-grid th.num,
@@ -1916,7 +1933,8 @@ body.is-searching {
 }
 /* 연속 키 행 중 마지막만 구분선 (수금: 일자 줄 → 번지 줄) */
 .xp-form .xp-key-row:last-of-type,
-.xp-form .xp-key-row.xp-key-end {
+.xp-form .xp-key-row.xp-key-end,
+.xp-form .xp-grid.xp-key-end {
   margin-bottom: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid #b0a890;
@@ -1942,6 +1960,21 @@ body.is-searching {
   grid-template-columns: 1fr 1fr;
   gap: 8px 16px;
   align-items: center; /* 좌·우 필드 세로 맞춤 */
+}
+/* 수금 등록: 레거시 XP 창과 동일한 3열(수금일자/순번/입주일 …) 배치.
+   1열(수금일자·번지)엔 라벨+년월일 입력+오늘·달력 버튼까지 들어가서
+   실제 필요한 최소폭이 약 350px대 — 260px로는 부족해 「오늘」 버튼이
+   옆 순번 칸을 침범했음. 여유 있게 380px로 보장.
+   상한(max)도 같이 줘서 큰 화면에서 패널 전체 폭까지 억지로 안 늘어나게 함
+   (폼 자체엔 max-width를 안 걸어 카드 폭에 큰 빈 공간이 남지 않도록 함) */
+.xp-form .xp-grid.xp-grid-3 {
+  grid-template-columns:
+    minmax(380px, 460px) minmax(140px, 240px) minmax(140px, 240px);
+}
+/* 수금 입력 구역(수금종류/성격/미수/실입금 등, 기존 2열 xp-grid)도 같은
+   이유로 상한을 둠 — 3열 구역과 동일한 폭 감각으로 맞춤 */
+#payment-form .xp-grid:not(.xp-grid-3) {
+  grid-template-columns: minmax(220px, 380px) minmax(220px, 380px);
 }
 .xp-form .xp-field {
   display: flex;
@@ -1976,21 +2009,43 @@ body.is-searching {
   box-sizing: border-box;
   line-height: 1.2;
 }
-.xp-form .xp-field input[type="file"].ls-box {
-  display: flex;
+.file-pick {
+  position: relative;
+  display: flex !important;
   align-items: center;
-  padding: 0 10px;
-  max-width: 22em;
+  overflow: hidden;
+  max-width: 32em;
+  padding: 0 !important;
+  cursor: pointer;
 }
-.xp-form .xp-field input[type="file"].ls-box::file-selector-button {
-  align-self: center;
-  margin: 0 10px 0 0;
-  padding: 6px 10px;
-  border: 1px solid rgba(44, 62, 80, 0.42);
-  border-radius: var(--border-radius);
+.file-pick-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.file-pick-btn {
+  flex: 0 0 auto;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-right: 1.5px solid #94a3b8;
   background: rgba(44, 62, 80, 0.10);
   color: var(--chrome);
-  cursor: pointer;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.file-pick-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
 }
 .xp-form .xp-field .ls-val {
   display: flex;
@@ -2189,7 +2244,10 @@ body.is-searching {
   line-height: 1.2;
 }
 @media (max-width: 640px) {
-  .xp-form .xp-grid { grid-template-columns: 1fr; }
+  .xp-form .xp-grid,
+  .xp-form .xp-grid.xp-grid-3,
+  #payment-form .xp-grid,
+  #payment-form .xp-grid.xp-grid-3 { grid-template-columns: 1fr; }
   .xp-form .xp-spacer { display: none; }
   .xp-form .xp-field .ls-box,
   .xp-form .xp-field input.ls-box,
@@ -2997,6 +3055,16 @@ input.money-input {
 .ls-hint {
   font-size: 0.78rem;
 }
+/* 미수총액/금월미수 안내문구 — 좁은 칸에 억지로 한 줄로 우겨넣으면 한글이
+   한 글자씩 세로로 줄바꿈되던 문제. 문구만 다음 줄로 내려서 정상적으로
+   단어 단위(이 경우 전체 문구)로 보이게 함 */
+.xp-form .xp-inline.xp-inline-wrap {
+  flex-wrap: wrap;
+}
+.xp-form .xp-inline.xp-inline-wrap .ls-hint {
+  flex: 1 1 100%;
+  white-space: normal;
+}
 .ls-building {
   font-size: 0.85rem;
   color: var(--navy);
@@ -3678,6 +3746,35 @@ tr.name-summary-row:hover a {
   color: #9a3412 !important;
   -webkit-text-fill-color: #9a3412;
 }
+.jungsan-summary .js-dache-wrap {
+  display: contents;
+}
+.jungsan-summary button.js-item.js-dache-btn {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 0;
+  width: auto;
+  margin: 0;
+  padding: 12px 14px;
+  min-height: 76px;
+  border: 1px solid var(--box-border) !important;
+  border-radius: 10px;
+  background: var(--box-bg) !important;
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.jungsan-summary button.js-item.js-dache-btn:hover:not(:disabled) {
+  background: var(--box-bg) !important;
+  border: 1px solid var(--box-border) !important;
+}
+.jungsan-summary button.js-item.js-dache-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .jungsan-summary .js-val.left {
   text-align: left;
   font-weight: 800;
@@ -3686,6 +3783,10 @@ tr.name-summary-row:hover a {
   -webkit-text-fill-color: #000;
 }
 .jungsan-grid th { white-space: nowrap; }
+.jungsan-grid th.tc,
+.jungsan-grid td.tc {
+  text-align: center !important;
+}
 .jungsan-grid tr.row-empty td { color: #94a3b8; background: #fafafa; }
 .jungsan-grid tr.row-misu td { background: #fffbeb; }
 .jungsan-note { margin-top: 12px; font-size: 0.85rem; }

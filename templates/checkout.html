@@ -67,15 +67,6 @@
   </form>
 </div>
 
-{# 조회 결과 위치: 성공 시 아래 패널 / 실패 시 빨간 메시지 #}
-{% if flash_messages %}
-<ul class="flash flash-below-form">
-  {% for cat, msg in flash_messages %}
-  <li class="{{ cat }}">{{ msg }}</li>
-  {% endfor %}
-</ul>
-{% endif %}
-
 {% if data %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
@@ -170,10 +161,7 @@
   </div>
 </div>
 {% elif form.bunji1 and form.hosu %}
-  {# flash 에 이미 원인 메시지가 있으면 중복 empty 문구 생략 #}
-  {% if not flash_messages %}
   <p class="empty">조회 결과가 없습니다. 주소·호수를 확인하세요.</p>
-  {% endif %}
 {% else %}
 <p class="empty">퇴실일·주소·호수를 넣고 「조회」하세요.</p>
 {% endif %}

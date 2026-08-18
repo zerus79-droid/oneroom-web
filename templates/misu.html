@@ -56,9 +56,9 @@
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      {% if ran and results and filters.bunji1 and filters.bunji2 %}
+      {% if ran and results %}
       <a class="btn secondary" target="_blank" rel="noopener"
-         href="{{ url_for('misu_print', bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji) }}">인쇄</a>
+         href="{{ url_for('misu_print', bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, hosu=filters.hosu, name=filters.name, as_of=filters.as_of, only_misu=('1' if filters.only_misu else '0')) }}">인쇄</a>
       {% endif %}
     </div>
   </form>
@@ -68,7 +68,7 @@
     {% if ran and results %}
     <span class="muted">
       {{ pager.total if pager else results|length }}건 ·
-      기준 {{ filters.as_of }} · {{ total_count }}건 · 미수 합계 {{ total_misu|money }}원 · 대체 합계 {{ total_dache|money }}원
+      기준 {{ filters.as_of }} · {{ total_count }}건 · 미수 합계 {{ total_misu|money }}원 · 대체잔액 합계 {{ total_dache|money }}원
     </span>
     {% endif %}
   </div>
@@ -92,12 +92,12 @@
           <th class="tc">주소</th>
           <th class="tc">호수</th>
           <th class="tc">순번</th>
-          <th>성명</th>
+          <th class="tc">성명</th>
           <th class="tc">입주일자</th>
-          <th class="num">미수잔액</th>
-          <th class="num">대체금액</th>
+          <th class="tc">미수잔액</th>
+          <th class="tc">대체잔액</th>
           <th class="tc">개월</th>
-          <th class="num">보증금</th>
+          <th class="tc">보증금</th>
           <th class="tc">임대/관리</th>
         </tr>
       </thead>
@@ -111,9 +111,9 @@
           <td><span class="st-badge wait">공실</span></td>
           <td class="tc col-nowrap">—</td>
           <td class="num">—</td>
-          <td class="num">—</td>
           <td class="tc">—</td>
-          <td class="num">—</td>
+          <td class="tc">—</td>
+          <td class="tc">—</td>
           <td class="tc col-nowrap">—</td>
         </tr>
         {% else %}
@@ -132,9 +132,9 @@
             <span class="st-badge paid">0</span>
             {% endif %}
           </td>
-          <td class="num">{{ r.dache_amt|money }}</td>
+          <td class="tc">{{ r.dache_amt|money }}</td>
           <td class="tc">{{ r.months }}</td>
-          <td class="num">{{ r.bojung_amt|money }}</td>
+          <td class="tc">{{ r.bojung_amt|money }}</td>
           <td class="tc col-nowrap">
             {% if r.monthly %}
             {{ (r.rent_amt // 10000) if r.rent_amt else 0 }}/{{ (r.manage_amt // 10000) if r.manage_amt else 0 }}
@@ -148,7 +148,7 @@
         <tr>
           <th colspan="5" class="tc">합계</th>
           <th class="num">{{ total_misu|money }}</th>
-          <th class="num">{{ total_dache|money }}</th>
+          <th class="tc">{{ total_dache|money }}</th>
           <th colspan="4"></th>
         </tr>
       </tfoot>

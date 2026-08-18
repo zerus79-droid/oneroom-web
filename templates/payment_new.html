@@ -13,87 +13,92 @@
   <form method="post" id="payment-form" autocomplete="off" data-skip-addr-check="1">
     <input type="hidden" name="manage_desc" value="">
 
-    {# 1행: 수금일자 … 달력 까지 / 2행: ★주소 … #}
-    <div class="xp-key-row">
-      <label class="ls-lab star">수금일자</label>
-      <div class="date-with-cal">
-        <div class="date-parts" id="sukum_dt_parts">
-          <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년" tabindex="-1">
-          <span class="dp-sep">-</span>
-          <input type="text" class="dp-m" id="sukum_m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
-          <span class="dp-sep">-</span>
-          <input type="text" class="dp-d" id="sukum_d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
-          <input type="hidden" name="sukum_dt" id="sukum_dt_hidden" value="{{ form.sukum_dt }}" required>
-        </div>
-        <button type="button" class="btn secondary today-btn" id="sukum_today_btn" title="오늘" tabindex="-1">오늘</button>
-        <button type="button" class="btn secondary cal-btn" id="sukum_cal_btn" title="달력" tabindex="-1">📅</button>
-        <input type="date" id="sukum_cal" class="cal-native" tabindex="-1" aria-label="달력">
-      </div>
-    </div>
-    <div class="xp-key-row xp-key-end">
-      <label class="ls-lab star" for="bunji1">주소</label>
-      <div class="bunji-pair-input">
-        <input type="text" name="bunji1" id="bunji1" required class="ls-box"
-               value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
-               inputmode="numeric" pattern="[0-9]*" maxlength="4"
-               placeholder="508" autocomplete="off" title="주소 · ↑↓: 등록 건물 순환"
-               data-skip-addr-check="1">
-        <span class="bunji-sep">-</span>
-        <input type="text" name="bunji2" id="bunji2" required class="ls-box"
-               value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
-               inputmode="numeric" pattern="[0-9]*" maxlength="4"
-               placeholder="88" autocomplete="off" title="주소2 · ↑↓: 등록 건물 순환" aria-label="주소2"
-               data-skip-addr-check="1">
-      </div>
-      <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
-        {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
-      </span>
-      <label class="ls-lab star" for="hosu">호수</label>
-      <input type="text" name="hosu" id="hosu" class="hosu-input ls-box ls-narrow" value="{{ form.hosu }}" required
-             placeholder="201" style="text-transform:uppercase"
-             autocomplete="off" title="호실 · ↑↓: 등록 호실 순환"
-             data-next-focus="#su_sil_amt" data-skip-addr-check="1">
-      <label class="ls-lab">입주순번</label>
-      <input type="text" name="ipju_seq" id="ipju_seq" value="{{ form.ipju_seq }}"
-             required readonly tabindex="-1" placeholder="—"
-             autocomplete="off" class="seq-field ls-ro ls-box ls-narrow"
-             title="호실 조회 시 자동 표시">
-    </div>
-
-    <fieldset class="xp-section">
-      <legend>세입자 정보 (조회)</legend>
-      <div class="xp-grid">
-        <div class="xp-field">
-          <label class="ls-lab">성명</label>
-          <div class="xp-inline">
-            <input type="text" id="ipju_nm_view" class="ls-ro ls-name ls-box" readonly tabindex="-1"
-                   value="" placeholder="호실 선택 시 표시">
-            <span class="tenant-badge" id="tenant-hint" hidden></span>
+    {# 레거시 XP 창과 동일한 3열 배치: 수금일자/순번/입주일 → 번지/성명/보증금 → 호수/연락/예치금 → (빈칸)/(빈칸)/월관 #}
+    <div class="xp-grid xp-grid-3 xp-key-end">
+      <div class="xp-field">
+        <label class="ls-lab star">수금일자</label>
+        <div class="date-with-cal">
+          <div class="date-parts" id="sukum_dt_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년" tabindex="-1">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" id="sukum_m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" id="sukum_d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+            <input type="hidden" name="sukum_dt" id="sukum_dt_hidden" value="{{ form.sukum_dt }}" required>
           </div>
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">입주일</label>
-          <input type="text" id="ipju_dt_view" class="ls-ro ls-box" readonly tabindex="-1" value="" placeholder="—">
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">연락처</label>
-          <input type="text" id="ipju_tel_view" class="ls-ro ls-box" readonly tabindex="-1" value="">
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">보증금</label>
-          <input type="text" id="bojung_view" class="ls-ro ls-money ls-box" readonly tabindex="-1" value="">
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">예치금</label>
-          <input type="text" id="yechi_view" class="ls-ro ls-money ls-box" readonly tabindex="-1" value="">
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">월/관</label>
-          <input type="text" id="monthly_view" class="ls-ro ls-box ls-rent-mg" readonly tabindex="-1" value=""
-                 title="월세/관리비 (만원)">
+          <button type="button" class="btn secondary today-btn" id="sukum_today_btn" title="오늘" tabindex="-1">오늘</button>
+          <button type="button" class="btn secondary cal-btn" id="sukum_cal_btn" title="달력" tabindex="-1">📅</button>
+          <input type="date" id="sukum_cal" class="cal-native" tabindex="-1" aria-label="달력">
         </div>
       </div>
-    </fieldset>
+      <div class="xp-field">
+        <label class="ls-lab">순번</label>
+        <input type="text" name="ipju_seq" id="ipju_seq" value="{{ form.ipju_seq }}"
+               required readonly tabindex="-1" placeholder="—"
+               autocomplete="off" class="seq-field ls-ro ls-box ls-narrow"
+               title="호실 조회 시 자동 표시">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">입주일</label>
+        <input type="text" id="ipju_dt_view" class="ls-ro ls-box" readonly tabindex="-1" value="" placeholder="—">
+      </div>
+
+      <div class="xp-field">
+        <label class="ls-lab star" for="bunji1">번지</label>
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" required class="ls-box"
+                 value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
+                 placeholder="508" autocomplete="off" title="주소 · ↑↓: 등록 건물 순환"
+                 data-skip-addr-check="1">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" required class="ls-box"
+                 value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
+                 placeholder="88" autocomplete="off" title="주소2 · ↑↓: 등록 건물 순환" aria-label="주소2"
+                 data-skip-addr-check="1">
+        </div>
+        <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
+          {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
+        </span>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">성명</label>
+        <div class="xp-inline">
+          <input type="text" id="ipju_nm_view" class="ls-ro ls-name ls-box" readonly tabindex="-1"
+                 value="" placeholder="호실 선택 시 표시">
+          <span class="tenant-badge" id="tenant-hint" hidden></span>
+        </div>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">보증금</label>
+        <input type="text" id="bojung_view" class="ls-ro ls-money ls-box" readonly tabindex="-1" value="">
+      </div>
+
+      <div class="xp-field">
+        <label class="ls-lab star" for="hosu">호수</label>
+        <input type="text" name="hosu" id="hosu" class="hosu-input ls-box ls-narrow" value="{{ form.hosu }}" required
+               placeholder="201" style="text-transform:uppercase"
+               autocomplete="off" title="호실 · ↑↓: 등록 호실 순환"
+               data-next-focus="#su_sil_amt" data-skip-addr-check="1">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">연락처</label>
+        <input type="text" id="ipju_tel_view" class="ls-ro ls-box" readonly tabindex="-1" value="">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">예치금</label>
+        <input type="text" id="yechi_view" class="ls-ro ls-money ls-box" readonly tabindex="-1" value="">
+      </div>
+
+      <div class="xp-field"></div>
+      <div class="xp-field"></div>
+      <div class="xp-field">
+        <label class="ls-lab">월/관</label>
+        <input type="text" id="monthly_view" class="ls-ro ls-box ls-rent-mg" readonly tabindex="-1" value=""
+               title="월세/관리비 (만원)">
+      </div>
+    </div>
 
     <fieldset class="xp-section">
       <legend>수금 입력</legend>
@@ -120,7 +125,7 @@
         </div>
         <div class="xp-field">
           <label class="ls-lab">미수총액</label>
-          <div class="xp-inline">
+          <div class="xp-inline xp-inline-wrap">
             <div class="misu-display misu-inline" id="prev_misu_display" data-amt="">—</div>
             <span class="ls-unit">원</span>
             <span class="muted ls-hint" id="prev_misu_hint">전월 체납 + 금월 미입금</span>
@@ -128,7 +133,7 @@
         </div>
         <div class="xp-field">
           <label class="ls-lab">금월미수</label>
-          <div class="xp-inline">
+          <div class="xp-inline xp-inline-wrap">
             <div class="misu-display misu-inline" id="month_misu_display" data-amt="">—</div>
             <span class="ls-unit">원</span>
             <span class="muted ls-hint" id="month_misu_hint">이번 달 미입금액</span>
@@ -174,16 +179,16 @@
   <table class="legacy-grid">
     <thead>
       <tr>
-        <th>수금일</th>
-        <th>주소</th>
-        <th>호</th>
-        <th>입주순번</th>
-        <th>세입자</th>
-        <th>성격</th>
-        <th>종류</th>
-        <th class="num">실수금액</th>
-        <th class="num">대체금액</th>
-        <th>비고</th>
+        <th class="tc">수금일</th>
+        <th class="tc">주소</th>
+        <th class="tc">호</th>
+        <th class="tc">입주순번</th>
+        <th class="tc">세입자</th>
+        <th class="tc">성격</th>
+        <th class="tc">종류</th>
+        <th class="tc">실수금액</th>
+        <th class="tc">대체금액</th>
+        <th class="tc">비고</th>
       </tr>
     </thead>
     <tbody>
@@ -193,10 +198,10 @@
       <tr class="click-row"
           title="클릭: {{ p.ipju_nm or '이 세입자' }} 수금 현황 {{ p.hist_page or 1 }}페이지 ({{ hist_from }} ~ {{ hist_to }})"
           onclick="location.href='{{ url_for('payments', bunji1=p.bunji1, bunji2=p.bunji2, hosu=p.hosu, ipju_seq=p.ipju_seq, date_from=hist_from, date_to=hist_to, all_hist=1, page=p.hist_page or 1) }}'">
-        <td class="col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
-        <td class="col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
-        <td>{{ p.hosu }}</td>
-        <td>{{ p.ipju_seq }}</td>
+        <td class="tc col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
+        <td class="tc col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
+        <td class="tc">{{ p.hosu }}</td>
+        <td class="tc">{{ p.ipju_seq }}</td>
         <td>{{ p.ipju_nm or '' }}</td>
         <td>{{ p.char_nm or p.sukum_char }}</td>
         <td>{{ p.gb_nm or p.sukum_gb }}</td>

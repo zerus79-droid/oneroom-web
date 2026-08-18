@@ -43,14 +43,14 @@
     <table class="legacy-grid name-summary-table">
       <thead>
         <tr>
-          <th>세입자</th>
-          <th>주소</th>
-          <th>건물명</th>
-          <th>호실</th>
-          <th>입주순번</th>
-          <th>입주일</th>
-          <th>퇴실일</th>
-          <th class="num">수금건수</th>
+          <th class="tc">세입자</th>
+          <th class="tc">주소</th>
+          <th class="tc">건물명</th>
+          <th class="tc">호실</th>
+          <th class="tc">입주순번</th>
+          <th class="tc">입주일</th>
+          <th class="tc">퇴실일</th>
+          <th class="tc">수금건수</th>
         </tr>
       </thead>
       <tbody>
@@ -59,13 +59,13 @@
             title="클릭: 해당 세입자 전체 수금(대체) 현황"
             data-href="{{ url_for('payments', name=g.ipju_nm, bunji1=g.bunji1, bunji2=g.bunji2, hosu=g.hosu, ipju_seq=g.ipju_seq, all_hist=1, tenant_status=filters.tenant_status) }}">
           <td>{{ g.ipju_nm or '(이름 없음)' }}</td>
-          <td class="col-nowrap">
+          <td class="tc col-nowrap">
             <span class="bunji-link">{{ g.bunji1|bunji_pair(g.bunji2) }}</span>
           </td>
           <td>{{ g.juso or '' }}</td>
-          <td>{{ g.hosu }}</td>
-          <td>{{ g.ipju_seq or '-' }}</td>
-          <td class="col-nowrap">{{ g.ipju_dt|fmt_date if g.ipju_dt else '-' }}</td>
+          <td class="tc">{{ g.hosu }}</td>
+          <td class="tc">{{ g.ipju_seq or '-' }}</td>
+          <td class="tc col-nowrap">{{ g.ipju_dt|fmt_date if g.ipju_dt else '-' }}</td>
           <td class="col-nowrap">{% if g.is_current %}거주중{% else %}{{ g.out_dt|fmt_date if g.out_dt else '-' }}{% endif %}</td>
           <td class="num">
             {# 이 세입자 전체 수금 건수. 화면에 남은 조회기간(pay_count)이 아님 #}

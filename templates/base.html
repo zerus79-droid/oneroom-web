@@ -1456,15 +1456,7 @@
 <main class="wrap" id="app-main">
   {% set flash_messages = get_flashed_messages(with_categories=true) %}
   {% block content %}{% endblock %}
-  {% block flash %}
-  {% if flash_messages %}
-  <ul class="flash flash-below-form flash-global" role="status">
-    {% for cat, msg in flash_messages %}
-    <li class="{{ cat }}">{{ msg }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% endblock %}
+  {% block flash %}{% endblock %}
 </main>
 {% if current_user %}
 </div>

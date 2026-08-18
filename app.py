@@ -153,7 +153,7 @@ def home():
             FROM bd03_det d
             LEFT JOIN (
                 SELECT bunji1, bunji2, hosu, ipju_seq,
-                       SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)) AS paid
+                       SUM(COALESCE(su_sil_amt,0)) AS paid
                 FROM sukum01
                 WHERE sukum_char='01'
                   AND (del_yn IS NULL OR del_yn='N' OR del_yn='')

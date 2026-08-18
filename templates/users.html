@@ -8,13 +8,6 @@
     <span class="muted">{{ users|length }}명</span>
   </div>
   <div class="legacy-sukum-body">
-  {% if flash_messages %}
-  <ul class="flash flash-below-form">
-    {% for cat, msg in flash_messages %}
-    <li class="{{ cat }}">{{ msg }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
   <form method="post" id="user-form" autocomplete="off">
     <input type="hidden" name="action" id="form_action" value="save">
     <input type="hidden" name="mode" value="{{ form.mode }}">
@@ -90,7 +83,7 @@
       <thead>
         <tr>
           <th class="tc">ID</th>
-          <th>이름</th>
+          <th class="tc">이름</th>
           <th class="tc">등급</th>
         </tr>
       </thead>

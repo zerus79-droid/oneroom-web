@@ -74,16 +74,16 @@
       <thead>
         <tr>
           <th class="tc">주소</th>
-          <th>건물명</th>
-          <th class="num">당월지급액</th>
-          <th class="num">최초보증금</th>
-          <th class="num">보증금총액</th>
-          <th class="num">월세총액</th>
-          <th class="num">관리비총액</th>
-          <th class="num">입금총액</th>
-          <th class="num">수리비</th>
-          <th class="num">중개수수료</th>
-          <th class="num">미수총액</th>
+          <th class="tc">건물명</th>
+          <th class="tc">당월지급액</th>
+          <th class="tc">최초보증금</th>
+          <th class="tc">보증금총액</th>
+          <th class="tc">월세총액</th>
+          <th class="tc">관리비총액</th>
+          <th class="tc">입금총액</th>
+          <th class="tc">수리비</th>
+          <th class="tc">중개수수료</th>
+          <th class="tc">미수총액</th>
           <th class="tc">상세</th>
         </tr>
       </thead>
@@ -106,8 +106,6 @@
             {{ r.misu_tot|money }}
           </td>
           <td class="tc" onclick="event.stopPropagation()">
-            <a href="{{ url_for('jungsan', q=1, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, as_of=r.as_of) }}">화면</a>
-            ·
             <a href="{{ url_for('jungsan_print', q=1, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, as_of=r.as_of) }}"
                target="_blank">인쇄</a>
           </td>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}주소별 정산서 · 주택관리 시스템{% endblock %}
+{% block flash %}{% endblock %}
 {% block content %}
 {# ── 조회 조건 (화면 전용, 인쇄 시 숨김) ── #}
 <div class="legacy-sukum-panel card no-print">
@@ -54,7 +55,7 @@
 </div>
 
 {% if ran and data and data.error %}
-<p class="flash"><li class="err" style="list-style:none;display:block;padding:10px 12px;background:var(--err-bg);color:var(--err);border-radius:8px;">{{ data.error }}</li></p>
+<p class="empty">{{ data.error }}</p>
 {% endif %}
 
 {% if ran and data and not data.error and data.building %}
@@ -82,8 +83,39 @@
     <div class="js-item"><span class="js-lab">수리비</span><span class="js-val">{{ data.summary.owner_suri|money }}</span></div>
     <div class="js-item"><span class="js-lab">중개수수료</span><span class="js-val">{{ data.summary.jungke_cost|money }}</span></div>
     <div class="js-item highlight"><span class="js-lab">당월지급액</span><span class="js-val">{{ data.summary.pay_amt|money }}</span></div>
+    {% if data.summary.claim_tot %}
+    <div class="js-item"><span class="js-lab">선불청구</span><span class="js-val">{{ data.summary.claim_tot|money }}</span></div>
+    {% endif %}
     <div class="js-item"><span class="js-lab">임대료대체·입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
     <div class="js-item warn"><span class="js-lab">미수 합계</span><span class="js-val">{{ data.summary.misu_tot|money }}</span></div>
+    {% if current_user and (current_user.grade or '')|upper != 'C' %}
+    <form method="post" action="{{ url_for('jungsan_dache') }}" class="js-dache-wrap no-print"
+          onsubmit="return submitJungsanDache(this, 'apply');">
+      <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
+      <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
+      <input type="hidden" name="as_of" value="{{ filters.as_of }}">
+      <button type="submit" class="js-item js-dache-btn"
+              {% if not data.dache_target_cnt %}disabled title="대체할 미입금이 없습니다."{% endif %}
+              data-cnt="{{ data.dache_target_cnt or 0 }}"
+              data-amt="{{ data.dache_target_amt|money }}">
+        <span class="js-lab">일괄대체</span>
+        <span class="js-val">{{ data.dache_target_amt|money }}</span>
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('jungsan_dache_undo') }}" class="js-dache-wrap no-print"
+          onsubmit="return submitJungsanDache(this, 'undo');">
+      <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
+      <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
+      <input type="hidden" name="as_of" value="{{ filters.as_of }}">
+      <button type="submit" class="js-item js-dache-btn"
+              {% if not data.dache_undo_cnt %}disabled title="해제할 대체가 없습니다."{% endif %}
+              data-cnt="{{ data.dache_undo_cnt or 0 }}"
+              data-amt="{{ data.dache_undo_amt|money }}">
+        <span class="js-lab">대체해제</span>
+        <span class="js-val">{{ data.dache_undo_amt|money }}</span>
+      </button>
+    </form>
+    {% endif %}
     {% if data.summary.note %}
     <div class="js-item wide"><span class="js-lab">특기사항</span><span class="js-val left">{{ data.summary.note }}</span></div>
     {% endif %}
@@ -94,15 +126,15 @@
       <thead>
         <tr>
           <th class="tc">호수</th>
-          <th>성명</th>
+          <th class="tc">성명</th>
           <th class="tc">입주일자</th>
-          <th class="num">보증금</th>
-          <th class="num">임대료</th>
-          <th class="num">관리비</th>
-          <th class="num">입금액</th>
-          <th>관리지시</th>
+          <th class="tc">보증금</th>
+          <th class="tc">임대료</th>
+          <th class="tc">관리비</th>
+          <th class="tc">입금액</th>
+          <th class="tc">관리지시</th>
           <th class="tc">대체</th>
-          <th class="num">미수금</th>
+          <th class="tc">미수금</th>
         </tr>
       </thead>
       <tbody>
@@ -111,10 +143,10 @@
           <td class="tc col-nowrap"><strong>{{ r.hosu }}</strong></td>
           <td>{% if r.is_empty %}<span class="muted">공실</span>{% else %}{{ r.ipju_nm }}{% endif %}</td>
           <td class="tc col-nowrap">{% if not r.is_empty %}{{ r.ipju_dt|fmt_date }}{% endif %}</td>
-          <td class="num">{% if not r.is_empty %}{{ r.bojung_amt|money }}{% endif %}</td>
-          <td class="num">{% if not r.is_empty %}{{ r.rent_amt|money }}{% endif %}</td>
+          <td class="tc">{% if not r.is_empty %}{{ r.bojung_amt|money }}{% endif %}</td>
+          <td class="tc">{% if not r.is_empty %}{{ r.rent_amt|money }}{% endif %}</td>
           <td class="num">{% if not r.is_empty %}{{ r.manage_amt|money }}{% endif %}</td>
-          <td class="num">{% if not r.is_empty %}{{ r.ipkum_amt|money }}{% endif %}</td>
+          <td class="tc">{% if not r.is_empty %}{{ r.ipkum_amt|money }}{% endif %}</td>
           <td class="left">{% if not r.is_empty %}{{ r.manage_desc or '' }}{% endif %}</td>
           <td class="tc">{% if r.dache_gb %}{{ r.dache_gb }}{% endif %}</td>
           <td class="num {% if r.misu_amt > 0 %}text-warn{% endif %}">
@@ -128,10 +160,10 @@
           <th class="tc">합</th>
           <th>{{ data.totals.tenant_cnt }}세대</th>
           <th></th>
-          <th class="num">{{ data.totals.bojung_amt|money }}</th>
-          <th class="num">{{ data.totals.rent_amt|money }}</th>
+          <th class="tc">{{ data.totals.bojung_amt|money }}</th>
+          <th class="tc">{{ data.totals.rent_amt|money }}</th>
           <th class="num">{{ data.totals.manage_amt|money }}</th>
-          <th class="num">{{ data.totals.ipkum_amt|money }}</th>
+          <th class="tc">{{ data.totals.ipkum_amt|money }}</th>
           <th></th>
           <th></th>
           <th class="num">{{ data.totals.misu_amt|money }}</th>
@@ -144,8 +176,8 @@
     {% if data.source == 'saved' %}
     저장된 정산서 기준입니다. 입금액은 해당 월 수금(월세+관리)으로 보강 표시합니다.
     {% else %}
-    실시간 미리보기입니다. (확정 저장·일괄대체는 이후 단계에서 연결)
-    입금은 실제 수금만. 책임관리 미입금 월세는 대체(지급에 포함, 입금칸에는 안 넣음). 일반관리는 미납 표기.
+    실시간 미리보기입니다. 「일괄대체」는 임대료만 집주인에게 대납합니다. 세입자 미수에서는 빼지 않습니다. 당월 퇴실: 선불은 대체금이 있을 때만 남은 기간 청구, 후불은 퇴실일까지 일할.
+    일반관리는 미납 표기.
     {% endif %}
   </p>
 </div>
@@ -156,6 +188,20 @@
 {% endif %}
 
 <script>
+function submitJungsanDache(form, mode) {
+  var btn = form.querySelector(".js-dache-btn");
+  if (!btn || btn.disabled) return false;
+  var cnt = btn.getAttribute("data-cnt") || "0";
+  var amt = btn.getAttribute("data-amt") || "0";
+  var msg = mode === "undo"
+    ? ("당월 대체 " + cnt + "건, " + amt + "원을 해제합니다. 계속할까요?")
+    : ("미입금 " + cnt + "건, " + amt + "원을 대체 처리합니다. 계속할까요?");
+  if (!window.confirm(msg)) {
+    return false;
+  }
+  btn.disabled = true;
+  return true;
+}
 (function () {
   var btn = document.getElementById("jungsan-print-btn");
   if (!btn) return;

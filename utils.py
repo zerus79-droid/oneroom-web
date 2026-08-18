@@ -333,7 +333,8 @@ def calc_misu_amt(
     bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None
 ):
     """전월미수총액(누적 추정).
-    (월세+관리비) × 입주 후 경과연월 − 수금성격「월세+관리비」합계.
+    (월세+관리비) × 입주 후 경과연월 − 실입금(su_sil_amt) 합계.
+    대체는 집주인 대납이라 세입자 미수에서 빼지 않음.
     as_of 가 있으면 그 날짜까지의 수금·경과연월 기준.
     음수(선수금)면 0.
     """
@@ -343,7 +344,7 @@ def calc_misu_amt(
     months = months_elapsed(ipju_dt, as_of)
     expected = monthly * months
     sql = """
-        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)), 0) AS paid
+        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
         FROM sukum01
         WHERE bunji1=%s AND bunji2=%s
           AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
@@ -362,11 +363,12 @@ def calc_misu_amt(
 
 
 def calc_month_misu_amt(
-    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, as_of=None
+    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, as_of=None,
+    include_dache=False,
 ):
-    """이번 달 미입금액(미수총액).
-    (월세+관리비) − 이번 달 수금성격「월세+관리비」합.
-    이미 다 냈으면 0.
+    """이번 달 미입금액.
+    기본은 실입금만 뺌(대체는 세입자 미수가 아님).
+    include_dache=True 이면 대체도 빼서 일괄대체 잔액을 구할 때 씀.
     """
     monthly = to_int_amt(rent_amt) + to_int_amt(manage_amt)
     if monthly <= 0 or not (bunji1 and bunji2 and hosu and ipju_seq):
@@ -375,14 +377,21 @@ def calc_month_misu_amt(
         as_of = date.today()
     if isinstance(as_of, datetime):
         as_of = as_of.date()
+    elif isinstance(as_of, str):
+        as_of = datetime.strptime(as_of[:10], "%Y-%m-%d").date()
     month_start = as_of.replace(day=1)
     if as_of.month == 12:
         next_month = date(as_of.year + 1, 1, 1)
     else:
         next_month = date(as_of.year, as_of.month + 1, 1)
+    paid_sql = (
+        "COALESCE(SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)), 0)"
+        if include_dache
+        else "COALESCE(SUM(COALESCE(su_sil_amt,0)), 0)"
+    )
     paid_row = db.query_one(
-        """
-        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0) + COALESCE(su_dache_amt,0)), 0) AS paid
+        f"""
+        SELECT {paid_sql} AS paid
         FROM sukum01
         WHERE bunji1=%s AND bunji2=%s
           AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s

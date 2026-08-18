@@ -11,6 +11,7 @@
   <div class="legacy-sukum-body xp-form">
     <form method="post" enctype="multipart/form-data" class="filter-bar" autocomplete="off">
       <input type="hidden" name="action" value="parse">
+      {% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}
       <div class="filter-bar-fields">
         <div class="xp-grid">
           <div class="xp-field xp-field-wide">
@@ -32,12 +33,16 @@
           </div>
           <div class="xp-field xp-field-wide">
             <label class="ls-lab">입금파일</label>
-            <input type="file" name="bank_file" accept=".xls,.xlsx,.xlsm" class="ls-box">
+            <label class="ls-box file-pick">
+              <input type="file" name="bank_file" id="bank_file" accept=".xls,.xlsx,.xlsm" class="file-pick-input">
+              <span class="file-pick-btn">파일 선택</span>
+              <span class="file-pick-name" id="bank_file_name" data-kept="{{ uploaded_name or '' }}">{{ uploaded_name or '선택된 파일 없음' }}</span>
+            </label>
           </div>
         </div>
       </div>
       <div class="filter-bar-btns">
-        <button type="submit" class="btn">불러오기 · 매칭</button>
+        <button type="submit" class="btn">업로드</button>
       </div>
     </form>
 
@@ -93,23 +98,24 @@
         <table class="legacy-grid">
           <thead>
             <tr>
-              <th></th>
+              <th class="tc"></th>
               <th class="tc">상태</th>
               <th class="tc">거래일</th>
               <th class="tc">매칭 호실</th>
-              <th>적요(입금자명)</th>
-              <th class="num">입금액</th>
-              <th>세입자</th>
-              <th></th>
+              <th class="tc">적요(입금자명)</th>
+              <th class="tc">입금액</th>
+              <th class="tc">세입자</th>
+              <th class="tc"></th>
             </tr>
           </thead>
           <tbody>
             {% for r in rows %}
-            {% set needs_dropdown = r.status=='unmatched' or (r.status=='matched' and (r.needs_pick or r.amount_flag)) %}
+            {% set row_i = loop.index0 %}
+            {% set needs_dropdown = r.status=='unmatched' or (r.status=='matched' and r.amount_flag) %}
             {% set current_value = (r.hosu + '|' + r.ipju_seq) if r.hosu else '' %}
             <tr class="import-row import-{{ r.status }}">
               <td class="tc">
-                <input type="checkbox" name="apply_idx" value="{{ loop.index0 }}"
+                <input type="checkbox" name="apply_idx" value="{{ row_i }}"
                        {% if r.status=='matched' and not r.amount_flag and not r.needs_pick %}checked
                        {% elif r.status=='duplicate' %}disabled{% endif %}>
               </td>
@@ -122,8 +128,15 @@
               </td>
               <td class="tc col-nowrap">{{ r.date }}</td>
               <td class="tc">
-                {% if needs_dropdown %}
-                <select name="manual_{{ loop.index0 }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
+                {% if r.needs_pick %}
+                <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
+                  <option value="">호실 선택</option>
+                  {% for opt in r.room_options %}
+                  <option value="{{ opt.value }}">{{ opt.label }}</option>
+                  {% endfor %}
+                </select>
+                {% elif needs_dropdown %}
+                <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
                   <option value="">호실 선택{% if current_value %} (지금: {{ r.hosu }}호 {{ r.tenant_nm }}){% endif %}</option>
                   {% for opt in r.room_options %}
                   <option value="{{ opt.value }}" {% if opt.value==current_value %}selected{% endif %}>{{ opt.label }}</option>
@@ -134,7 +147,19 @@
                 {% endif %}
               </td>
               <td>{{ r.name }}</td>
-              <td class="num">{{ r.amount|money }}</td>
+              <td class="tc">
+                {{ r.amount|money }}
+                {% if r.needs_pick %}
+                <div class="split-amts" id="split-amts-{{ row_i }}" hidden>
+                  {% for opt in r.room_options if opt.value != 'ALL' %}
+                  <label>{{ opt.value.split('|')[0] }}
+                    <input type="text" name="split_{{ row_i }}_{{ opt.value }}" class="money-input" inputmode="numeric" autocomplete="off">
+                    <span class="muted">미수 {{ (opt.misu or 0)|money }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </td>
               <td>{{ r.tenant_nm or '' }}</td>
               <td class="tc">
                 {% if r.status=='unmatched' %}
@@ -158,8 +183,22 @@
 <style>
 .import-duplicate { opacity: .55; }
 .import-unmatched { opacity: .7; }
+.split-amts { margin-top:2px; }
+.split-amts label { display:inline-block; white-space:nowrap; margin:0 4px; }
+.split-amts input { width:6em; }
 </style>
 <script>
+(function () {
+  var inp = document.getElementById('bank_file');
+  var name = document.getElementById('bank_file_name');
+  if (inp && name) {
+    inp.addEventListener('change', function () {
+      name.textContent = (inp.files && inp.files[0] && inp.files[0].name)
+        ? inp.files[0].name
+        : (name.getAttribute('data-kept') || '선택된 파일 없음');
+    });
+  }
+})();
 document.addEventListener('click', function (e) {
   var btn = e.target.closest && e.target.closest('.exclude-quick-btn');
   if (!btn) return;
@@ -169,5 +208,18 @@ document.addEventListener('click', function (e) {
   kwField.value = btn.getAttribute('data-name') || '';
   form.submit();
 });
+function toggleSplit(sel) {
+  var box = document.getElementById('split-amts-' + sel.name.slice(7));
+  if (box) box.hidden = sel.value !== 'ALL';
+}
+document.addEventListener('change', function (e) {
+  var t = e.target;
+  if (!t || t.tagName !== 'SELECT' || !t.name || t.name.indexOf('manual_') !== 0) return;
+  toggleSplit(t);
+  var idx = t.name.slice(7);
+  var rowCb = document.querySelector('input[name="apply_idx"][value="' + idx + '"]');
+  if (rowCb && !rowCb.disabled && t.value) rowCb.checked = true;
+});
+document.querySelectorAll('select[name^="manual_"]').forEach(toggleSplit);
 </script>
 {% endblock %}

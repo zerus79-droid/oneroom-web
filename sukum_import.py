@@ -56,7 +56,7 @@ def _cleanup_tmp():
         pass
 
 
-def _save_state(bunji1, bunji2, deposits, auto_detected):
+def _save_state(bunji1, bunji2, deposits, auto_detected, filename=""):
     os.makedirs(_TMP_DIR, exist_ok=True)
     _cleanup_tmp()
     token = uuid.uuid4().hex
@@ -67,6 +67,7 @@ def _save_state(bunji1, bunji2, deposits, auto_detected):
                 "bunji2": bunji2,
                 "deposits": deposits,
                 "auto_detected": auto_detected,
+                "filename": filename or "",
             },
             f,
             ensure_ascii=False,
@@ -261,12 +262,41 @@ def _name_core(s):
     return t
 
 
+def _name_parts(s):
+    """비교용 조각. 괄호 안(닫히지 않은 '김호진(행복요양' 포함)도 따로 둠."""
+    t = re.sub(r"\s+", "", (s or "").strip())
+    if not t:
+        return []
+    parts = [t]
+    for m in re.finditer(r"\(([^)]+)\)", t):
+        inner = (m.group(1) or "").strip()
+        if len(inner) >= 2:
+            parts.append(inner)
+    m = re.search(r"\(([^)]+)$", t)
+    if m:
+        inner = (m.group(1) or "").strip()
+        if len(inner) >= 2:
+            parts.append(inner)
+    outer = re.sub(r"\(.*", "", t).strip()
+    if len(outer) >= 2:
+        parts.append(outer)
+    seen = []
+    for p in parts:
+        if p not in seen:
+            seen.append(p)
+    return seen
+
+
 def _name_matches(deposit_name, tenant_name):
-    d = _name_core(deposit_name)
-    t = _name_core(tenant_name)
-    if len(d) < 2 or len(t) < 2:
-        return False
-    return d == t or d in t or t in d
+    ds = _name_parts(deposit_name)
+    ts = _name_parts(tenant_name)
+    for d in ds:
+        for t in ts:
+            if len(d) < 2 or len(t) < 2:
+                continue
+            if d == t or d in t or t in d:
+                return True
+    return False
 
 
 def _rent_amount_matches(amount, rent, manage, tol_ratio=0.03, tol_min=1000):
@@ -292,6 +322,14 @@ def _narrow_by_room_hint(text, candidates, amount=None, allow_bare_number=True):
         return (c.get("hosu") or "").strip().upper()
 
     for m in re.finditer(r"(\d{2,4})\s*호", text):
+        num = m.group(1).lstrip("0") or "0"
+        hits = [c for c in candidates if hosu_of(c).lstrip("0") == num]
+        if len(hits) == 1:
+            return hits
+
+    # '가람501월세' — 호수+월세는 강한 힌트. 금액이 달라도 그 호실로 확정
+    # (금액 이상은 매칭 후 확인필요로 표시).
+    for m in re.finditer(r"(\d{2,4})\s*월세", text):
         num = m.group(1).lstrip("0") or "0"
         hits = [c for c in candidates if hosu_of(c).lstrip("0") == num]
         if len(hits) == 1:
@@ -361,6 +399,122 @@ def detect_building(account_no):
 _AMOUNT_FLAG_MULTIPLE = 2  # 월세+관리비 기준액의 이 배수를 넘으면 "확인필요"로 표시
 
 
+_UTILITY_RE = re.compile(r"수도|전기|가스|공과금|공공요금|난방|온수|한전|열요금")
+_LUMP_RE = re.compile(r"보증|계약|잔금")
+
+
+def _is_utility_desc(name):
+    """수도·전기·가스·공과금 적요는 월세가 아님. '월세'가 같이 있으면 임대료로 본다."""
+    t = re.sub(r"\s+", "", name or "")
+    if not t or "월세" in t:
+        return False
+    return bool(_UTILITY_RE.search(t))
+
+
+def _is_lump_desc(name):
+    """보증·계약·잔금은 월세가 섞여 있어도 자동 반영하지 않는다. 호실만 고르면 들어간다."""
+    t = re.sub(r"\s+", "", name or "")
+    return bool(t and _LUMP_RE.search(t))
+
+
+def _monthly_due(t):
+    return int(t.get("rent_amt") or 0) + int(t.get("manage_amt") or 0)
+
+
+def _alloc_lump(candidates, amount):
+    """복수 호실에 입금액을 나눔. n개월분이면 각 호 n개월, 아니면
+    floor(입금/월세합)개월 + 잔액은 월세 큰 호실."""
+    if not candidates:
+        return []
+    if len(candidates) == 1:
+        return [(candidates[0], int(amount))]
+    dues = [_monthly_due(c) for c in candidates]
+    if any(d <= 0 for d in dues):
+        n = len(candidates)
+        base = int(amount) // n
+        alloc = [base] * n
+        alloc[0] += int(amount) - base * n
+        out = list(zip(candidates, alloc))
+        out.sort(key=lambda x: ((x[0].get("hosu") or "").strip().upper()))
+        return out
+    total = sum(dues)
+    months = 1
+    for n in range(1, 25):
+        if _rent_amount_matches(int(amount), n * total, 0):
+            months = n
+            break
+    else:
+        months = max(1, int(amount) // total) if total > 0 else 1
+    alloc = [d * months for d in dues]
+    leftover = int(amount) - sum(alloc)
+    if leftover:
+        biggest = max(range(len(candidates)), key=lambda i: dues[i])
+        alloc[biggest] += leftover
+    out = [(candidates[i], alloc[i]) for i in range(len(candidates))]
+    out.sort(key=lambda x: ((x[0].get("hosu") or "").strip().upper()))
+    return out
+
+
+def _try_split_lump(candidates, amount):
+    """같은 입금자 복수 호실 + 입금액이 각 호 월세합과 같으면 호실별로 나눔.
+    예: 한현승 2,550,000 → 201 2,000,000 + B01 550,000."""
+    if len(candidates) < 2:
+        return None
+    dues = [_monthly_due(c) for c in candidates]
+    if any(d <= 0 for d in dues):
+        return None
+    total = sum(dues)
+    if not _rent_amount_matches(int(amount), total, 0):
+        return None
+    return _alloc_lump(candidates, amount)
+
+
+def _finish_match_row(
+    dep, match, amount, candidates, all_room_options,
+    existing_set, bunji1, bunji2, needs_pick,
+):
+    hosu = (match.get("hosu") or "").strip().upper() if match else ""
+    ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
+    row = {
+        "date": dep["date"],
+        "amount": amount,
+        "name": dep["name"],
+        "hosu": hosu,
+        "ipju_seq": ipju_seq,
+        "tenant_nm": match.get("ipju_nm") if match else "",
+        "amount_flag": False,
+        "needs_pick": needs_pick,
+        "room_options": (
+            _room_options(
+                candidates, with_combo=True,
+                bunji1=bunji1, bunji2=bunji2,
+                as_of=date.fromisoformat(dep["date"]),
+            )
+            if needs_pick
+            else (all_room_options if not match else [])
+        ),
+    }
+    if needs_pick:
+        row["status"] = "matched"
+    elif not match:
+        row["status"] = "unmatched"
+    elif (hosu, ipju_seq, row["date"], int(amount)) in existing_set:
+        row["status"] = "duplicate"
+    else:
+        row["status"] = "matched"
+        expected = _monthly_due(match)
+        if expected > 0 and amount > expected * _AMOUNT_FLAG_MULTIPLE:
+            misu = _calc_misu_amt(
+                bunji1, bunji2, hosu, ipju_seq,
+                match.get("rent_amt"), match.get("manage_amt"),
+                match.get("ipju_dt"), as_of=date.fromisoformat(dep["date"]),
+            )
+            if amount > expected + misu:
+                row["amount_flag"] = True
+                row["room_options"] = all_room_options
+    return row
+
+
 def _match_deposits(deposits, bunji1, bunji2):
     if not (bunji1 and bunji2):
         return []
@@ -398,12 +552,29 @@ def _match_deposits(deposits, bunji1, bunji2):
         if _matches_excluded(dep["name"], exclude_keywords):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
 
+        # 수도·전기·가스 적요는 호수 힌트가 있어도 월세로 넣지 않음
+        if _is_utility_desc(dep["name"]):
+            results.append(
+                _finish_match_row(
+                    dep, None, dep["amount"], tenants, all_room_options,
+                    existing_set, bunji1, bunji2, needs_pick=False,
+                )
+            )
+            continue
+
         name_candidates = [t for t in tenants if _name_matches(dep["name"], t.get("ipju_nm") or "")]
         if len(name_candidates) > 1:
             # 동명이인/복수호실 — 적요의 호수 힌트('401호', '1층', 숫자만)로 먼저 좁혀봄
             candidates = _narrow_by_room_hint(
                 dep["name"], name_candidates, amount=dep["amount"], allow_bare_number=True
             )
+            if len(candidates) > 1:
+                one_amt = [
+                    c for c in candidates
+                    if _rent_amount_matches(dep["amount"], c.get("rent_amt"), c.get("manage_amt"))
+                ]
+                if len(one_amt) == 1:
+                    candidates = one_amt
         elif not name_candidates:
             # 이름 매칭이 아예 없으면(적요가 '가람501월세'처럼 호수/건물 위주인 경우)
             # 건물 전체에서 호수 힌트로 좁혀봄. 숫자만 있는 힌트는 그 호실 월세+관리비가
@@ -415,43 +586,40 @@ def _match_deposits(deposits, bunji1, bunji2):
                 candidates = name_candidates
         else:
             candidates = name_candidates
-        match = candidates[0] if len(candidates) == 1 else None
-        needs_pick = len(candidates) > 1  # 같은 이름으로 호실 2곳 이상(한 사람이 여러 호실 사용 등)
-        hosu = (match.get("hosu") or "").strip().upper() if match else ""
-        ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
-        row = {
-            "date": dep["date"],
-            "amount": dep["amount"],
-            "name": dep["name"],
-            "hosu": hosu,
-            "ipju_seq": ipju_seq,
-            "tenant_nm": match.get("ipju_nm") if match else "",
-            "amount_flag": False,
-            "needs_pick": needs_pick,
-            # 미매칭: 건물 전체 호실 중에서 고르게. 동명이인/복수호실: 그 후보들만.
-            "room_options": _room_options(candidates) if needs_pick else (all_room_options if not match else []),
-        }
-        if needs_pick:
-            row["status"] = "matched"
-        elif not match:
-            row["status"] = "unmatched"
-        elif (hosu, ipju_seq, row["date"], row["amount"]) in existing_set:
-            row["status"] = "duplicate"
-        else:
-            row["status"] = "matched"
-            expected = int(match.get("rent_amt") or 0) + int(match.get("manage_amt") or 0)
-            if expected > 0 and dep["amount"] > expected * _AMOUNT_FLAG_MULTIPLE:
-                # 밀린 미수금까지 합치면 설명되는 금액이면(예: 이번달치+그동안 밀린 돈 완납)
-                # 확인필요로 걸지 않음 — 그 외에만 확인 대상
-                misu = _calc_misu_amt(
-                    bunji1, bunji2, hosu, ipju_seq,
-                    match.get("rent_amt"), match.get("manage_amt"),
-                    match.get("ipju_dt"), as_of=date.fromisoformat(dep["date"]),
+
+        # 보증·계약·잔금(월세 섞인 경우 포함)은 자동 반영하지 않음 — 호실 선택 후 반영
+        if _is_lump_desc(dep["name"]):
+            match = candidates[0] if len(candidates) == 1 else None
+            needs_pick = len(candidates) > 1
+            row = _finish_match_row(
+                dep, match, dep["amount"], candidates, all_room_options,
+                existing_set, bunji1, bunji2, needs_pick=needs_pick,
+            )
+            if row["status"] == "matched" and not needs_pick:
+                row["amount_flag"] = True
+                row["room_options"] = all_room_options
+            results.append(row)
+            continue
+
+        split = _try_split_lump(candidates, dep["amount"]) if len(candidates) > 1 else None
+        if split:
+            for match, amt in split:
+                results.append(
+                    _finish_match_row(
+                        dep, match, amt, candidates, all_room_options,
+                        existing_set, bunji1, bunji2, needs_pick=False,
+                    )
                 )
-                if dep["amount"] > expected + misu:
-                    row["amount_flag"] = True
-                    row["room_options"] = all_room_options
-        results.append(row)
+            continue
+
+        match = candidates[0] if len(candidates) == 1 else None
+        needs_pick = len(candidates) > 1
+        results.append(
+            _finish_match_row(
+                dep, match, dep["amount"], candidates, all_room_options,
+                existing_set, bunji1, bunji2, needs_pick=needs_pick,
+            )
+        )
 
     # 표시 순서: 미매칭 → 확인필요(금액 이상/복수호실) → 반영예정 → 날짜중복(이미 등록됨)
     def _sort_key(r):
@@ -467,7 +635,7 @@ def _match_deposits(deposits, bunji1, bunji2):
     return results
 
 
-def _room_options(tenants):
+def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
     opts = []
     for t in tenants:
         h = (t.get("hosu") or "").strip().upper()
@@ -475,52 +643,96 @@ def _room_options(tenants):
         nm = (t.get("ipju_nm") or "").strip()
         if not h or not seq:
             continue
-        opts.append({"value": f"{h}|{seq}", "label": f"{h}호 {nm}".strip()})
+        misu = 0
+        if bunji1 and bunji2 and as_of:
+            misu = _calc_misu_amt(
+                bunji1, bunji2, h, seq,
+                t.get("rent_amt"), t.get("manage_amt"),
+                t.get("ipju_dt"), as_of=as_of,
+            )
+        opts.append({
+            "value": f"{h}|{seq}",
+            "label": f"{h}호 {nm}".strip(),
+            "misu": misu,
+        })
+    if with_combo and len(opts) >= 2:
+        opts.append({"value": "ALL", "label": f"{len(opts)}호실"})
     return opts
 
 
-def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides):
+def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
+    hosu = (hosu or "").strip().upper()
+    ipju_seq = str(ipju_seq or "").zfill(2)
+    if not (hosu and ipju_seq) or int(amount or 0) <= 0:
+        return False
+    sukum_seq = _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu)
+    db.execute(
+        """
+        INSERT INTO sukum01 (
+            sukum_dt, sukum_seq, bunji1, bunji2, hosu, ipju_seq,
+            sukum_char, sukum_gb, manage_desc, su_sil_amt, su_dache_amt,
+            suri_dt, suri_seq, s_method, del_yn, sys_dt, uid
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s,
+            '01', '03', %s, %s, 0,
+            NULL, '', '', 'N', NOW(), %s
+        )
+        """,
+        (
+            sukum_dt + " 00:00:00",
+            sukum_seq,
+            bunji1,
+            bunji2,
+            hosu,
+            ipju_seq,
+            f"입금파일 자동반영 ({name or ''})",
+            int(amount),
+            session.get("sabun") or "",
+        ),
+    )
+    return True
+
+
+def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_map=None):
+    split_map = split_map or {}
     saved = 0
     for i, row in enumerate(rows):
-        if i not in selected_idx or row.get("status") == "duplicate":
+        if row.get("status") == "duplicate":
             continue
-        override = manual_overrides.get(str(i)) or ""
-        if "|" in override:
-            # 드롭박스로 직접 고른 호실은 자동 매칭보다 우선
-            hosu, ipju_seq = override.split("|", 1)
+        if i not in selected_idx:
+            continue
+        raw = manual_overrides.get(str(i)) or []
+        if isinstance(raw, str):
+            raw = [raw] if raw else []
+        if any(v == "ALL" for v in raw):
+            parts = split_map.get(str(i)) or {}
+            if sum(int(v) for v in parts.values()) != int(row["amount"]):
+                continue
+            for key, amt in parts.items():
+                if "|" not in key:
+                    continue
+                hosu, ipju_seq = key.split("|", 1)
+                if _insert_sukum(
+                    bunji1, bunji2, hosu, ipju_seq,
+                    row["date"], amt, row.get("name"),
+                ):
+                    saved += 1
+            continue
+        picks = []
+        seen = set()
+        for v in raw:
+            if v and "|" in v and v not in seen:
+                seen.add(v)
+                picks.append(v)
+        if len(picks) == 1:
+            hosu, ipju_seq = picks[0].split("|", 1)
         else:
             hosu, ipju_seq = row.get("hosu"), row.get("ipju_seq")
-        if not (hosu and ipju_seq):
-            continue  # 호실 미지정 — 반영 건너뜀
-        hosu = hosu.strip().upper()
-        ipju_seq = ipju_seq.zfill(2)
-        sukum_dt = row["date"]
-        sukum_seq = _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu)
-        db.execute(
-            """
-            INSERT INTO sukum01 (
-                sukum_dt, sukum_seq, bunji1, bunji2, hosu, ipju_seq,
-                sukum_char, sukum_gb, manage_desc, su_sil_amt, su_dache_amt,
-                suri_dt, suri_seq, s_method, del_yn, sys_dt, uid
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s,
-                '01', '03', %s, %s, 0,
-                NULL, '', '', 'N', NOW(), %s
-            )
-            """,
-            (
-                sukum_dt + " 00:00:00",
-                sukum_seq,
-                bunji1,
-                bunji2,
-                hosu,
-                ipju_seq,
-                f"입금파일 자동반영 ({row.get('name', '')})",
-                row["amount"],
-                session.get("sabun") or "",
-            ),
-        )
-        saved += 1
+        if _insert_sukum(
+            bunji1, bunji2, hosu, ipju_seq,
+            row["date"], row["amount"], row.get("name"),
+        ):
+            saved += 1
     return saved
 
 
@@ -547,13 +759,28 @@ def payments_import():
                 selected_idx.add(int(v))
             except ValueError:
                 pass
-        manual_overrides = {
-            k[len("manual_"):]: v
-            for k, v in request.form.items()
-            if k.startswith("manual_") and v
-        }
+        manual_overrides = {}
+        for k in request.form:
+            if not k.startswith("manual_"):
+                continue
+            vals = [v for v in request.form.getlist(k) if v]
+            if vals:
+                manual_overrides[k[len("manual_"):]] = vals
+        split_map = {}
+        for k in request.form:
+            if not k.startswith("split_"):
+                continue
+            rest = k[len("split_"):]
+            idx, sep, room = rest.partition("_")
+            if not sep or "|" not in room:
+                continue
+            amt = _parse_amount(request.form.get(k))
+            if amt > 0:
+                split_map.setdefault(idx, {})[room] = amt
         rows = _match_deposits(state["deposits"], bunji1, bunji2)
-        saved = _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides)
+        saved = _apply_selected(
+            rows, bunji1, bunji2, selected_idx, manual_overrides, split_map,
+        )
         _delete_state(token)
         flash(f"{saved}건 반영되었습니다." if saved else "선택된 항목이 없습니다.", "ok" if saved else "err")
         return redirect(url_for("payments_import"))
@@ -563,7 +790,16 @@ def payments_import():
         bunji2 = _pad_bunji(request.form.get("bunji2"))
         f = request.files.get("bank_file")
         if not (f and f.filename):
-            flash("입금 내역 파일을 선택하세요.", "err")
+            old_token = (request.form.get("token") or "").strip()
+            if old_token and _load_state(old_token):
+                return redirect(
+                    url_for(
+                        "payments_import",
+                        token=old_token,
+                        bunji1=bunji1 or None,
+                        bunji2=bunji2 or None,
+                    )
+                )
             return redirect(url_for("payments_import"))
         try:
             deposits, account_no = load_bank_deposits(f.filename, f.read())
@@ -580,8 +816,13 @@ def payments_import():
             auto_detected = bool(bunji1 and bunji2)
             if not auto_detected:
                 flash("건물을 자동으로 찾지 못했습니다. 직접 선택하세요.", "err")
-        flash(f"입금 내역 {len(deposits)}건을 불러왔습니다.", "ok")
-        token = _save_state(bunji1, bunji2, deposits, auto_detected)
+        token = _save_state(
+            bunji1,
+            bunji2,
+            deposits,
+            auto_detected,
+            filename=os.path.basename(f.filename or ""),
+        )
         return redirect(url_for("payments_import", token=token))
 
     # GET: 최초 진입(빈 폼) 또는 방금 매칭한 결과 보기(?token=...),
@@ -591,6 +832,7 @@ def payments_import():
     rows = None
     bunji1 = bunji2 = ""
     auto_detected = False
+    uploaded_name = ""
 
     if state:
         req_b1 = _pad_bunji(request.args.get("bunji1"))
@@ -599,6 +841,7 @@ def payments_import():
             state = _update_state_building(token, req_b1, req_b2) or state
         bunji1, bunji2 = state["bunji1"], state["bunji2"]
         auto_detected = bool(state.get("auto_detected"))
+        uploaded_name = (state.get("filename") or "").strip()
         rows = _match_deposits(state["deposits"], bunji1, bunji2) if (bunji1 and bunji2) else []
 
     return render_template(
@@ -610,6 +853,7 @@ def payments_import():
         auto_detected=auto_detected,
         rows=rows,
         token=token,
+        uploaded_name=uploaded_name,
     )
 
 
