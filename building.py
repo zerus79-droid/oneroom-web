@@ -375,7 +375,9 @@ def vacancies():
                LIMIT 1
              )
         {where_clause}
-        ORDER BY m.bunji1, m.bunji2, m.hosu
+        ORDER BY m.bunji1, m.bunji2,
+          CASE WHEN m.hosu LIKE 'B%%' THEN 0 WHEN m.hosu REGEXP '^[0-9]' THEN 1 ELSE 2 END,
+          m.hosu
         LIMIT %s OFFSET %s
         """,
         tuple(args + [per_page, pager["offset"]]),
@@ -384,10 +386,8 @@ def vacancies():
     today = date.today()
     for r in vacant_rows:
         out = r.get("last_out_dt")
-        if out is None:
-            r["vacant_days"] = None
-            r["never_tenant"] = not bool(r.get("last_ipju_nm"))
-        else:
+        out_d = None
+        if out is not None:
             if isinstance(out, datetime):
                 out_d = out.date()
             elif isinstance(out, date):
@@ -397,12 +397,17 @@ def vacancies():
                     out_d = datetime.strptime(str(out)[:10], "%Y-%m-%d").date()
                 except ValueError:
                     out_d = None
-            if out_d and out_d.year >= 1000:
-                r["vacant_days"] = max(0, (today - out_d).days)
-                r["never_tenant"] = False
-            else:
-                r["vacant_days"] = None
-                r["never_tenant"] = True
+        has_tenant_hist = bool(r.get("last_ipju_nm"))
+        if not has_tenant_hist:
+            r["room_status"] = "never"
+            r["vacant_days"] = None
+        elif out_d is None or out_d.year < 1000:
+            r["room_status"] = "occupied"
+            r["vacant_days"] = None
+        else:
+            r["room_status"] = "vacant"
+            r["vacant_days"] = max(0, (today - out_d).days)
+        r["never_tenant"] = r["room_status"] == "never"
 
     # 건물별 요약 (전체 호수 / 입주 / 공실)
     building_rows = db.query(

@@ -68,11 +68,12 @@
     <div class="vacancy-section-lab">
       {% if stats.show_occupied %}
       현재 입주 호수
-      <span class="muted">{{ stats.vacant_listed }}건</span>
-      {% else %}
+      {% elif filters.only_empty %}
       공실 호수
-      <span class="muted">{{ stats.vacant_listed }}건</span>
+      {% else %}
+      전체 호수
       {% endif %}
+      <span class="muted">{{ stats.vacant_listed }}건</span>
     </div>
     {% if pager %}
     {% set pager_endpoint = 'vacancies' %}
@@ -113,7 +114,9 @@
             <td class="tc">{{ v.owner_nm or '' }}</td>
             <td class="tc"><strong>{{ v.hosu }}</strong></td>
             <td class="tc">
-              {% if v.never_tenant %}
+              {% if v.room_status == 'occupied' %}
+              <span class="st-badge paid">입주중</span>
+              {% elif v.room_status == 'never' %}
               <span class="badge empty">미입주</span>
               {% else %}
               <span class="badge empty">공실</span>
