@@ -430,7 +430,7 @@ table.tenant-pick tr.tenant-row.is-current td {
   background: var(--primary-light);
   color: #3730a3;
 }
-.badge.empty { background: var(--warn-bg); color: #92400e; }
+.badge.empty { background: var(--warn-bg); color: #92400e; padding: 0 5px; }
 
 /* 공실 현황 · # app.py
 from flask import Flask
@@ -3896,6 +3896,7 @@ a.dash-kpi:hover .dash-kpi-circle {
   background: var(--st-empty-bg);
   color: #455a64;
   border-color: #cfd8dc;
+  padding: 2px 8px;
 }
 .st-badge.info {
   background: var(--st-info-bg);
