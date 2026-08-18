@@ -41,6 +41,7 @@ Claude Code 사용 한도가 다 떨어지면 그동안은 Grok이 메인 역할
 | `jungsan.py` | 월정산 (책임관리만 지원, 일반관리는 `docs/TODO.md` 참고) |
 | `jungke.py` | 중개수수료 |
 | `sukum_import.py` | 입금파일 자동반영 (은행 .xls/.xlsx 업로드 → 계좌번호/이름/호수 매칭 → sukum01 등록), 남은 이슈는 `docs/TODO.md` |
+| `docs.py` | 서식·자료 게시판 (도움말 메뉴, `/docs`) |
 | `templates/` | 화면 HTML (이름 = 화면) |
 | `static/css/style.css` | 스타일. 입주 폼 간격은 여기 `.tr-*` |
 
