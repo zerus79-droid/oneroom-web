@@ -3,11 +3,15 @@
 기초 내역 관리 메뉴의 사용자(sawon_m) 등록/수정/삭제와
 본인 비밀번호 변경 라우트를 모아둔 모듈입니다.
 """
+import re
+
 from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
 from utils import login_required, require_admin
+
+_SABUN_RE = re.compile(r"^[0-9A-Za-z가-힣]+$")
 
 
 # 사용자 등급 (XP 사용자관리: A / B / C / 무제한)
@@ -62,6 +66,8 @@ def _validate_user_form(data, *, require_password):
         return "사용자 ID(사번)를 입력하세요."
     if len(data["sabun"]) > 5:
         return "사용자 ID는 5자 이내입니다."
+    if not _SABUN_RE.match(data["sabun"]):
+        return "사용자 ID는 숫자·영문·한글만 입력하세요 (특수문자 불가)."
     if not data["s_name"]:
         return "사용자명을 입력하세요."
     if data["password"] and len(data["password"]) > 10:
