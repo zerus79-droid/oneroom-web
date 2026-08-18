@@ -1,0 +1,585 @@
+
+
+
+
+<html ng-app="zipsaApp">
+<head>
+    <title>집사 임대인 PC버전</title>
+    <meta name="viewport" content="width=device-width,initial-scale=0.28,minimum-scale=0.28,maximum-scale=1.0,user-scalable=yes">
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+    <meta http-equiv="Cache-Control" content="no-cache"/>
+    <meta http-equiv="Expires" content="0"/>
+    <meta http-equiv="Pragma" content="no-cache"/>
+
+    <link rel="stylesheet" href="/bower_components/font-awesome/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/css/admin_landlord.css?pv=2026050800001">
+    <link rel="stylesheet" href="/css/admin_landlord_popup.css?pv=2026050800001">
+    <link rel="stylesheet" href="/css/normalize.css">
+    <link rel="stylesheet" href="/css/w3.css?pv=2026050800001">
+    <link rel="stylesheet" href="/lib/jquery-ui/jquery.alert.css">
+    <link rel="stylesheet" href="/css/fullcalendar.css"/>
+    <link rel="stylesheet" href="/lib/jquery-ui/jquery-ui.css?pv=2026050800001"/>
+
+    <link rel="stylesheet" href="/bower_components/ng-dialog/css/ngDialog.min.css"/>
+    <link rel="stylesheet" href="/bower_components/ng-dialog/css/ngDialog-theme-default.min.css"/>
+    <link rel="stylesheet" href="/bower_components/ng-dialog/css/ngDialog-theme-plain.min.css" />
+
+	<link rel = "stylesheet" href = "/bower_components/angularjs-toaster/toaster.min.css" />
+    <link rel = "stylesheet" href = "/bower_components/sweetalert/dist/sweetalert.css" />
+
+    <script src="/lib/jquery/jquery-1.11.0.min.js"></script>
+    <script src="/lib/jquery/jquery.bpopup.min.js"></script>
+    <script src="/lib/jquery-ui/jquery-ui.min.js"></script>
+    <script src="/lib/jquery-ui/jquery.alert.js"></script>
+
+    <script src="/bower_components/angular/angular.min.js"></script>
+    <script src="/bower_components/angular-ui-router/release/angular-ui-router.min.js"></script>
+    <script src="/bower_components/angular-sanitize/angular-sanitize.min.js"></script>
+
+    <script src="/bower_components/ng-dialog/js/ngDialog.min.js"></script>
+    <script src="/lib/angular/fileupload/ng-file-upload.js"></script>
+    <script src="/lib/moment/moment.min.js"></script>
+    <script src="/lib/angular-ui-calendar/calendar.js"></script>
+    <script src="/bower_components/fullcalendar/dist/fullcalendar.min.js"></script>
+    <script src="/bower_components/fullcalendar/dist/gcal.js"></script>
+
+    <script src="/lib/angular/checklist-model.js"></script>
+    <script src="/lib/jquery/jquery.mtz.monthpicker.js"></script>
+    <script src="/lib/angular/spin.js"></script>
+    <script src="/lib/angular/angular-spinner.min.js"></script>
+    <script src="/lib/angular/angular-loading-spinner.js"></script>
+    <script src="/lib/jquery/jcarousellite_1.0.1.min.js"></script>
+    <script src="/lib/jquery/jquery.vticker.min.js"></script>
+
+    <script src="/js/module/paging/paging.js"></script>
+    <script src="/js/module/paging/pagination.js"></script>
+
+	<script src="/bower_components/angularjs-toaster/toaster.min.js"></script>
+    <script src="/bower_components/ocLazyLoad/dist/ocLazyLoad.min.js"></script>
+    <script src="/bower_components/sweetalert/dist/sweetalert.min.js"></script>
+    <script src="/bower_components/ngSweetAlert/SweetAlert.min.js"></script>
+    <script src="/bower_components/ngInfiniteScroll/build/ng-infinite-scroll.min.js"></script>
+    <script src="/bower_components/angular-dragdrop/src/angular-dragdrop.min.js"></script>
+    <script src="/bower_components/socket.io-client/dist/socket.io.js"></script>
+
+    <script src="/lib/jquery/jquery.cookie.js"></script>
+
+    <script>
+
+        FileAPI = {
+            //jsPath 또는 jsUrl 둘 중 원하는거 하나만 사용.
+            //jsPath: '/js/FileAPI.min.js/folder/',
+            jsUrl: '/lib/fileupload/FileAPI.js',
+
+            //staticPath 또는 flashUrl 둘 중 원하는거 하나만 사용.
+            //staticPath: '/flash/FileAPI.flash.swf/folder/',
+            flashUrl: '/lib/fileupload/FileAPI.flash.swf',
+
+            //forceLoad: true, html5: false //HTML5 브라우저에서 디버그 하려면 설정
+        }
+
+    </script>
+    <script src="/lib/angular/fileupload/ng-file-upload-shim.js"></script>
+    <script src="/js/lessor/module/date.js?pv=2026050800001"></script>
+
+	
+		
+		
+			<script src="/dist/bundle.js?pv=2026050800001"></script>
+		
+	
+
+
+    <script src="/js/lessor/ct/tenantCt.js?pv=2026050800001"></script>
+    <script src="/js/lessor/ct/calculateCt.js?pv=2026050800001"></script>
+    <script src="/js/lessor/ct/layer/calculateCt.js?pv=2026050800001"></script>
+
+    <script src="/js/lessor/common/tenant.js?pv=2026050800001"></script>
+    <script src="/js/lessor/common/common.js?pv=2026050800001"></script>
+    <script src="/js/lessor/common/notice.js?pv=2026050800001"></script>
+    <script src="/js/lessor/common/report.js?pv=2026050800001"></script>
+
+    <script src="/js/lessor/module/jkJS.js?pv=2026050800001"></script>
+
+</head>
+<style>
+    .fc-event {font-size: .95em; !important;}
+
+    #floatMenu {
+        position: fixed;
+        width: 88px;
+        height: 88px;
+        right: 9px;
+        top:250px;
+        color: #fff;
+    }
+
+    @media print{
+        .kakao_fl{
+            display:none;
+        }
+        .content > .c_content table.table01 tbody td{
+            background: #fff;
+        }
+    }
+</style>
+<body name="top">
+
+
+<div class="full_container" id="topCt" ng-controller="TopController" ng-init='lessorAuthSetting({"memberID":"sinbee","loginID":"sinbee","lessorID":"sinbee","memberType":"LESSOR","authType":"ALL","lessorSub":null})'>
+
+	<toaster-container></toaster-container>
+    
+
+
+
+<link rel="stylesheet" href="/css/animate.css">
+<script type="text/javascript" src="/lib/user/wow.min.js"></script>
+<script type="text/javascript" src="/lib/user/wow_2.js"></script>
+<script>
+    $(document).ready(function () {
+
+        $('#rollNotice').vTicker();
+
+        $('#favorite').on('click', function (e) {
+            var bookmarkURL = window.location.href;
+            var bookmarkTitle = document.title;
+            var triggerDefault = false;
+
+            if (window.sidebar && window.sidebar.addPanel) {
+                // Firefox version < 23
+                window.sidebar.addPanel(bookmarkTitle, bookmarkURL, '');
+            } else if ((window.sidebar && (navigator.userAgent.toLowerCase().indexOf('firefox') > -1)) || (window.opera && window.print)) {
+                // Firefox version >= 23 and Opera Hotlist
+                var $this = $(this);
+                $this.attr('href', bookmarkURL);
+                $this.attr('title', bookmarkTitle);
+                $this.attr('rel', 'sidebar');
+                $this.off(e);
+                triggerDefault = true;
+            } else if (window.external && ('AddFavorite' in window.external)) {
+                // IE Favorite
+                window.external.AddFavorite(bookmarkURL, bookmarkTitle);
+            } else {
+                // WebKit - Safari/Chrome
+                alert((navigator.userAgent.toLowerCase().indexOf('mac') != -1 ? 'Cmd' : 'Ctrl') + '+D 키를 눌러 즐겨찾기에 등록하실 수 있습니다.');
+            }
+
+            return triggerDefault;
+        });
+    });
+
+</script>
+
+<script>
+
+    $(document).ready(function() {
+        $('#topBtn').click(function() {
+            $('html, body').animate({scrollTop : 0}, 'slow');
+            return false;
+        });
+    });
+
+    $(function() {
+
+        $('.utilBell').click(function(event){
+            event.stopPropagation();
+            $('.bellBox').toggle();
+        });
+
+        $(document).click(function(){
+            $('.bellBox').hide();
+        });
+    });
+
+</script>
+
+<span>
+<div class="top_login">
+    <div class="top_login_in">
+        <a ui-sref="main"><img src="/img/lessor/logo.png" class="logo"></a>
+        <ul>
+            <li class="notice">
+                <div id="rollNotice">
+                    <ul>
+                            <li>
+                                <img src="/img/lessor/icon_notice_2.png" style = 'margin-bottom: 0px;'>
+                                <a href="/h/sub/support01_view?active=support01&boardNo=183" target="_blank">[6/30] PC버전 - 세금계산서 및 현금영수증 발행 종합관리 기능이 추가됐습니다~</a>
+                            </li>
+
+                    </ul>
+                </div>
+            </li>
+            <!--<li>
+                 <div style="padding-top:5px"><a href="http://cafe.naver.com/knbro" target="_blank" class="btnM btnMint mr5" style="padding:4px 4px 3px 5px">임사모</a></div>
+ 
+            </li>-->
+            <!--<li>
+                <a class="btnM btnBlog" href="http://blog.naver.com/myzipsa" target="_blank">
+                <img src="/img/lessor/blog.png" alt="" title="">
+                </a>
+            </li>
+            <li>
+                <a class="btnM btnFacebook" href="https://www.facebook.com/myzipsa.co.kr" target="_blank"><img alt="" src="/img/facebook.png"></a>
+            </li>
+            -->
+            <li>
+                <div style="color:#fff;font-weight:bold;margin-left:6px">
+                     <a href="javascript:void(0);" ui-sref="smsMng.smsChargeList" class="top_point">4,122P</a>
+                </div>
+            </li>
+            <li>
+
+ 
+            </li>
+
+            <li class="login">
+                <!--<i class="fa fa-user" aria-hidden="true"></i>-->
+                
+                    
+                    
+                        <span class="id">문상돈</span>님
+                    
+                
+
+                <!--알림 팝업 추가-->
+                <span class="utilBell  hand">
+                        <i class="fa fa-bell" aria-hidden="true"></i>
+                        <em ng-if="noReadCnt > 0" class="wow swing">{{noReadCnt}}+</em>
+                </span>
+                <div class="bellBox">
+                    <div class="bellTT group">
+                        <div class="beeperNub"></div>
+                        <h2 class="fl">집사알림</h2>
+                         <div class="fr"><a ng-click="readNotifyAll()">모두 읽은 상태로 표시</a></div>
+                    </div>
+                    <div class="bellCon">
+                        <ul style="float: none">
+                            <li ng-class="n.read ? 'read' : ''" ng-repeat="n in zipsaNotiList" ng-click="readNotify(n)">
+                                <div><b>{{n.title}}</b><br><span ng-if="n.addonData.addonData4 != null">{{n.addonData.addonData4}}의 </span>{{n.content}}</div>
+                                <p class="bellDate"><i class="fa fa-clock-o" aria-hidden="true"></i> {{n.inDate | dateFormatToString : 'yyyy-MM-dd hh:mm'}}</p>
+                            </li>
+                            <li class="center">
+                                <div><b>안내</b></div>
+                                <p class="bellDate">
+                                    수납현황 및 각종 관리사항에 대해<br>
+                                    항목별 알림주기에 맞춰<br>
+                                    집사에서 보고 드립니다.</p>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="bellFoot">
+                        <a ui-sref="mypage.userAlarmPage" ui-sref-active="active">모두보기</a>
+                    </div>
+                </div>
+                <!--//알림 팝업 추가-->
+
+                
+                    <a ui-sref="mypage.userInfoPage" class="login_btn">마이페이지</a>
+                
+                <a href="/u/logout" class="login_btn">로그아웃</a>
+            </li>
+        </ul>
+    </div>
+</div>
+<div class="top_menu" id="topMenu">
+    <ul class="top_menu_in">
+
+
+        <li class="menu_w96" ng-class="{active: $state.includes('main')}"><a ui-sref="main" class="menu01"><span>캘린더</span></a></li>
+        <li class="menu_w80" ng-class="{active: $state.includes('report')}" ><a ui-sref="report.totalStatus" class="menu02"><span>집사보고</span></a><!--<span class="new_icon"><img src="/img/lessor/icon_new.png"></span>--></li>
+          <li class="menu_w118" ng-class="{active: $state.includes('tenant')}"><a ui-sref="tenant.tenantManage" class="menu04"><span>세입자/계약관리</span></a></li>
+
+        <li class="menu_w110" ng-class="{active: $state.includes('leave')}"><a ui-sref="leave.leaveManage" class="menu06"><span>퇴거/공실관리</span></a></li>
+        <li class="menu_w96" ng-class="{active: $state.includes('mtnLight')}"><a ui-sref="mtnLight.baseSetting" class="menu05"><span>분납금/변동관리비</span></a></li>
+
+        <li class="menu_w110" ng-class="{active: $state.includes('calculate')}" ng-class="{active: $state.includes('calculate')}"><a ui-sref="calculate.monthStatement"  class="menu03"><span>입금/수납</span></a></li>
+        <li class="menu_w96" ng-class="{active: $state.includes('bill')}"><a href="javascript:;" ng-click="goBill()" class="menu05"><span>계산서/영수증</span></a></li>
+        <li class="menu_w96" ng-class="{active: $state.includes('moneyBook')}"><a ui-sref="moneyBook.totalCondition"  class="menu05"><span>월세가계부</span></a></li>
+
+        <li class="menu_w110" ng-class="{active: $state.includes('building')}"><a ui-sref="building.buildingManage" class="menu07"><span>건물/시설</span></a></li>
+        <li class="menu_w80" ng-class="{active: $state.includes('memo')}" ><a ui-sref="memo.memoManage" class="menu08"><span>메모</span></a></li>
+        <li class="menu_w80" ng-class="{active: $state.includes('notice')}" ><a ui-sref="notice.noticeManage" class="menu09"><span>공지</span></a></li>
+        <li class="menu_w80" ng-class="{active: $state.includes('manage')}" ><a ui-sref="manage.manageFullStatus" class="menu10"><span>민원</span></a></li>
+        <li class="menu_w80" ng-class="{active: $state.includes('smsMng')}" ><a ui-sref="smsMng.smsSend" class="menu11"><span>문자관리</span></a></li>
+        <li class="menu_w80" ng-class="{active: $state.includes('zipsaPay')}" style="display:none"><a ui-sref="zipsaPay.totalPaymentStatus" class="menu12"><span>집사페이</span></a></li>
+    </ul>
+</div>
+<div class="favorite_menu">
+    <div class="in" style="position: relative; overflow:visible" ng-style="startGuideStyle.favoriteMenu">
+        <ul class="left">
+            <li class=""><img src="/img/lessor/text_favorite.png" alt=""/></li>
+            <li><a ng-class="startGuideEvent.buildingManageBtn" ng-click="openBuildingManage({mode:'ADD_BUILDING'});" ng-if="isLessorAddAuth()" class="favorite mr5">건물추가/수정</a></li>
+            <li><a ng-class="startGuideEvent.addRoomBtn" ng-click="openAddTenant();" class="favorite mr5">세입자/공실 추가</a></li>
+
+            <li><a ng-click="openTenantBatchModify();" class="favorite mr5">세입자정보 일괄수정</a></li>
+
+             <li><a ui-sref="calculate.monthStatement" class="favorite mr5">간편수납관리</a></li>
+            <li><a ui-sref="calculate.summary" class="favorite mr5">연체종합관리</a></li>
+            <li>
+                <a ui-sref="calculate.ho" class="favorite mr5" style="position:relative">
+                호별납입현황
+                </a>
+                <!--<span class="new_icon" style="position:absolute; top:9px; right:388px"><img src="/img/lessor/icon_new.png"></span>-->
+            </li>
+            
+            <li><a ui-sref="moneyBook.buildingCondition" class="favorite mr5">건물가계부</a></li>
+
+            
+                <li><a  ui-sref="mypage.lessorSub" class="favorite mr5">부계정등록</a></li>
+            
+
+            <li><a ui-sref="smsMng.autoSmsSendMng" class="favorite mr5">자동문자설정</a></li>
+            <li><a ui-sref="calculate.card" class="favorite mr5">결제설정</a></li>
+        </ul>
+
+
+
+        </div>
+    </div>
+</span>
+
+    <span us-spinner="{radius:30, width:8, length: 16}"></span>
+    <span id="ngView" ui-view></span>
+    <div class="clear"></div>
+    <div class="footer" style="">
+        <div style="width:1200px;margin:0 auto;position:relative" class="kakao_fl">
+
+
+            <div id="floatMenu" ng-style="startGuideStyle.startGuide">
+                
+                <div ng-style="$state.includes('main') ? {'display':'block'} : {'display':'none'}" ng-class="startGuideEvent.startGuide" data-toggle="modal" data-target="#start_guide" style="cursor:pointer" id="startGuideBtn"><img src="/img/lessor/quick_img01.jpg"/></div>
+                <div><a href="/z/lessor/index#!/zipsaPay/totalPaymentStatus" style="display:block"><img src="/img/lessor/quick_img04.jpg"/></a></div>
+                <a href="https://pf.kakao.com/_Nsksj/chat" ng-style="!$state.includes('zipsaPay') ? {'display':'block'} : {'display':'none'}" style="display:block" target="_blank"><img src="/img/lessor/quick_img02.jpg"/></a>
+                <a href="http://pf.kakao.com/_Nsksj/chat" ng-style="$state.includes('zipsaPay') ? {'display':'block'} : {'display':'none'}" style="display:block" target="_blank"><img src="/img/lessor/quick_img02.jpg"/></a>
+                <a href="javascript:;" id = 'topBtn' style="margin-top:-5px; display:block" target="_blank"><img src="/img/lessor/quick_top.jpg"/></a>
+            </div>
+            <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+            <link rel='stylesheet' href='/css/start_guide.css'>
+            <link rel='stylesheet' href='/css/animate.css'>
+        </div>
+            
+
+        <!-- Modal -->
+        <div class="modal fade" id="start_guide" tabindex="-1" role="dialog" aria-labelledby="start_guideLabel">
+            <div class="modal-dialog animated" role="document">
+                <div class="modal-content" style="border-radius:0px">
+                    <div class="modal_close" id="modalClose" ng-click="initStartGuide()">
+                        <div data-dismiss="modal"><img src="/img/lessor/modal_close_btn.png"></div>
+                    </div>
+                    <div class="modal-body" style="margin-left:-5px">
+                        <div class="container">
+                            <div class="panel-group" id="accordion">
+                                <div class="panel panel-default">
+                                    <div class="start_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion">
+                                            <span>
+                                                <img src="/img/lessor/guide_icon01.png">
+                                            </span>
+                                                집사 가이드 - 시작하기
+                                            </a>
+                                            <span class="location_btn" ng-click="clickStartGuide('startGuide', 'blink')" style="top:14px !important;">위치확인</span>
+                                        </h4>
+                                    </div>
+                                </div>
+                                <div class="panel">
+                                    <div class="tab_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion">
+                                                <span><img src="/img/lessor/guide_icon02.png"> </span>
+                                                크롬 브라우저로 이용해주세요~
+                                            </a>
+                                            <div class="zipsa2" ng-click="popupSimpleLayer('/z/lessor/layer/chrome', '550')">
+                                                <span class="go_btn">GO</span>
+                                            </div>
+                                        </h4>
+                                    </div>
+                                </div>
+                                <div class="panel">
+                                    <div class="tab_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion" href="#collapse3" id="tab03">
+                                                <span><img src="/img/lessor/guide_icon03.png"></span>
+                                                건물추가/수정
+                                                <span class="tab_on" id="tab3_on"> <img src="/img/lessor/on_icon.png"></span>
+                                                <span class="tab_off" id="tab3_off" hidden="true"> <img src="/img/lessor/off_icon.png"></span>
+                                            </a>
+                                            <span class="location_btn" ng-click="clickStartGuide('buildingManageBtn', 'blink')">위치확인</span>
+                                        </h4>
+                                    </div>
+                                    <div id="collapse3" class="start_cnt collapse">
+                                        <p>
+                                            <span class="bull">·</span>거주방/공실 정보를 등록하기 위해선 우선 건물정보가 있어야겠죠?<br>
+                                            <span class="bull">·</span>[건물추가/수정]에서 건물을 등록하시거나, 건물 정보를 수정하세요~
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="panel">
+                                    <div class="tab_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion" href="#collapse4" id="tab04">
+                                                <span><img src="/img/lessor/guide_icon04.png"></span>
+                                                방 정보 등록하기
+                                                <span class="tab_on" id="tab4_on"> <img src="/img/lessor/on_icon.png"></span>
+                                                <span class="tab_off" id="tab4_off" hidden="true"> <img src="/img/lessor/off_icon.png"></span>
+                                            </a>
+                                            <span class="location_btn" ng-click="clickStartGuide('addRoomBtn', 'blink')">위치확인</span>
+                                        </h4>
+                                    </div>
+                                    <div id="collapse4" class="start_cnt collapse">
+                                        <p>
+                                            <span class="bull">·</span>건물을 등록하셨으니, 방정보를 입력하셔야겠지요?<br>[세입자/공실추가]를 눌러 임대건물에 거주방과 공실 정보를 등록하세요. 이후의 많은 과정이 확 자동화됩니다. 그리고, 이 메뉴 안에 [엑셀로 일괄 등록하기] 기능도 있답니다.<br>
+                                            <span class="bull">·</span>방정보가 없는 상태에서 세입자/공실 정보를 추가하시면 방이 자동으로 생성되면서 세입자/공실 정보가 추가되구요. 이미 생성된 방에 세입자/공실을 추가하시면 각각 거주방과 공실로 등록됩니다.<br>
+
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div class="panel">
+                                    <div class="tab_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion" href="#collapse5" id="tab05">
+                                                <span><img src="/img/lessor/guide_icon05.png"></span>
+                                                건물선택 버튼의 비밀
+                                                <span class="tab_on" id="tab5_on"> <img src="/img/lessor/on_icon.png"></span>
+                                                <span class="tab_off" id="tab5_off" hidden="true"> <img src="/img/lessor/off_icon.png"></span>
+                                            </a>
+                                            <span class="location_btn" ng-click="clickStartGuide('buildingSelectBtn', 'blink')">위치확인</span>
+                                        </h4>
+                                    </div>
+                                    <div id="collapse5" class="start_cnt collapse">
+                                        <p>
+                                            <span class="bull">·</span>대부분의 화면에 등장하는 이 버튼은 전체 건물 현황과, 특정 건물현황을 구분해서 조회할 수 있도록 합니다.<br>
+                                            <span class="bull">·</span>이 버튼을 눌러 리스트에서 건물을 선택하시면 해당 건물의 내역만 보실 수 있으며, [건물선택] 왼쪽에 나오는 [전체보기]를 누르시면 모든 건물 보기로 되돌아갑니다.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="panel">
+                                    <div class="tab_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion" href="#collapse6" id="tab06">
+                                                <span><img src="/img/lessor/guide_icon06.png"></span>
+                                                월간수납현황 막대 그래프 활용팁
+                                                <span class="tab_on" id="tab6_on"> <img src="/img/lessor/on_icon.png"></span>
+                                                <span class="tab_off" id="tab6_off" hidden="true"> <img src="/img/lessor/off_icon.png"></span>
+                                            </a>
+                                            <span class="location_btn" ng-click="clickStartGuide('monthlyPayGraph', 'blink')">위치확인</span>
+                                        </h4>
+                                    </div>
+                                    <div id="collapse6" class="start_cnt collapse">
+                                        <p>
+                                            <span class="bull">·</span>방정보가 등록되고, 납입현황이 세팅되면 메인화면 윗부분에 막대그래프가 자동 표시됩니다.<br>
+                                            <span class="bull">·</span>신호등처럼 납부완료, 대기, 연체가 색상별로 표시되는데, 각 색상을 클릭하시면 해당 세부내역 화면으로 바로 이동됩니다.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="panel">
+                                    <div class="tab_tit">
+                                        <h4>
+                                            <a data-toggle="collapse" data-parent="#accordion" href="#collapse7" id="scroll_bottom" id="tab07">
+                                                <span><img src="/img/lessor/guide_icon07.png"></span>
+                                                신호등과 캘린더, 집사보고 활용팁
+                                                <span class="tab_on" id="tab7_on"> <img src="/img/lessor/on_icon.png"></span>
+                                                <span class="tab_off" id="tab7_off" hidden="true"> <img src="/img/lessor/off_icon.png"></span>
+                                            </a>
+                                        </h4>
+                                    </div>
+                                    <div id="collapse7" class="start_cnt collapse">
+                                        <p>
+                                            <span class="bull">·</span>메인화면에 둥근 버튼으로 있는 각 신호등 버튼을 누르시면 개별 현황 화면으로 이동됩니다.<br>
+                                            <span class="bull">·</span>그리고 캘린더의 날짜를 선택하시면 우측 [집사보고]에 해당 현황이 모아서 표시되며, <br>[집사보고] 내용에서 필요한 관리처리를 바로 하실 수 있습니다.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    function testAnim(x) {
+                        $('.modal .modal-dialog').attr('class', 'modal-dialog  ' + x + '  animated');
+                    }
+                    $('#start_guide').on('show.bs.modal', function (e) {
+                        var anim = "fadeInRight";
+                        testAnim(anim);
+                    });
+                    $('#start_guide').on('hide.bs.modal', function (e) {
+                        var anim = "slideOutRight";
+                        testAnim(anim);
+                    });
+
+
+
+                    $(function(){
+                        $('#scroll_bottom').click(function(){
+                            $(".modal-body .container").animate({scrollTop: 320}, 1000);
+                        });
+
+                        $('#collapse3').on('hide.bs.collapse', function() {
+                            $('#tab3_off').hide();
+                            $('#tab3_on').show();
+                        });
+
+                        $('#collapse3').on('show.bs.collapse', function() {
+                            $('#tab3_on').hide();
+                            $('#tab3_off').show();
+                        });
+
+                        $('#collapse4').on('hide.bs.collapse', function() {
+                            $('#tab4_off').hide();
+                            $('#tab4_on').show();
+                        });
+
+                        $('#collapse4').on('show.bs.collapse', function() {
+                            $('#tab4_on').hide();
+                            $('#tab4_off').show();
+                        });
+
+                        $('#collapse5').on('hide.bs.collapse', function() {
+                            $('#tab5_off').hide();
+                            $('#tab5_on').show();
+                        });
+
+                        $('#collapse5').on('show.bs.collapse', function() {
+                            $('#tab5_on').hide();
+                            $('#tab5_off').show();
+                        });
+
+                        $('#collapse6').on('hide.bs.collapse', function() {
+                            $('#tab6_off').hide();
+                            $('#tab6_on').show();
+                        });
+
+                        $('#collapse6').on('show.bs.collapse', function() {
+                            $('#tab6_on').hide();
+                            $('#tab6_off').show();
+                        });
+
+                        $('#collapse7').on('hide.bs.collapse', function() {
+                            $('#tab7_off').hide();
+                            $('#tab7_on').show();
+                        });
+
+                        $('#collapse7').on('show.bs.collapse', function() {
+                            $('#tab7_on').hide();
+                            $('#tab7_off').show();
+                        });
+
+                        // 2018-09-13 천민현, 스타트 가이드 밖 공간을 클릭하여 창을 닫는 경우, 닫기 버튼 이벤트를 호출
+                        $('#start_guide').on('hidden.bs.modal', function() {
+                            $('#modalClose').trigger('click');
+                            $('.collapse.in').collapse('hide');    // 2018-09-14 천민현, 활설화 된 아코디언 비활성화
+                        });
+
+                        // 2018-09-17 천민현, 회원 가입 후 첫 로그인 시 스타트 가이드 자동 출력
+                        
+                    });
+                </script>
+            <p class="text-muted">Copyright 2016 ZIPSA Inc. All rights reserved.{{myTest.hi}}</p>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

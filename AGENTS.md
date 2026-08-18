@@ -10,6 +10,7 @@ Claude Code 사용 한도가 다 떨어지면 그동안은 Grok이 메인 역할
 
 - **할 일 목록**: `docs/TODO.md` (작업 시작 전에만)
 - **인터페이스 현대화 배경/결정사항**: `docs/modernization.md` (현대화 작업할 때만)
+- **집사(zipsa.net) 디자인/메뉴 구조 참고자료**: `docs/zipsa/` (디자인 화면 작업할 때만)
 - **로컬 AI(Grok/Ollama/Groq)로 크레딧 아끼기**: `docs/local-ai.md`
 
 ## 30초 요약
