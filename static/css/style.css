@@ -1060,7 +1060,7 @@ button[disabled], .btn[disabled] {
   color: #fff;
   font-weight: 800;
 }
-/* LED처럼 이 얇은 바 자체만 빛나게 — 박스 테두리 전체가 아니라 4px 바에만 글로우 */
+/* 현재 화면 표시 — 우측 세로 바 + 은은한 글로우 */
 .side-nav a.is-current::after {
   content: "";
   position: absolute;
