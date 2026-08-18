@@ -142,7 +142,7 @@
             <td class="tc" onclick="event.stopPropagation()">
               <a href="{{ url_for('building_rooms', bunji1=v.bunji1, bunji2=v.bunji2) }}">호수</a>
               ·
-              <a href="{{ url_for('payments', bunji1=v.bunji1, bunji2=v.bunji2, hosu=v.hosu) }}">수금</a>
+              <a href="{{ url_for('payments', bunji1=v.bunji1, bunji2=v.bunji2, hosu=v.hosu, nav_from='base') }}">수금</a>
             </td>
           </tr>
           {% endfor %}

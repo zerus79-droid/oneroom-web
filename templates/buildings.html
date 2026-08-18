@@ -62,9 +62,9 @@
           </table>
           <nav class="bldg-card-actions">
             <a href="{{ url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) }}">건물정보</a>
-            <a href="{{ url_for('search', bunji1=b.bunji1, bunji2=b.bunji2, tenant_status='all') }}">세입자정보</a>
+            <a href="{{ url_for('search', bunji1=b.bunji1, bunji2=b.bunji2, tenant_status='all', nav_from='base') }}">세입자정보</a>
             <a href="{{ url_for('vacancies', bunji1=b.bunji1, bunji2=b.bunji2, only_empty=0) }}">건물주요현황</a>
-            <a href="{{ url_for('payments', bunji1=b.bunji1, bunji2=b.bunji2) }}">수금 현황</a>
+            <a href="{{ url_for('payments', bunji1=b.bunji1, bunji2=b.bunji2, nav_from='base') }}">수금 현황</a>
           </nav>
         </div>
       </div>

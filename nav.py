@@ -5,6 +5,17 @@
 """
 from flask import request
 
+# 섹션 id → 대메뉴 표시명 (nav_from으로 강제 지정할 때 사용)
+_SECTION_LABELS = {
+    "base": "기초 내역 관리",
+    "tenant": "입주자관리",
+    "month": "월정기보고",
+    "checkout": "퇴실 정산 관리",
+    "repair": "수리",
+    "payment": "수금관리",
+    "help": "도움말",
+}
+
 
 def nav_context():
     """상단 메뉴: 현재 페이지가 속한 대메뉴·하위 메뉴 표시용."""
@@ -62,6 +73,12 @@ def nav_context():
     section_id, section_label, page_label = sec
     if ep == "buildings" and (request.args.get("next") or "") == "rooms":
         page_label = "호수 내역 조회"
+    # 다른 섹션 화면에서 온 바로가기(예: 건물 화면의 「수금 현황」 버튼)는
+    # 최상단 메뉴·사이드바를 그대로 유지하고 싶을 때 nav_from으로 강제 지정
+    nav_from = (request.args.get("nav_from") or "").strip()
+    if nav_from in _SECTION_LABELS:
+        section_id = nav_from
+        section_label = _SECTION_LABELS[nav_from]
     return {
         "nav_section": section_id,
         "nav_section_label": section_label,

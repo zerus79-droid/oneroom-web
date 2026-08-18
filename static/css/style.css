@@ -956,7 +956,6 @@ button[disabled], .btn[disabled] {
   padding: 0;
   flex: 0 0 auto;
 }
-/* 드롭다운 표시는 JS .is-open 만 사용 (hover+focus 동시 시 두 메뉴 뜨는 것 방지) */
 .nav-label {
   cursor: pointer;
   text-align: center;
@@ -971,10 +970,9 @@ button[disabled], .btn[disabled] {
   border-bottom-color: var(--accent-teal);
   outline: none;
 }
-/* 호버·펼침: 살짝 밝은 박스 + 녹색 바 */
+/* 호버: 살짝 밝은 박스 + 녹색 바 */
 .nav-item:hover > .nav-label,
-.nav-item:focus-within > .nav-label,
-.nav-item.is-open .nav-label {
+.nav-item:focus-within > .nav-label {
   background: rgba(255, 255, 255, 0.12) !important;
   color: #fff !important;
   -webkit-text-fill-color: #fff !important;
@@ -999,51 +997,82 @@ button[disabled], .btn[disabled] {
   border-bottom-color: var(--accent-teal);
   background: rgba(255, 255, 255, 0.12);
 }
-.nav-drop {
-  display: none !important;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  min-width: 220px;
-  background: #fff;
-  border: 1px solid var(--box-border);
-  border-radius: var(--border-radius);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
-  z-index: 1000;
-  padding: 8px 0;
+/* 세부 화면 목록 — 좌측 고정 사이드바 (호버 드롭다운 대체, 2026-08-18) */
+.app-shell {
+  display: flex;
+  align-items: stretch;
+}
+.app-shell > main.wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 220px;
+  width: 220px;
+  gap: 2px;
+  padding: 10px 0;
+  min-height: calc(100vh - 48px); /* main 내용이 짧아도 네이비가 화면 끝까지 이어지게 */
+  background: var(--chrome-bar) !important;
+  border-right: 1px solid var(--chrome-dark);
+}
+.side-nav[hidden] {
+  display: none;
+}
+.side-nav-head {
+  height: 46px;
+  min-height: 46px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  margin: -10px 0 8px;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: var(--chrome-dark);
+  border-bottom: 1px solid var(--chrome-dark);
+  white-space: nowrap;
   overflow: hidden;
-  pointer-events: auto;
-  margin-top: 0;
 }
-/* hover/focus 로는 절대 안 열고, is-open 일 때만 */
-.nav-item.is-open > .nav-drop {
-  display: block !important;
-}
-.nav-drop a,
-.nav-drop .nav-disabled {
+.side-nav a,
+.side-nav .nav-disabled {
   display: block;
   padding: 10px 14px;
-  color: #334155;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
   text-decoration: none;
   font-size: 0.88rem;
   white-space: nowrap;
   background: transparent;
 }
-.nav-drop a:hover {
-  background: rgba(44, 62, 80, 0.08);
-  color: var(--navy);
+.side-nav a:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
   text-decoration: none;
 }
-/* 드롭다운 안 현재 화면 */
-.nav-drop a.is-current {
-  background: rgba(44, 62, 80, 0.12);
-  color: var(--chrome);
+/* 사이드바 안 현재 화면 */
+.side-nav a.is-current {
+  position: relative;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
   font-weight: 800;
-  border-left: 3px solid var(--accent-teal);
-  padding-left: 11px;
 }
-.nav-drop .nav-disabled {
-  color: #94a3b8;
+/* LED처럼 이 얇은 바 자체만 빛나게 — 박스 테두리 전체가 아니라 4px 바에만 글로우 */
+.side-nav a.is-current::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent-teal);
+  box-shadow: 0 0 4px 1px var(--accent-teal), 0 0 12px 2px rgba(38, 166, 154, 0.85);
+}
+.side-nav .nav-disabled {
+  color: rgba(255, 255, 255, 0.45);
   cursor: default;
 }
 
@@ -1390,6 +1419,34 @@ button[disabled], .btn[disabled] {
   .legacy-nav {
     flex-wrap: wrap !important;
     overflow: visible !important;
+  }
+  /* 좁은 창: 좌측 사이드바 → main 위 가로 스크롤 스트립 */
+  .app-shell {
+    flex-direction: column;
+  }
+  .side-nav {
+    flex-direction: row;
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 0;
+    overflow-x: auto;
+    gap: 4px;
+    padding: 6px 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--chrome-dark);
+  }
+  .side-nav-head {
+    display: none;
+  }
+  .side-nav a,
+  .side-nav .nav-disabled {
+    flex: 0 0 auto;
+  }
+  .side-nav a.is-current {
+    border-bottom: 3px solid var(--accent-teal);
+  }
+  .side-nav a.is-current::after {
+    display: none;
   }
 }
 
@@ -3045,8 +3102,11 @@ a.bldg-card-title:hover { color: var(--navy); }
 }
 .bldg-card-left {
   background: #f1f5f9;
+  display: flex;
+  flex-direction: column;
 }
 .bldg-card-count {
+  flex: 0 0 auto;
   background: #64748b;
   color: #fff;
   text-align: center;
@@ -3055,8 +3115,14 @@ a.bldg-card-title:hover { color: var(--navy); }
   font-size: 0.95rem;
 }
 .bldg-card-illust {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 22px 10px 28px;
-  text-align: center;
+}
+.bldg-card-illust svg {
+  display: block;
 }
 .bldg-card-table {
   width: 100%;

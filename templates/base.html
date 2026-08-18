@@ -33,81 +33,8 @@
       Array.prototype.forEach.call(document.querySelectorAll('input, textarea'), applyIme);
     })();
 
-    // 상단 메뉴: 한 번에 하나만 열림 (영역 컨트롤러)
+    // 상단 메뉴: 대메뉴는 단순 링크(좌측 사이드바가 세부 화면 담당) — 유저메뉴만 열고닫기 관리
     (function initTopNav() {
-      var items = Array.prototype.slice.call(document.querySelectorAll('.nav-item'));
-      if (!items.length) return;
-      var closeTimer = null;
-      var openItem = null;
-
-      function clearCloseTimer() {
-        if (closeTimer) {
-          clearTimeout(closeTimer);
-          closeTimer = null;
-        }
-      }
-
-      function closeAll(except) {
-        items.forEach(function (it) {
-          if (except && it === except) return;
-          it.classList.remove('is-open');
-          var b = it.querySelector('.nav-label');
-          if (b) {
-            b.setAttribute('aria-expanded', 'false');
-            try {
-              if (document.activeElement === b) b.blur();
-            } catch (e) {}
-          }
-        });
-        if (!except) openItem = null;
-      }
-
-      function openNav(item) {
-        clearCloseTimer();
-        if (openItem === item && item.classList.contains('is-open')) return;
-        closeAll(item);
-        item.classList.add('is-open');
-        var button = item.querySelector('.nav-label');
-        if (button) button.setAttribute('aria-expanded', 'true');
-        openItem = item;
-      }
-
-      function closeNav(item) {
-        if (!item) return;
-        item.classList.remove('is-open');
-        var button = item.querySelector('.nav-label');
-        if (button) button.setAttribute('aria-expanded', 'false');
-        if (openItem === item) openItem = null;
-      }
-
-      function scheduleClose(item) {
-        clearCloseTimer();
-        closeTimer = setTimeout(function () {
-          closeTimer = null;
-          if (openItem && openItem !== item) return;
-          closeNav(item);
-        }, 120);
-      }
-
-      items.forEach(function (item) {
-        var button = item.querySelector('.nav-label');
-        var drop = item.querySelector('.nav-drop');
-        if (!button || !drop) return;
-
-        item.addEventListener('mouseenter', function () { openNav(item); });
-        item.addEventListener('mouseleave', function () { scheduleClose(item); });
-        item.addEventListener('focusin', function () { openNav(item); });
-        item.addEventListener('focusout', function (e) {
-          if (!item.contains(e.relatedTarget)) scheduleClose(item);
-        });
-
-        button.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          openNav(item);
-        });
-      });
-
       function closeUserMenu() {
         var um = document.querySelector('.user-menu');
         if (um) {
@@ -124,7 +51,6 @@
             e.preventDefault();
             e.stopPropagation();
             var open = userMenu.classList.contains('is-open');
-            closeAll();
             if (open) closeUserMenu();
             else {
               userMenu.classList.add('is-open');
@@ -135,24 +61,15 @@
       }
       document.addEventListener('click', function (event) {
         var t = event.target;
-        var inNav = t.closest && t.closest('.nav-item');
         var inUser = t.closest && t.closest('.user-menu');
-        if (!inNav) {
-          clearCloseTimer();
-          closeAll();
-        }
         if (!inUser) closeUserMenu();
       });
       document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' || e.key === 'Esc') {
-          clearCloseTimer();
-          closeAll();
           closeUserMenu();
         }
       });
       window.closeTopNav = function () {
-        clearCloseTimer();
-        closeAll();
         closeUserMenu();
       };
     })();
@@ -1447,84 +1364,32 @@
   <a class="brand{% if nav_section == 'home' %} is-nav-current{% endif %}" href="{{ url_for('home') }}">주택관리시스템</a>
   <nav class="legacy-nav" aria-label="주 메뉴">
     <div class="nav-item{% if nav_section == 'base' %} is-active{% endif %}" data-nav="base">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'base' %}aria-current="true"{% endif %}>기초 관리</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('buildings') }}"
-           class="{% if nav_endpoint == 'buildings' and request.args.get('next') != 'rooms' %}is-current{% endif %}">건물 조회</a>
-        <a href="{{ url_for('buildings', next='rooms') }}"
-           class="{% if nav_endpoint == 'buildings' and request.args.get('next') == 'rooms' or nav_endpoint == 'building_rooms' or nav_endpoint == 'room_new' %}is-current{% endif %}">호수 조회</a>
-        <a href="{{ url_for('vacancies') }}"
-           class="{% if nav_endpoint == 'vacancies' %}is-current{% endif %}">공실 현황 조회</a>
-        <a href="{{ url_for('users') }}"
-           class="{% if nav_endpoint == 'users' %}is-current{% endif %}">사용자관리</a>
-        <a href="{{ url_for('password_change') }}"
-           class="{% if nav_endpoint == 'password_change' %}is-current{% endif %}">비밀번호변경</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('buildings') }}"
+         {% if nav_section == 'base' %}aria-current="true"{% endif %}>기초 관리</a>
     </div>
     <div class="nav-item{% if nav_section == 'tenant' %} is-active{% endif %}" data-nav="tenant">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'tenant' %}aria-current="true"{% endif %}>입주자관리</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('search') }}"
-           class="{% if nav_endpoint == 'search' %}is-current{% endif %}">입주자 이력 조회</a>
-        <a href="{{ url_for('tenant_manage') }}"
-           class="{% if nav_endpoint == 'tenant_manage' %}is-current{% endif %}">입주자 이력 관리(등록·수정)</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('search') }}"
+         {% if nav_section == 'tenant' %}aria-current="true"{% endif %}>입주자관리</a>
     </div>
     <div class="nav-item{% if nav_section == 'month' %} is-active{% endif %}" data-nav="month">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'month' %}aria-current="true"{% endif %}>월정기보고</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('jungsan') }}"
-           class="{% if nav_endpoint in ('jungsan', 'jungsan_print') %}is-current{% endif %}">주소별 정산서 작성</a>
-        <a href="{{ url_for('jungsan_list') }}"
-           class="{% if nav_endpoint == 'jungsan_list' %}is-current{% endif %}">월별 정산서 조회</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('jungsan') }}"
+         {% if nav_section == 'month' %}aria-current="true"{% endif %}>월정기보고</a>
     </div>
     <div class="nav-item{% if nav_section == 'checkout' %} is-active{% endif %}" data-nav="checkout">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'checkout' %}aria-current="true"{% endif %}>퇴실 정산 관리</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('checkout') }}"
-           class="{% if nav_endpoint in ('checkout', 'checkout_print') %}is-current{% endif %}">퇴실 정산 관리</a>
-        <a href="{{ url_for('checkout_list') }}"
-           class="{% if nav_endpoint == 'checkout_list' %}is-current{% endif %}">퇴실(예정)자 조회 및 변경처리</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('checkout') }}"
+         {% if nav_section == 'checkout' %}aria-current="true"{% endif %}>퇴실 정산 관리</a>
     </div>
     <div class="nav-item{% if nav_section == 'repair' %} is-active{% endif %}" data-nav="repair">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'repair' %}aria-current="true"{% endif %}>수리</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('repair_new') }}"
-           class="{% if nav_endpoint == 'repair_new' %}is-current{% endif %}">수리내역등록</a>
-        <a href="{{ url_for('repairs') }}"
-           class="{% if nav_endpoint == 'repairs' %}is-current{% endif %}">수리내역조회</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('repair_new') }}"
+         {% if nav_section == 'repair' %}aria-current="true"{% endif %}>수리</a>
     </div>
     <div class="nav-item{% if nav_section == 'payment' %} is-active{% endif %}" data-nav="payment">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'payment' %}aria-current="true"{% endif %}>수금관리</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('payment_new') }}"
-           class="{% if nav_endpoint == 'payment_new' %}is-current{% endif %}">수금(입금) 등록</a>
-        <a href="{{ url_for('payments_import') }}"
-           class="{% if nav_endpoint == 'payments_import' %}is-current{% endif %}">파일등록</a>
-        <a href="{{ url_for('payments', fresh=1) }}"
-           class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(입금) 현황</a>
-        <a href="{{ url_for('jungke', reset=1) }}"
-           class="{% if nav_endpoint == 'jungke' %}is-current{% endif %}">중개수수료등</a>
-        <a href="{{ url_for('misu') }}"
-           class="{% if nav_endpoint == 'misu' %}is-current{% endif %}">미수금 현황 조회</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('payment_new') }}"
+         {% if nav_section == 'payment' %}aria-current="true"{% endif %}>수금관리</a>
     </div>
     <div class="nav-item{% if nav_section == 'help' %} is-active{% endif %}" data-nav="help">
-      <button class="nav-label" type="button" aria-expanded="false"
-              {% if nav_section == 'help' %}aria-current="true"{% endif %}>도움말</button>
-      <div class="nav-drop">
-        <a href="{{ url_for('docs') }}"
-           class="{% if nav_endpoint == 'docs' %}is-current{% endif %}">서식 및 자료</a>
-      </div>
+      <a class="nav-label" href="{{ url_for('docs') }}"
+         {% if nav_section == 'help' %}aria-current="true"{% endif %}>도움말</a>
     </div>
   </nav>
   <span class="user">
@@ -1537,6 +1402,56 @@
   </span>
   </div>
 </header>
+<div class="app-shell">
+  <aside class="side-nav"{% if nav_section not in ('base', 'tenant', 'month', 'checkout', 'repair', 'payment', 'help') %} hidden{% endif %} aria-label="세부 메뉴">
+    <div class="side-nav-head">{{ nav_section_label }}</div>
+    {% if nav_section == 'base' %}
+    <a href="{{ url_for('buildings') }}"
+       class="{% if nav_endpoint == 'buildings' and request.args.get('next') != 'rooms' %}is-current{% endif %}">건물 조회</a>
+    <a href="{{ url_for('buildings', next='rooms') }}"
+       class="{% if nav_endpoint == 'buildings' and request.args.get('next') == 'rooms' or nav_endpoint == 'building_rooms' or nav_endpoint == 'room_new' %}is-current{% endif %}">호수 조회</a>
+    <a href="{{ url_for('vacancies') }}"
+       class="{% if nav_endpoint == 'vacancies' %}is-current{% endif %}">공실 현황 조회</a>
+    <a href="{{ url_for('users') }}"
+       class="{% if nav_endpoint == 'users' %}is-current{% endif %}">사용자관리</a>
+    <a href="{{ url_for('password_change') }}"
+       class="{% if nav_endpoint == 'password_change' %}is-current{% endif %}">비밀번호변경</a>
+    {% elif nav_section == 'tenant' %}
+    <a href="{{ url_for('search') }}"
+       class="{% if nav_endpoint == 'search' %}is-current{% endif %}">입주자 이력 조회</a>
+    <a href="{{ url_for('tenant_manage') }}"
+       class="{% if nav_endpoint == 'tenant_manage' %}is-current{% endif %}">입주자 이력 관리(등록·수정)</a>
+    {% elif nav_section == 'month' %}
+    <a href="{{ url_for('jungsan') }}"
+       class="{% if nav_endpoint in ('jungsan', 'jungsan_print') %}is-current{% endif %}">주소별 정산서 작성</a>
+    <a href="{{ url_for('jungsan_list') }}"
+       class="{% if nav_endpoint == 'jungsan_list' %}is-current{% endif %}">월별 정산서 조회</a>
+    {% elif nav_section == 'checkout' %}
+    <a href="{{ url_for('checkout') }}"
+       class="{% if nav_endpoint in ('checkout', 'checkout_print') %}is-current{% endif %}">퇴실 정산 관리</a>
+    <a href="{{ url_for('checkout_list') }}"
+       class="{% if nav_endpoint == 'checkout_list' %}is-current{% endif %}">퇴실(예정)자 조회 및 변경처리</a>
+    {% elif nav_section == 'repair' %}
+    <a href="{{ url_for('repair_new') }}"
+       class="{% if nav_endpoint == 'repair_new' %}is-current{% endif %}">수리내역등록</a>
+    <a href="{{ url_for('repairs') }}"
+       class="{% if nav_endpoint == 'repairs' %}is-current{% endif %}">수리내역조회</a>
+    {% elif nav_section == 'payment' %}
+    <a href="{{ url_for('payment_new') }}"
+       class="{% if nav_endpoint == 'payment_new' %}is-current{% endif %}">수금(입금) 등록</a>
+    <a href="{{ url_for('payments_import') }}"
+       class="{% if nav_endpoint == 'payments_import' %}is-current{% endif %}">파일등록</a>
+    <a href="{{ url_for('payments', fresh=1) }}"
+       class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(입금) 현황</a>
+    <a href="{{ url_for('jungke', reset=1) }}"
+       class="{% if nav_endpoint == 'jungke' %}is-current{% endif %}">중개수수료등</a>
+    <a href="{{ url_for('misu') }}"
+       class="{% if nav_endpoint == 'misu' %}is-current{% endif %}">미수금 현황 조회</a>
+    {% elif nav_section == 'help' %}
+    <a href="{{ url_for('docs') }}"
+       class="{% if nav_endpoint == 'docs' %}is-current{% endif %}">서식 및 자료</a>
+    {% endif %}
+  </aside>
 {% endif %}
 <main class="wrap" id="app-main">
   {% set flash_messages = get_flashed_messages(with_categories=true) %}
@@ -1551,6 +1466,9 @@
   {% endif %}
   {% endblock %}
 </main>
+{% if current_user %}
+</div>
+{% endif %}
 {% if current_user %}
 <script>
 (function () {
@@ -1615,13 +1533,16 @@
         if (nl.hasAttribute('aria-current')) ol.setAttribute('aria-current', 'true');
         else ol.removeAttribute('aria-current');
       }
-      var oa = oldItems[i].querySelectorAll('.nav-drop a');
-      var na = ni.querySelectorAll('.nav-drop a');
-      for (var j = 0; j < oa.length; j++) {
-        if (!na[j]) break;
-        oa[j].classList.toggle('is-current', na[j].classList.contains('is-current'));
-      }
     }
+  }
+
+  function syncSideNav(doc) {
+    var neu = doc.querySelector('.side-nav');
+    var cur = document.querySelector('.side-nav');
+    if (!neu || !cur) return;
+    cur.innerHTML = neu.innerHTML;
+    if (neu.hasAttribute('hidden')) cur.setAttribute('hidden', '');
+    else cur.removeAttribute('hidden');
   }
 
   function isFullNavPath(path) {
@@ -1708,6 +1629,7 @@
             main.innerHTML = newMain.innerHTML;
             replayScripts(main);
             syncHeader(doc);
+            syncSideNav(doc);
             document.title = doc.title || document.title;
             if (window.rebindPageWidgets) window.rebindPageWidgets();
             if (window.closeTopNav) window.closeTopNav();
