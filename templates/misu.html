@@ -1,17 +1,9 @@
 {% extends "base.html" %}
 {% block title %}미수금 현황 조회 · 주택관리 시스템{% endblock %}
 {% block content %}
-<div class="legacy-sukum-panel card no-print-filter">
+<div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">미수 현황 조회</span>
-    {% if ran and results %}
-    <span class="muted">기준 {{ filters.as_of }} · {{ total_count }}건 · 합계 {{ total_misu|money }}원</span>
-    {% endif %}
-    <span class="caption-actions no-print-filter">
-      {% if ran and results %}
-      <button type="button" class="btn secondary" onclick="window.print()">인쇄</button>
-      {% endif %}
-    </span>
   </div>
   <div class="legacy-sukum-body xp-form">
   <form method="get" id="misu-filter" class="filter-bar" autocomplete="off">
@@ -64,13 +56,21 @@
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn" href="{{ url_for('misu') }}">초기화</a>
+      {% if ran and results and filters.bunji1 and filters.bunji2 %}
+      <a class="btn secondary" target="_blank" rel="noopener"
+         href="{{ url_for('misu_print', bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji) }}">인쇄</a>
+      {% endif %}
     </div>
   </form>
 
   <div class="panel-section-lab">
     미수 목록
-    {% if ran and results %}<span class="muted">{{ pager.total if pager else results|length }}건</span>{% endif %}
+    {% if ran and results %}
+    <span class="muted">
+      {{ pager.total if pager else results|length }}건 ·
+      기준 {{ filters.as_of }} · {{ total_count }}건 · 미수 합계 {{ total_misu|money }}원 · 대체 합계 {{ total_dache|money }}원
+    </span>
+    {% endif %}
   </div>
   {% set pager_endpoint = 'misu' %}
   {% set pager_label = '미수 목록 페이지' %}
@@ -95,6 +95,7 @@
           <th>성명</th>
           <th class="tc">입주일자</th>
           <th class="num">미수잔액</th>
+          <th class="num">대체금액</th>
           <th class="tc">개월</th>
           <th class="num">보증금</th>
           <th class="tc">임대/관리</th>
@@ -102,6 +103,20 @@
       </thead>
       <tbody>
         {% for r in results %}
+        {% if r.is_vacant %}
+        <tr>
+          <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+          <td class="tc">{{ r.hosu }}</td>
+          <td class="tc">—</td>
+          <td><span class="st-badge wait">공실</span></td>
+          <td class="tc col-nowrap">—</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="tc">—</td>
+          <td class="num">—</td>
+          <td class="tc col-nowrap">—</td>
+        </tr>
+        {% else %}
         <tr class="click-row"
             title="수금 등록으로 이동"
             onclick="location.href='{{ url_for('payment_new', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}'">
@@ -117,6 +132,7 @@
             <span class="st-badge paid">0</span>
             {% endif %}
           </td>
+          <td class="num">{{ r.dache_amt|money }}</td>
           <td class="tc">{{ r.months }}</td>
           <td class="num">{{ r.bojung_amt|money }}</td>
           <td class="tc col-nowrap">
@@ -125,13 +141,15 @@
             {% endif %}
           </td>
         </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
       <tfoot>
         <tr>
           <th colspan="5" class="tc">합계</th>
           <th class="num">{{ total_misu|money }}</th>
-          <th colspan="5"></th>
+          <th class="num">{{ total_dache|money }}</th>
+          <th colspan="4"></th>
         </tr>
       </tfoot>
     </table>
@@ -143,12 +161,4 @@
   </div>
   </div>
 </div>
-
-<style>
-@media print {
-  .no-print-filter, .caption-actions, .topbar, .legacy-note { display: none !important; }
-  .wrap { max-width: none; padding: 0; }
-  .legacy-sukum-panel { box-shadow: none; border: 1px solid #333; }
-}
-</style>
 {% endblock %}

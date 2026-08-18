@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>수금(대체)현황{% if building_name %} · {{ building_name }}{% endif %}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 12mm 16mm;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #e8e8e8;
+      color: #000;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      font-size: 11pt;
+      line-height: 1.35;
+    }
+    .sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 12px auto;
+      padding: 14mm 12mm;
+      background: #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,.12);
+    }
+    .toolbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 10px 12px;
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 0.9rem;
+    }
+    .toolbar button,
+    .toolbar a {
+      appearance: none;
+      border: 0;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      color: #fff;
+      background: #2563eb;
+    }
+    .toolbar a.secondary { background: #64748b; }
+    .toolbar .hint { color: #94a3b8; font-size: 0.82rem; }
+
+    h1.title {
+      text-align: center;
+      font-size: 18pt;
+      font-weight: 700;
+      letter-spacing: 0.35em;
+      margin: 0 0 10px;
+      padding-left: 0.35em;
+    }
+    .head-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 12px;
+      font-size: 11pt;
+      border-bottom: 1px solid #333;
+      padding-bottom: 4px;
+      margin-bottom: 2px;
+    }
+    .head-row .head-left { text-align: left; }
+    .head-row .head-center { text-align: center; }
+    .head-row .head-right { text-align: right; }
+    table.grid {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table.grid thead {
+      display: table-header-group;
+    }
+    table.grid th,
+    table.grid td {
+      border-bottom: 1px solid #ddd;
+      padding: 4px 5px;
+      font-size: 10pt;
+      text-align: center;
+      white-space: nowrap;
+    }
+    table.grid thead th {
+      border-bottom: 2px solid #333;
+      font-weight: 700;
+      background: #f3f4f6;
+    }
+    table.grid td.left { text-align: left; }
+    table.grid td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      padding-right: 8px;
+    }
+    tbody tr:last-child td {
+      border-bottom: 1px solid #333;
+    }
+    tfoot td {
+      border-top: 2px solid #333;
+      border-bottom: none;
+      font-weight: 700;
+    }
+    @media print {
+      .toolbar { display: none !important; }
+      html, body { background: #fff; }
+      .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+      .sheet.page-break { page-break-after: always; break-after: page; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
+    <a class="secondary" href="{{ url_for('payments', fresh=1) }}">닫기</a>
+    <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
+  </div>
+
+  {% for page_rows in pages %}
+  <div class="sheet{% if not loop.last %} page-break{% endif %}">
+    <h1 class="title">수금(대체)현황</h1>
+    <div class="head-row">
+      <span class="head-left">구 분 :
+        {% if building_name %}{{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}{% endif %}
+        {% if name_display %}{{ name_display }}{% endif %}
+      </span>
+      <span class="head-center">기간 : {{ date_from }} ~ {{ date_to }}</span>
+      <span class="head-right">Page : {{ loop.index }}/{{ total_pages }}</span>
+    </div>
+    <table class="grid">
+      <thead>
+        <tr>
+          <th>수금일자</th>
+          <th>번지</th>
+          <th>호수</th>
+          <th>성명</th>
+          <th>입주일자</th>
+          <th>실수금액</th>
+          <th>대체금액</th>
+          <th>보증금</th>
+          <th>임대료</th>
+          <th>관리비</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in page_rows %}
+        <tr>
+          <td>{{ r.sukum_dt|fmt_date }}</td>
+          <td>{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+          <td>{{ r.hosu }}</td>
+          <td class="left">{{ r.ipju_nm or '' }}</td>
+          <td>{{ r.ipju_dt|fmt_date if r.ipju_dt else '' }}</td>
+          <td class="num">{{ r.su_sil_amt|money if r.su_sil_amt else '' }}</td>
+          <td class="num">{{ r.su_dache_amt|money if r.su_dache_amt else '' }}</td>
+          <td class="num">{{ r.bojung_amt|money if r.bojung_amt else '' }}</td>
+          <td class="num">{{ r.rent_amt|money if r.rent_amt else '' }}</td>
+          <td class="num">{{ r.manage_amt|money if r.manage_amt else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if loop.last %}
+      <tfoot>
+        <tr>
+          <td colspan="5">합 계 ({{ total_count }}건)</td>
+          <td class="num">{{ total_sil|money }}</td>
+          <td class="num">{{ total_dache|money }}</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+  {% endfor %}
+</body>
+</html>

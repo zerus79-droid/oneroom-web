@@ -6,29 +6,14 @@
 
   {# ── 집사 PC 메인 대응: 현황 바 + KPI 박스 + 즐겨찾기 ── #}
   <div class="dash-panel">
-    <div class="dash-head">
-      <div>
-        <h2>종합 현황</h2>
-      </div>
-    </div>
-
-    <div class="dash-bar-wrap">
-      <span class="dash-bar-label">호실 점유현황</span>
-      <div class="dash-bar" title="입주 {{ stats.occupied_total }} / 공실 {{ stats.vacant_total }}">
-        {% if stats.room_total > 0 %}
-        <div class="dash-bar-seg occ" style="width:{{ stats.occ_pct }}%">
-          {% if stats.occ_pct >= 18 %}입주 {{ stats.occ_pct }}%{% endif %}
-        </div>
-        <div class="dash-bar-seg vac" style="width:{{ stats.vac_pct }}%">
-          {% if stats.vac_pct >= 18 %}공실 {{ stats.vac_pct }}%{% endif %}
-        </div>
-        {% else %}
-        <div class="dash-bar-seg vac" style="width:100%">데이터 없음</div>
-        {% endif %}
-      </div>
-      <span class="dash-bar-total">
-        전체 {{ stats.room_total }}호 · 입주 {{ stats.occupied_total }} · 공실 {{ stats.vacant_total }}
-      </span>
+    <div class="dash-quick">
+      <a class="dash-chip primary" href="{{ url_for('payment_new') }}">수금 등록</a>
+      <a class="dash-chip" href="{{ url_for('jungsan') }}">정산서 작성</a>
+      <a class="dash-chip" href="{{ url_for('tenant_manage') }}">입주자 등록·수정</a>
+      <a class="dash-chip warn" href="{{ url_for('misu') }}">미수금 현황</a>
+      <a class="dash-chip" href="{{ url_for('checkout') }}">퇴실 정산</a>
+      <a class="dash-chip" href="{{ url_for('repair_new') }}">수리 등록</a>
+      <a class="dash-chip" href="{{ url_for('vacancies') }}">공실 현황</a>
     </div>
 
     <div class="dash-kpi-row">
@@ -64,17 +49,6 @@
         <span class="dash-kpi-circle st-wait">수</span>
         <span class="dash-kpi-lab">수리</span>
       </a>
-    </div>
-
-    <div class="dash-quick">
-      <span class="dash-quick-lab">즐겨찾는 메뉴</span>
-      <a class="dash-chip primary" href="{{ url_for('payment_new') }}">수금 등록</a>
-      <a class="dash-chip" href="{{ url_for('jungsan') }}">정산서 작성</a>
-      <a class="dash-chip" href="{{ url_for('tenant_manage') }}">입주자 등록·수정</a>
-      <a class="dash-chip warn" href="{{ url_for('misu') }}">미수금 현황</a>
-      <a class="dash-chip" href="{{ url_for('checkout') }}">퇴실 정산</a>
-      <a class="dash-chip" href="{{ url_for('repair_new') }}">수리 등록</a>
-      <a class="dash-chip" href="{{ url_for('vacancies') }}">공실 현황</a>
     </div>
   </div>
 

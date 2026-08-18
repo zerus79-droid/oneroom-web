@@ -13,8 +13,10 @@ import db
 from app_instance import app
 from utils import (
     buildings_and_rooms as _buildings_and_rooms,
+    building_label as _building_label,
     clamp_date_str,
     first_date_for_tenant as _first_date_for_tenant,
+    fmt_bunji_pair as _fmt_bunji_pair,
     iso_min_date as _iso_min_date,
     login_required,
     lookup_current_tenant as _lookup_current_tenant,
@@ -23,6 +25,10 @@ from utils import (
     parse_bunji_src as _parse_bunji_src,
     tenant_key as _tenant_key,
 )
+
+# 인쇄 한 장(A4)에 담을 거래 줄 수 — 페이지 번호는 이 값으로 직접 나눠서 계산
+# (브라우저 인쇄 엔진의 실제 쪽수 계산 CSS는 크롬이 지원 안 함)
+_PRINT_ROWS_PER_PAGE = 35
 
 
 def _ym_from_iso(s, today):
@@ -192,7 +198,17 @@ def _resolve_list_period(
     if date_to:
         date_to = clamp_date_str(date_to)
     if not date_from:
-        date_from = month_start.isoformat()
+        if bunji1 and bunji2 and not hosu:
+            # 건물 전체 수금 현황 바로가기: "이번달"만 보면 최근 납부가 없어
+            # 보이는 경우가 많아서 최근 3개월로 넓게 잡음
+            back = today.month - 3
+            back_year = today.year
+            while back < 1:
+                back += 12
+                back_year -= 1
+            date_from = date(back_year, back, 1).isoformat()
+        else:
+            date_from = month_start.isoformat()
     if not date_to:
         date_to = today.isoformat()
     try:
@@ -416,7 +432,7 @@ def _query_payment_rows(
                s.sukum_char, s.sukum_gb, s.manage_desc,
                s.su_sil_amt, s.su_dache_amt, s.s_method, s.del_yn,
                c1.g_cd_nm AS char_nm, c2.g_cd_nm AS gb_nm,
-               d.ipju_nm, b.juso
+               d.ipju_nm, d.ipju_dt, d.rent_amt, d.manage_amt, d.bojung_amt, b.juso
         FROM sukum01 s
         LEFT JOIN gicho_code c1
           ON c1.g_cd='01' AND c1.g_sub_cd=s.sukum_char
@@ -609,3 +625,60 @@ def payments():
         return render_template("payments_result.html", **ctx)
 
     return render_template("payments.html", **ctx)
+
+
+@app.route("/payments/print")
+@login_required
+def payments_print():
+    """수금(대체) 내역 인쇄 — 별도 인쇄 전용 템플릿.
+
+    /payments 화면에서 지금 보고 있는 조건(주소·호실·이름·기간 등) 그대로
+    받아서 거래 내역을 인쇄용으로 다시 조회함(화면과 같은 필터 로직 재사용).
+    """
+    today = date.today()
+    q = _read_payment_list_args(request.args)
+    bunji1 = q["bunji1"]
+    bunji2 = q["bunji2"]
+    hosu = q["hosu"]
+    ipju_seq_f = q["ipju_seq_f"]
+    tenant_status = q["tenant_status"]
+    all_hist = q["all_hist"]
+
+    date_from, date_to, _ym_year, _ym_month = _resolve_list_period(
+        today=today,
+        use_ym=q["use_ym"],
+        ym_year=q["ym_year"],
+        ym_month=q["ym_month"],
+        all_hist=all_hist,
+        name_list_mode=False,
+        bunji1=bunji1,
+        bunji2=bunji2,
+        hosu=hosu,
+        ipju_seq_f=ipju_seq_f,
+        name_q="",
+        date_from=q["date_from"],
+        date_to=q["date_to"],
+    )
+    rows = _query_payment_rows(
+        bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist, tenant_status,
+    )
+    total_sil = sum(int(r.get("su_sil_amt") or 0) for r in rows)
+    total_dache = sum(int(r.get("su_dache_amt") or 0) for r in rows)
+    pages = [
+        rows[i:i + _PRINT_ROWS_PER_PAGE]
+        for i in range(0, len(rows), _PRINT_ROWS_PER_PAGE)
+    ] or [[]]
+
+    return render_template(
+        "payments_print.html",
+        building_name=_building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
+        addr_label=_fmt_bunji_pair(bunji1, bunji2) if bunji1 and bunji2 else "",
+        name_display=q["name_raw"],
+        date_from=date_from,
+        date_to=date_to,
+        pages=pages,
+        total_pages=len(pages),
+        total_count=len(rows),
+        total_sil=total_sil,
+        total_dache=total_dache,
+    )

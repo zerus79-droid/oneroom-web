@@ -11,10 +11,6 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">기간별 수금(대체) 현황</span>
-    <span class="caption-actions">
-      {# 수금 관리의 「수금 현황」과 동일: secondary 캡션 버튼 #}
-      <a class="btn secondary" href="{{ url_for('payment_new', bunji1=filters.bunji1, bunji2=filters.bunji2, hosu=filters.hosu) }}">수금 입력</a>
-    </span>
   </div>
   <div class="legacy-sukum-body payments-panel-body">
   <form method="get" id="filter-payments-form" class="filter-bar" autocomplete="off"
@@ -137,6 +133,7 @@
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn" id="btn-search">조회</button>
+      <a class="btn secondary" id="btn-payments-print" target="_blank" rel="noopener" href="{{ url_for('payments_print') }}">인쇄</a>
     </div>
   </form>
 
@@ -775,6 +772,13 @@ function applyToday() {
   // 조회 / 월 조회 버튼: 이름 조건 지우고 기간 조회 (submit 핸들러에서 주소 검증)
   var btnSearch = document.getElementById('btn-search');
   var btnUseYm = document.getElementById('btn-use-ym');
+  var btnPrint = document.getElementById('btn-payments-print');
+  if (btnPrint) {
+    btnPrint.addEventListener('click', function (e) {
+      var qs = formActionUrl().split('?')[1] || '';
+      btnPrint.setAttribute('href', '/payments/print' + (qs ? ('?' + qs) : ''));
+    });
+  }
   if (btnSearch) {
     btnSearch.addEventListener('click', function (e) {
       if (hasBunji() && hosu && normHosuVal(hosu.value)) {

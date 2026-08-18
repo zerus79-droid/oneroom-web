@@ -1,0 +1,69 @@
+{# 수금(대체) 내역 목록 — payments_result.html에서 include. payments/pager/filters 필요. #}
+{% set pager_endpoint = 'payments' %}
+{% set pager_label = '수금 목록 페이지' %}
+{% set pager_query = {
+  'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+  'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+  'hosu': filters.hosu or none,
+  'ipju_seq': filters.ipju_seq or none,
+  'name': filters.name or none,
+  'name_mode': filters.name_mode or none,
+  'tenant_status': filters.tenant_status,
+  'date_from': filters.date_from or none,
+  'date_to': filters.date_to or none,
+  'ym_year': filters.ym_year or none,
+  'ym_month': filters.ym_month or none,
+  'all_hist': filters.all_hist or none
+} %}
+<div class="panel-section-lab">
+  수금 내역
+  <span class="muted">{{ pager.total if pager else payments|length }}건</span>
+</div>
+{% include '_pager.html' %}
+<div class="filter-bar-btns" style="justify-content:flex-end;">
+  <button type="button" id="btn-pay-delete" class="btn secondary" disabled>삭제</button>
+</div>
+<div class="panel-table-wrap table-scroll">
+  <table class="legacy-grid">
+    <thead>
+      <tr>
+        <th class="tc"><input type="checkbox" id="pay-del-all" aria-label="전체 선택"></th>
+        <th class="tc">수금일자</th>
+        <th class="tc">주소</th>
+        <th class="tc">호수</th>
+        <th class="tc">순번</th>
+        <th>성명</th>
+        <th class="tc">구분</th>
+        <th class="tc">항목</th>
+        <th>적요</th>
+        <th class="num">실입금액</th>
+        <th class="num">대체금액</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td class="tc">
+          <input type="checkbox" class="pay-del-check"
+                 data-sukum-dt="{{ p.sukum_dt|fmt_date }}"
+                 data-sukum-seq="{{ p.sukum_seq }}"
+                 data-bunji1="{{ p.bunji1 }}"
+                 data-bunji2="{{ p.bunji2 }}"
+                 data-hosu="{{ p.hosu }}"
+                 aria-label="선택">
+        </td>
+        <td class="tc col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
+        <td class="tc col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
+        <td class="tc">{{ p.hosu }}</td>
+        <td class="tc">{{ p.ipju_seq }}</td>
+        <td>{{ p.ipju_nm or '' }}</td>
+        <td class="tc">{{ p.char_nm or '' }}</td>
+        <td class="tc">{{ p.gb_nm or '' }}</td>
+        <td>{{ p.manage_desc or '' }}</td>
+        <td class="num">{{ p.su_sil_amt|money }}</td>
+        <td class="num">{{ p.su_dache_amt|money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
