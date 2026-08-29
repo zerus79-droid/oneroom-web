@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="autocomplete" content="off">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}주택관리시스템{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version('css/style.css') }}">
 </head>
@@ -2019,5 +2020,18 @@
 })();
 </script>
 {% endif %}
+<script>
+(function () {
+  var meta = document.querySelector('meta[name="csrf-token"]');
+  if (!meta) return;
+  var token = meta.getAttribute('content');
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
+    if (form.querySelector('input[name="csrf_token"]')) return;
+    var input = document.createElement('input');
+    input.type = 'hidden'; input.name = 'csrf_token'; input.value = token;
+    form.appendChild(input);
+  });
+})();
+</script>
 </body>
 </html>

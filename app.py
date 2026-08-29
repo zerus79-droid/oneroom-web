@@ -32,6 +32,27 @@ _LOGIN_MAX_FAILURES = 5
 _LOGIN_LOCK_SECONDS = 600
 _login_attempts = defaultdict(lambda: {"failures": 0, "locked_until": 0.0})
 
+
+@app.context_processor
+def csrf_context():
+    import secrets as _secrets
+    token = session.get("csrf_token")
+    if not token:
+        token = _secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return {"csrf_token": token}
+
+
+@app.before_request
+def validate_csrf():
+    if request.method != "POST":
+        return None
+    supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
+    expected = session.get("csrf_token")
+    if not expected or not supplied or not __import__("hmac").compare_digest(str(supplied), str(expected)):
+        return "CSRF token validation failed", 400
+    return None
+
 # 화면 모듈 import (라우트 자동 등록)
 import building_access as building_access_routes  # noqa: F401
 import building as building_routes  # noqa: F401
