@@ -29,35 +29,6 @@ from utils import (
 )
 
 
-def _month_bounds(as_of):
-    """기준일이 속한 달의 시작·끝 (date)."""
-    if isinstance(as_of, datetime):
-        as_of = as_of.date()
-    start = as_of.replace(day=1)
-    end = date(as_of.year, as_of.month, monthrange(as_of.year, as_of.month)[1])
-    return start, end
-
-
-def _as_date(v):
-    if v is None or v == "":
-        return None
-    if isinstance(v, datetime):
-        return v.date()
-    if isinstance(v, date):
-        return v
-    try:
-        return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
-    except ValueError:
-        return None
-
-
-def _valid_out_dt(v):
-    d = _as_date(v)
-    if not d or d.year < 1000:
-        return None
-    return d
-
-
 def _is_resp_building(building):
     if not building:
         return False
@@ -290,25 +261,6 @@ def _rent_ipkum_for_pay(sil_amt, dache_amt, rent_calc):
     return min(paid, rent)
 
 
-def _ceil_100(v):
-    try:
-        n = float(v or 0)
-    except (TypeError, ValueError):
-        return 0
-    if n <= 0:
-        return 0
-    return int(math.ceil(n / 100.0) * 100)
-
-
-def _prorate_amt(amt, days, month_days):
-    amt = _to_int_amt(amt)
-    if amt <= 0 or days <= 0:
-        return 0
-    if month_days > 0 and days >= month_days:
-        return amt
-    return _ceil_100(amt * days / float(month_days))
-
-
 def _jungsan_month_rent_split(napbu, rent, ipju_dt, out_dt, month_start, month_end):
     """당월 임대료 계산분·선불 청구(미적용)분.
     후불+당월퇴실: 퇴실일까지 일할.
@@ -375,14 +327,6 @@ def _jungsan_month_tenants(b1, b2, month_start, month_end):
     )
 
 
-def _fmt_man_int(v):
-    """보증금 인쇄: 원→만원 정수, 0이면 빈칸"""
-    n = _to_int_amt(v)
-    if n <= 0:
-        return ""
-    return str(int(round(n / 10000)))
-
-
 def _bojung_disp_amt(bojung_amt, yechi_amt, is_resp):
     """보증금 칸 금액. 일반관리는 보증이 없으면 예치금을 쓴다."""
     bojung = _to_int_amt(bojung_amt)
@@ -390,25 +334,6 @@ def _bojung_disp_amt(bojung_amt, yechi_amt, is_resp):
     if is_resp:
         return bojung
     return bojung if bojung > 0 else yechi
-
-
-def _fmt_man_dec(v):
-    """관리비 인쇄: 7.0"""
-    n = _to_int_amt(v)
-    man = n / 10000.0
-    if abs(man - round(man)) < 1e-9:
-        return f"{int(round(man))}.0"
-    return f"{man:.1f}"
-
-
-def _fmt_wolse_cell(napbu_gb, rent_amt):
-    """월세 인쇄: '선 26' / '후 29' (만원)"""
-    n = _to_int_amt(rent_amt)
-    if n <= 0 and not napbu_gb:
-        return ""
-    man = int(round(n / 10000)) if n else 0
-    tag = "선" if str(napbu_gb or "").upper() == "A" else "후"
-    return f"{tag} {man}"
 
 
 def _jungsan_decorate_rows(rows):
@@ -1077,6 +1002,12 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
         "dache_undo_cnt": dache_undo_cnt,
         "dache_undo_amt": dache_undo_amt,
     }
+
+
+from jungsan_engine import (
+    _as_date, _ceil_100, _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell,
+    _month_bounds, _prorate_amt, _valid_out_dt,
+)
 
 
 def _jungsan_request_common():
