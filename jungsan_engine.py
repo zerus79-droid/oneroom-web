@@ -4,6 +4,7 @@ from calendar import monthrange
 from datetime import date, datetime
 
 from utils import to_int_amt as _to_int_amt
+import db
 
 
 def _month_bounds(as_of):
@@ -96,6 +97,20 @@ def _jungsan_out_settle_amt(napbu, rent, ipju_dt, out_dt, month_start, month_end
     return (rent if ipju < month_start else 0) + prorate(occ)
 
 
+def _month_sukum_sil_dache(b1, b2, hosu, seq, month_start, month_end_s):
+    row = db.query_one("""SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil, COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache FROM sukum01 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s AND sukum_char='01' AND (del_yn IS NULL OR del_yn='N' OR del_yn='') AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""", (b1,b2,(hosu or '').strip().upper(),str(seq or '').zfill(2) if seq else '',month_start.isoformat() if hasattr(month_start,'isoformat') else str(month_start),month_end_s))
+    return _to_int_amt((row or {}).get('sil')), _to_int_amt((row or {}).get('dache'))
+
+
+def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s):
+    row = db.query_one("""SELECT COUNT(*) AS cnt, COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS amt, MAX(COALESCE(manage_desc,'')) AS manage_desc FROM sukum01 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s AND sukum_char='06' AND (del_yn IS NULL OR del_yn='N' OR del_yn='') AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""", (b1,b2,(hosu or '').strip().upper(),str(seq or '').zfill(2) if seq else '',month_start.isoformat() if hasattr(month_start,'isoformat') else str(month_start),month_end_s))
+    return _to_int_amt((row or {}).get('cnt')) > 0, _to_int_amt((row or {}).get('amt')), ((row or {}).get('manage_desc') or '').strip()
+
+
+def _jungsan_month_tenants(b1, b2, month_start, month_end):
+    return db.query("""SELECT m.hosu,d.ipju_seq,d.ipju_nm,d.ipju_dt,d.out_dt,d.bojung_amt,d.yechi_amt,d.rent_amt,d.manage_amt,d.napbu_gb FROM bd03_m m LEFT JOIN bd03_det d ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu)) AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='') AND d.ipju_dt IS NOT NULL AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY) AND (d.out_dt IS NULL OR d.out_dt < '1000-01-01' OR d.out_dt >= %s) WHERE m.bunji1=%s AND m.bunji2=%s ORDER BY m.hosu,d.ipju_dt""", (month_end.isoformat(),month_start.isoformat(),b1,b2))
+
+
 def _fmt_man_int(v):
     n = _to_int_amt(v)
     return "" if n <= 0 else str(int(round(n / 10000)))
@@ -111,5 +126,5 @@ def _fmt_wolse_cell(napbu_gb, rent_amt):
     n = _to_int_amt(rent_amt)
     if n <= 0 and not napbu_gb:
         return ""
-    tag = "선불" if str(napbu_gb or "").upper() == "A" else "후불"
+    tag = "선" if str(napbu_gb or "").upper() == "A" else "후"
     return f"{tag} {int(round(n / 10000)) if n else 0}"
