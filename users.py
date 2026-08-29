@@ -118,7 +118,7 @@ def users():
             if not target:
                 flash("비밀번호를 초기화할 사용자를 목록에서 선택하세요.", "err")
                 return redirect(url_for("users"))
-            temporary = secrets.token_urlsafe(6)[:10]
+            temporary = secrets.token_urlsafe(4)[:4]
             db.execute("UPDATE sawon_m SET pass_wd=%s, sys_dt=NOW() WHERE sabun=%s", (temporary, target))
             flash(f"임시 비밀번호: {temporary}", "ok")
             return redirect(url_for("users", sabun=target))
@@ -184,7 +184,7 @@ def users():
                 if exists:
                     flash("이미 등록된 사용자 ID입니다.", "err")
                     return redirect(url_for("users"))
-                temporary = secrets.token_urlsafe(6)[:10]
+                temporary = "0000"
                 db.execute(
                     """
                     INSERT INTO sawon_m (sabun, s_name, grade, pass_wd, sys_dt)
