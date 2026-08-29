@@ -36,9 +36,13 @@ def assigned_buildings(sabun=None):
     return {(str(r["bunji1"]), str(r["bunji2"])) for r in rows}
 
 
+def unrestricted_user():
+    return (session.get("grade") or "").strip().upper() in {"U", "A"}
+
+
 def filter_query_rows(rows):
     """건물 키가 포함된 조회 결과에서 담당 외 건물을 제거한다."""
-    if not has_request_context() or not session.get("sabun"):
+    if not has_request_context() or not session.get("sabun") or unrestricted_user():
         return rows
     if request.endpoint == "users":
         return rows
@@ -57,7 +61,7 @@ def filter_query_rows(rows):
 @app.before_request
 def block_unassigned_building_request():
     """URL이나 폼으로 다른 건물을 직접 지정하는 우회를 차단한다."""
-    if not session.get("sabun") or request.endpoint in {"users", "login", "logout", "static"}:
+    if not session.get("sabun") or unrestricted_user() or request.endpoint in {"users", "login", "logout", "static"}:
         return None
     values = request.view_args or {}
     b1 = values.get("bunji1") or request.values.get("bunji1") or request.values.get("q_bunji1")
