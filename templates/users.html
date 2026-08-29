@@ -47,24 +47,6 @@
         </div>
       </div>
     </div>
-    <div class="ls-row">
-      <label class="ls-lab{% if form.mode != 'edit' %} star{% endif %}">비밀번호</label>
-      <div class="ls-val">
-        <input type="password" name="password" id="password" class="ls-box"
-               value="" maxlength="10" autocomplete="new-password"
-               placeholder="{% if form.mode == 'edit' %}변경 시에만 입력{% else %}필수 (10자 이내){% endif %}"
-               {% if form.mode != 'edit' %}required{% endif %}>
-      </div>
-    </div>
-    <div class="ls-row">
-      <label class="ls-lab{% if form.mode != 'edit' %} star{% endif %}">비밀번호확인</label>
-      <div class="ls-val">
-        <input type="password" name="password2" id="password2" class="ls-box"
-               value="" maxlength="10" autocomplete="new-password"
-               placeholder="비밀번호 재입력"
-               {% if form.mode != 'edit' %}required{% endif %}>
-      </div>
-    </div>
 
     <div class="ls-row">
       <label class="ls-lab">담당 건물</label>
@@ -82,6 +64,7 @@
 
     <div class="ls-actions">
       <button type="submit" class="btn" id="btn-user-save" name="action" value="save">저장</button>
+      {% if form.mode == 'edit' %}<button type="submit" class="btn secondary" name="action" value="reset_password">비밀번호 초기화</button>{% endif %}
       <button type="button" class="btn secondary" id="btn-user-delete"
               data-sabun="{{ form.orig_sabun or form.sabun }}"
               data-name="{{ form.s_name }}"

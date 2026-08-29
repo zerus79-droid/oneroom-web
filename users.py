@@ -4,6 +4,7 @@
 본인 비밀번호 변경 라우트를 모아둔 모듈입니다.
 """
 import re
+import secrets
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -112,6 +113,15 @@ def users():
             return redirect(url_for("users", new=1))
 
         form = _extract_user_form(request.form)
+        if action == "reset_password":
+            target = form.get("orig_sabun") or form.get("sabun")
+            if not target:
+                flash("비밀번호를 초기화할 사용자를 목록에서 선택하세요.", "err")
+                return redirect(url_for("users"))
+            temporary = secrets.token_urlsafe(6)[:10]
+            db.execute("UPDATE sawon_m SET pass_wd=%s, sys_dt=NOW() WHERE sabun=%s", (temporary, target))
+            flash(f"임시 비밀번호: {temporary}", "ok")
+            return redirect(url_for("users", sabun=target))
         if action == "delete":
             if form.get("mode") != "edit" or not form.get("orig_sabun"):
                 flash("삭제할 사용자를 목록에서 선택한 뒤 삭제하세요.", "err")
@@ -133,7 +143,7 @@ def users():
 
         err = _validate_user_form(
             form,
-            require_password=(form["mode"] != "edit" or not form["orig_sabun"]),
+            require_password=False,
         )
         if err:
             form["password"] = ""
@@ -174,15 +184,16 @@ def users():
                 if exists:
                     flash("이미 등록된 사용자 ID입니다.", "err")
                     return redirect(url_for("users"))
+                temporary = secrets.token_urlsafe(6)[:10]
                 db.execute(
                     """
                     INSERT INTO sawon_m (sabun, s_name, grade, pass_wd, sys_dt)
                     VALUES (%s, %s, %s, %s, NOW())
                     """,
-                    (form["sabun"], form["s_name"][:50], form["grade"], form["password"][:10]),
+                    (form["sabun"], form["s_name"][:50], form["grade"], temporary),
                 )
                 _save_user_buildings("", form["sabun"], form["buildings"])
-                flash(f"등록했습니다. ({form['sabun']})", "ok")
+                flash(f"등록했습니다. ({form['sabun']}) / 임시 비밀번호: {temporary}", "ok")
         except Exception as e:
             flash(f"저장 실패: {e}", "err")
         return redirect(url_for("users"))
