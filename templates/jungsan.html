@@ -382,6 +382,8 @@ function restoreJungsanScroll() {
   var saveUrl = "{{ url_for('jungsan_adjustment') }}";
   var deleteUrl = "{{ url_for('jungsan_adjustment_delete') }}";
   function common(fd) {
+    var csrf = document.querySelector('meta[name="csrf-token"]');
+    if (csrf) fd.append("csrf_token", csrf.getAttribute("content") || "");
     ["bunji1", "bunji2", "as_of"].forEach(function (name) {
       var el = form.querySelector('input[name="' + name + '"]');
       fd.append(name, el ? el.value : "");
