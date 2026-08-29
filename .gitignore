@@ -1,4 +1,5 @@
 .env
+config.py
 *.pyc
 __pycache__/
 .aider*
