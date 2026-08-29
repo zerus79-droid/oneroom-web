@@ -71,7 +71,10 @@ def search():
         pager = _make_pager(total)
 
         # 건물에서 들어온 조회(주소만): 호실·순번 순. 이름 검색은 최근 입주 순.
-        if bunji1 and bunji2 and not q:
+        if tenant_status == "past":
+            # 과거 이력은 현재 시점에 가장 가까운 퇴실일(최근 이력)부터 표시
+            order_sql = "out_dt DESC, ipju_dt DESC, CAST(ipju_seq AS UNSIGNED) DESC"
+        elif bunji1 and bunji2 and not q:
             order_sql = """
                 LPAD(TRIM(hosu), 6, '0'),
                 CAST(ipju_seq AS UNSIGNED),
