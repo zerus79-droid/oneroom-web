@@ -52,10 +52,11 @@
       <label class="ls-lab">담당 건물</label>
       <div class="ls-val">
         {% if buildings %}
+        <input type="search" id="building-search" class="ls-box" placeholder="건물 주소 또는 번지 검색" autocomplete="off" style="margin-bottom:8px">
         <div class="tenant-status-row" style="display:flex;flex-wrap:wrap;gap:6px 12px">
           {% for b in buildings %}
           {% set key = (b.bunji1|string) ~ '|' ~ (b.bunji2|string) %}
-          <label class="tenant-status-opt"><input type="checkbox" name="buildings" value="{{ key }}" {% if key in form.buildings %}checked{% endif %}><span>{{ b.juso or (b.bunji1 ~ '-' ~ b.bunji2) }}</span></label>
+          <label class="tenant-status-opt building-option" data-building-text="{{ (b.juso or (b.bunji1 ~ '-' ~ b.bunji2))|lower }}"><input type="checkbox" name="buildings" value="{{ key }}" {% if key in form.buildings %}checked{% endif %}><span>{{ b.juso or (b.bunji1 ~ '-' ~ b.bunji2) }}</span></label>
           {% endfor %}
         </div>
         {% else %}<span class="muted">등록된 건물이 없습니다.</span>{% endif %}
@@ -151,6 +152,15 @@
     newBtn.addEventListener('click', function () {
       if (act) act.value = 'new';
       HTMLFormElement.prototype.submit.call(form);
+    });
+  }
+  var buildingSearch = document.getElementById('building-search');
+  if (buildingSearch) {
+    buildingSearch.addEventListener('input', function () {
+      var q = String(buildingSearch.value || '').toLowerCase().trim();
+      document.querySelectorAll('.building-option').forEach(function (el) {
+        el.style.display = !q || (el.getAttribute('data-building-text') || '').indexOf(q) >= 0 ? '' : 'none';
+      });
     });
   }
 })();
