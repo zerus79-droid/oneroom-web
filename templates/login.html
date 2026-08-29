@@ -20,6 +20,7 @@
       {% endif %}
     {% endwith %}
     <form method="post" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
         <label for="sabun">아이디</label>
         <input id="sabun" name="sabun" required autofocus placeholder="예: 10001" autocomplete="off">
