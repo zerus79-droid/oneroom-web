@@ -240,7 +240,8 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
                        AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s""",
                     (b1, b2, hosu, str(past.get("ipju_seq") or "").zfill(2)),
                 )
-            return {"error": "해당 호수의 입주 이력이 없습니다."}
+            if not tenant:
+                return {"error": "해당 호수의 입주 이력이 없습니다."}
 
     seq = str(tenant.get("ipju_seq") or "").zfill(2)
     ipju_d = _to_date(tenant.get("ipju_dt"))
