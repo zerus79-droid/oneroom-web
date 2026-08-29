@@ -76,10 +76,14 @@
       font-weight: 700;
       margin: 0 0 4px;
     }
+    /* collapse 는 크롬 인쇄에서 width:100%보다 바깥 테두리가 1px 튀어
+       납부현황(div 테두리)과 ③~⑦·수도표 오른쪽이 안 맞음. separate 로 같은 박스모델. */
     table.grid {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       table-layout: fixed;
+      border: 1px solid #222;
     }
     /* 문서 전체를 감싸는 표: thead(제목/해지상황/①②)가 페이지마다 반복되고,
        tbody(납부내역 이하)는 페이지를 자유롭게 넘기며 채워짐 */
@@ -95,13 +99,21 @@
     }
     table.grid th,
     table.grid td {
-      border: 1px solid #222;
+      border: 0;
+      border-right: 1px solid #222;
+      border-bottom: 1px solid #222;
       padding: 4px 5px;
       vertical-align: middle;
       text-align: center;
       font-size: 10pt;
       height: 1.55em;
       word-break: keep-all;
+    }
+    table.grid tr > *:last-child {
+      border-right: 0;
+    }
+    table.grid tr:last-child > * {
+      border-bottom: 0;
     }
     table.grid th {
       background: #f3f4f6;
@@ -140,22 +152,32 @@
       text-align: left;
     }
     .pay-table {
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
       border: 1px solid #222;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     .pay-3cols {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .pay-col {
+      display: flex;
+      flex-direction: column;
       min-width: 0;
+      min-height: 0;
+      overflow: hidden;
       border-right: 1px solid #222;
     }
     .pay-col:last-child { border-right: 0; }
     table.pay-grid {
       width: 100%;
-      border-collapse: collapse;
+      height: auto;
+      flex: 0 0 auto;
+      border-collapse: separate;
+      border-spacing: 0;
       table-layout: fixed;
     }
     table.pay-grid th,
@@ -163,7 +185,7 @@
       border: 0;
       border-right: 1px solid #222;
       padding: 0 2px;
-      height: auto;
+      box-sizing: border-box;
       min-height: 0;
       font-size: 7pt;
       font-weight: 400;
@@ -176,7 +198,13 @@
       overflow: hidden;
       font-variant-numeric: tabular-nums;
     }
+    table.pay-grid td {
+      height: 1.22em;
+      max-height: 1.22em;
+    }
     table.pay-grid th {
+      height: auto;
+      max-height: none;
       font-weight: 700;
       text-align: center;
       background: #f3f4f6;
@@ -202,11 +230,16 @@
     table.pay-grid td.col-d,
     table.pay-grid th.col-d {
       text-align: right;
-      overflow: visible;
-      min-width: 10ch;
+      overflow: hidden;
+      min-width: 0;
     }
+    /* 연도 구분: 칸 높이 안에서 윗선만. collapse+inset 은 크롬 인쇄에서
+       세로선이 1px 더 길거나 입금일만 어긋남 */
     table.pay-grid tr.year-break td {
-      border-top: 1px solid #222;
+      background-image: linear-gradient(#222, #222);
+      background-repeat: no-repeat;
+      background-size: 100% 1px;
+      background-position: left top;
     }
     table.pay-grid tr.pay-day td {
       font-weight: 700;
@@ -306,7 +339,8 @@
 <body>
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
-    <a class="secondary" href="{{ url_for('home') }}">홈</a>
+    <a class="secondary"
+       href="{{ url_for('checkout', bunji1=form.bunji1, bunji2=form.bunji2, hosu=form.hosu, ipju_seq=form.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}">이전</a>
     <span class="hint">Ctrl+P · 용지 A4 · <strong>머리글 및 바닥글 끄기</strong> (날짜·제목 안 나오게)</span>
   </div>
 
@@ -336,8 +370,8 @@
               <td>{{ doc.hosu or '' }}</td>
               <td class="nowrap">{{ doc.bojung_disp }}</td>
               <td class="nowrap">{{ doc.rent_manage_label or '' }}</td>
-              <td class="nowrap">{{ doc.ipju_dt or '' }}</td>
-              <td class="nowrap">{{ doc.out_dt or '' }}</td>
+              <td class="nowrap">{{ doc.ipju_dt|fmt_ipju_short if doc.ipju_dt else '' }}</td>
+              <td class="nowrap">{{ doc.out_dt|fmt_ipju_short if doc.out_dt else '' }}</td>
             </tr>
           </table>
         </section>
@@ -383,7 +417,6 @@
                 </thead>
                 <tbody>
                   {% for p in col %}
-                  {% if not loop.first and p.year_break %}</tbody><tbody>{% endif %}
                   {% if p.is_filler %}
                   <tr class="pay-filler">
                     <td>&nbsp;</td>
@@ -399,7 +432,7 @@
                     <td class="col-d">{{ rent.day_amt }}</td>
                   </tr>
                   {% else %}
-                  <tr{% if p.year_break %} class="year-break"{% endif %}>
+                  <tr{% if p.year_break and not loop.first %} class="year-break"{% endif %}>
                     <td>{{ p.yy1 }}</td>
                     <td class="col-b">{% if p.start_md %}{{ p.start_md }}~{{ p.end_md }}{% endif %}</td>
                     <td class="col-c">{{ p.pay_md }}</td>

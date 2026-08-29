@@ -87,7 +87,8 @@
         </thead>
         <tbody>
           {% for r in results %}
-          <tr>
+          <tr class="click-row" title="입주자 정보 수정"
+              onclick="location.href='{{ url_for('tenant_manage', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}'">
             <td class="tc">
               {% if r.is_past %}
               <span class="st-badge empty">퇴실</span>
@@ -101,7 +102,7 @@
               <a href="{{ url_for('tenant_manage', bunji1=r.bunji1, bunji2=r.bunji2, hosu=r.hosu, ipju_seq=r.ipju_seq) }}">{{ r.ipju_nm or '' }}</a>
             </td>
             <td>{{ (r.ipju_tel1 or r.ipju_tel2 or '')|mask_phone }}</td>
-            <td class="tc"><a href="{{ url_for('building_detail', bunji1=r.bunji1, bunji2=r.bunji2, nav_from='tenant') }}">{{ r.bunji1|bunji_pair(r.bunji2) }}</a></td>
+            <td class="tc">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
             <td class="tc">{{ r.ipju_dt|fmt_date }}</td>
             <td class="tc">{% if r.is_past %}{{ r.out_dt|fmt_date }}{% endif %}</td>
             <td class="tc">{{ r.bojung_amt|money }}</td>

@@ -16,8 +16,8 @@ from utils import (
     fmt_bunji_pair as _fmt_bunji_pair,
     login_required,
     months_elapsed as _months_elapsed,
+    make_pager as _make_pager,
     pad_bunji as _pad_bunji,
-    paginate as _paginate,
     to_int_amt as _to_int_amt,
 )
 
@@ -26,59 +26,86 @@ from utils import (
 _PRINT_ROWS_PER_PAGE = 30
 
 
-def _building_room_rows(bunji1, bunji2, as_of_s, dache_from=None):
-    """건물 전체 호수(공실 포함) 미수/대체 요약 행.
+def _months_sql(dt_col="d.ipju_dt"):
+    """입주일~기준일 경과연월. as_of 바인딩 1개(%s)."""
+    return (
+        "GREATEST(0, IFNULL(IF("
+        f"{dt_col} IS NULL OR {dt_col} < '1000-01-01', 0, "
+        f"PERIOD_DIFF(DATE_FORMAT(%s, '%%Y%%m'), DATE_FORMAT({dt_col}, '%%Y%%m'))"
+        "), 0))"
+    )
 
-    dache_from 있으면 대체금액 합계를 그 날짜부터 as_of_s까지로 한정(인쇄용 기간
-    조회). 미수잔액 계산용 누적 납부액(paid)은 항상 전체 기간(~as_of_s) 기준.
-    """
+
+def _paid_join_sql(as_of_s, dache_from=None):
+    """수금 합계 조인. 인덱스가 타게 hosu/순번은 그대로 붙인다."""
     if dache_from:
-        dache_where = "sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
-        dache_args = [dache_from, as_of_s]
+        dache_sum = (
+            "SUM(CASE WHEN sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY) "
+            "THEN COALESCE(su_dache_amt,0) ELSE 0 END)"
+        )
+        extra = [dache_from, as_of_s]
     else:
-        dache_where = "sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
-        dache_args = [as_of_s]
+        dache_sum = "SUM(COALESCE(su_dache_amt,0))"
+        extra = []
     sql = f"""
-        SELECT m.hosu AS room_hosu, d.bunji1, d.bunji2, d.hosu, d.ipju_seq,
-               d.ipju_nm, d.ipju_dt, d.rent_amt, d.manage_amt, d.bojung_amt,
-               COALESCE(pa.paid, 0) AS paid,
-               COALESCE(pd.paid_dache, 0) AS paid_dache
-        FROM bd03_m m
-        LEFT JOIN bd03_det d
-          ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-         AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
-         AND {_CURRENT_TENANT_SQL}
-         AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
         LEFT JOIN (
             SELECT bunji1, bunji2, hosu, ipju_seq,
-                   SUM(COALESCE(su_sil_amt,0)) AS paid
+                   SUM(COALESCE(su_sil_amt,0)) AS paid,
+                   {dache_sum} AS paid_dache
             FROM sukum01
-            WHERE sukum_char='01' AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+            WHERE sukum_char='01'
+              AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
               AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
             GROUP BY bunji1, bunji2, hosu, ipju_seq
-        ) pa
-          ON pa.bunji1=d.bunji1 AND pa.bunji2=d.bunji2
-         AND UPPER(TRIM(pa.hosu))=UPPER(TRIM(d.hosu)) AND pa.ipju_seq=d.ipju_seq
-        LEFT JOIN (
-            SELECT bunji1, bunji2, hosu, ipju_seq,
-                   SUM(COALESCE(su_dache_amt,0)) AS paid_dache
-            FROM sukum01
-            WHERE sukum_char='01' AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-              AND {dache_where}
-            GROUP BY bunji1, bunji2, hosu, ipju_seq
-        ) pd
-          ON pd.bunji1=d.bunji1 AND pd.bunji2=d.bunji2
-         AND UPPER(TRIM(pd.hosu))=UPPER(TRIM(d.hosu)) AND pd.ipju_seq=d.ipju_seq
-        WHERE m.bunji1=%s AND m.bunji2=%s
-        ORDER BY m.hosu
-        LIMIT 2000
+        ) p ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2
+           AND p.hosu=d.hosu AND p.ipju_seq=d.ipju_seq
     """
-    args = [as_of_s, as_of_s, *dache_args, bunji1, bunji2]
-    return db.query(sql, args)
+    return sql, extra + [as_of_s]
 
 
-def _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s):
-    """주소/호수/이름으로 좁힌 현재입주자 행 (공실 없음, 건물 하나가 아닐 수도 있음)."""
+def _misu_amt_sql():
+    """미수 = (임+관)×연월 − 실입. as_of 바인딩 1개(%s). 세입자 없으면 0."""
+    months = _months_sql("d.ipju_dt")
+    return (
+        "CASE WHEN d.ipju_seq IS NULL OR d.ipju_seq='' THEN 0 ELSE "
+        f"GREATEST(0, (COALESCE(d.rent_amt,0)+COALESCE(d.manage_amt,0))*({months})"
+        " - COALESCE(p.paid,0)) END"
+    )
+
+
+def _building_inner_sql(bunji1, bunji2, as_of_s, dache_from=None):
+    paid_sql, paid_args = _paid_join_sql(as_of_s, dache_from)
+    months = _months_sql("d.ipju_dt")
+    misu = _misu_amt_sql()
+    sql = f"""
+        SELECT m.hosu AS room_hosu,
+               COALESCE(d.bunji1, m.bunji1) AS bunji1,
+               COALESCE(d.bunji2, m.bunji2) AS bunji2,
+               COALESCE(d.hosu, m.hosu) AS hosu,
+               d.ipju_seq, d.ipju_nm, d.ipju_dt,
+               d.rent_amt, d.manage_amt, d.bojung_amt,
+               {months} AS months,
+               (COALESCE(d.rent_amt,0)+COALESCE(d.manage_amt,0))*({months}) AS expected,
+               {misu} AS misu_amt,
+               COALESCE(p.paid, 0) AS paid,
+               COALESCE(p.paid_dache, 0) AS paid_dache
+        FROM bd03_m m
+        LEFT JOIN bd03_det d
+          ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND d.hosu=m.hosu
+         AND {_CURRENT_TENANT_SQL}
+         AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
+        {paid_sql}
+        WHERE m.bunji1=%s AND m.bunji2=%s
+    """
+    # SELECT months/expected/misu + 입주 기준일 + 수금조인 + 번지
+    args = [as_of_s, as_of_s, as_of_s, as_of_s, *paid_args, bunji1, bunji2]
+    return sql, args
+
+
+def _tenant_inner_sql(bunji1, bunji2, hosu, name, as_of_s, dache_from=None):
+    paid_sql, paid_args = _paid_join_sql(as_of_s, dache_from)
+    months = _months_sql("d.ipju_dt")
+    misu = _misu_amt_sql()
     where = [_CURRENT_TENANT_SQL]
     args = []
     if bunji1:
@@ -88,51 +115,130 @@ def _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s):
         where.append("d.bunji2=%s")
         args.append(bunji2)
     if hosu:
-        where.append("UPPER(TRIM(d.hosu))=%s")
+        where.append("d.hosu=%s")
         args.append(hosu)
     if name:
         where.append("d.ipju_nm LIKE %s")
         args.append(f"%{name}%")
-
-    # 기준일 이전 입주 현재 거주자 + 기준일까지 월세+관리 수금 합
     sql = f"""
         SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm, d.ipju_dt,
                d.rent_amt, d.manage_amt, d.bojung_amt,
+               {months} AS months,
+               (COALESCE(d.rent_amt,0)+COALESCE(d.manage_amt,0))*({months}) AS expected,
+               {misu} AS misu_amt,
                COALESCE(p.paid, 0) AS paid,
                COALESCE(p.paid_dache, 0) AS paid_dache
         FROM bd03_det d
-        LEFT JOIN (
-            SELECT bunji1, bunji2, hosu, ipju_seq,
-                   SUM(COALESCE(su_sil_amt,0)) AS paid,
-                   SUM(COALESCE(su_dache_amt,0)) AS paid_dache
-            FROM sukum01
-            WHERE sukum_char='01'
-              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-              AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-            GROUP BY bunji1, bunji2, hosu, ipju_seq
-        ) p
-          ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2
-         AND UPPER(TRIM(p.hosu))=UPPER(TRIM(d.hosu)) AND p.ipju_seq=d.ipju_seq
+        {paid_sql}
         WHERE {" AND ".join(where)}
           AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
-        ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-        LIMIT 2000
     """
-    return db.query(sql, [as_of_s, *args, as_of_s])
+    # months, expected, misu, paid-join as_of, ipju_dt cutoff
+    inner_args = [as_of_s, as_of_s, as_of_s, *paid_args, *args, as_of_s]
+    return sql, inner_args
+
+
+def _misu_outer_where(building_wide, only_misu):
+    # 미수 현황은 입주자 기준이므로 공실 행은 어떤 조회 조건에서도 제외한다.
+    tenant_filter = "t.ipju_seq IS NOT NULL AND TRIM(t.ipju_seq)<>''"
+    if not only_misu:
+        return tenant_filter if building_wide else "1=1"
+    return f"{tenant_filter + ' AND ' if building_wide else ''}t.misu_amt > 0"
+
+
+def _misu_order_sql(building_wide):
+    if building_wide:
+        return (
+            "CASE WHEN UPPER(LEFT(t.hosu,1))='B' THEN 0 "
+            "WHEN LEFT(t.hosu,1) BETWEEN '0' AND '9' THEN 1 ELSE 2 END, t.hosu"
+        )
+    return "t.misu_amt DESC, t.bunji1, t.bunji2, t.hosu"
+
+
+def query_misu_page(
+    bunji1, bunji2, hosu, name, as_of_s, *,
+    building_wide, only_misu, dache_from=None, limit=None, offset=0,
+):
+    """합계는 SQL, 목록은 LIMIT/OFFSET. 만 호실도 페이지 단위만 읽는다."""
+    if building_wide:
+        inner, args = _building_inner_sql(bunji1, bunji2, as_of_s, dache_from)
+    else:
+        inner, args = _tenant_inner_sql(bunji1, bunji2, hosu, name, as_of_s, dache_from)
+    outer = _misu_outer_where(building_wide, only_misu)
+    order_sql = _misu_order_sql(building_wide)
+    tot = db.query_one(
+        f"""
+        SELECT COUNT(*) AS c,
+               COALESCE(SUM(t.misu_amt),0) AS misu,
+               COALESCE(SUM(LEAST(t.paid_dache, t.misu_amt)),0) AS dache
+        FROM ({inner}) t
+        WHERE {outer}
+        """,
+        args,
+    ) or {}
+    total = int(tot.get("c") or 0)
+    sql = f"""
+        SELECT t.*, LEAST(t.paid_dache, t.misu_amt) AS dache_amt
+        FROM ({inner}) t
+        WHERE {outer}
+        ORDER BY {order_sql}
+    """
+    page_args = list(args)
+    if limit is not None:
+        sql += " LIMIT %s OFFSET %s"
+        page_args.extend([int(limit), int(offset or 0)])
+    rows = db.query(sql, page_args) if total or limit is None else []
+    return rows, total, _to_int_amt(tot.get("misu")), _to_int_amt(tot.get("dache"))
+
+
+def count_current_misu(as_of_s):
+    """홈 KPI: 현재 입주자 중 미수>0 건수만."""
+    inner, args = _tenant_inner_sql("", "", "", "", as_of_s)
+    row = db.query_one(
+        f"SELECT COUNT(*) AS c FROM ({inner}) t WHERE t.misu_amt > 0",
+        args,
+    )
+    return int((row or {}).get("c") or 0)
+
+
+def _building_room_rows(bunji1, bunji2, as_of_s, dache_from=None):
+    """건물 전체 호수(공실 포함). 인쇄 등에서 전체 행이 필요할 때."""
+    rows, _n, _m, _d = query_misu_page(
+        bunji1, bunji2, "", "", as_of_s,
+        building_wide=True, only_misu=False, dache_from=dache_from,
+    )
+    return rows
+
+
+def _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s):
+    """주소/호수/이름 현재입주자. 인쇄 등에서 전체 행이 필요할 때."""
+    rows, _n, _m, _d = query_misu_page(
+        bunji1, bunji2, hosu, name, as_of_s,
+        building_wide=False, only_misu=False,
+    )
+    return rows
 
 
 def _room_row_to_result(r, *, as_of, building_wide, bunji1="", bunji2=""):
-    is_vacant = building_wide and not r.get("ipju_nm")
+    is_vacant = building_wide and not (r.get("ipju_nm") or "").strip()
     rent = _to_int_amt(r.get("rent_amt"))
     manage = _to_int_amt(r.get("manage_amt"))
     monthly = rent + manage
-    months = _months_elapsed(r.get("ipju_dt"), as_of)
-    expected = monthly * months
+    if r.get("months") is not None:
+        months = int(r.get("months") or 0)
+    else:
+        months = _months_elapsed(r.get("ipju_dt"), as_of)
+    expected = _to_int_amt(r.get("expected")) if r.get("expected") is not None else monthly * months
     paid = _to_int_amt(r.get("paid"))
     dache_cum = _to_int_amt(r.get("paid_dache"))
-    misu_amt = 0 if is_vacant else max(0, expected - paid)
-    # 세입자에게 아직 받을 대체 잔액. 누적 대체가 아니라 미수 한도 안.
-    dache_amt = 0 if is_vacant else min(dache_cum, misu_amt)
+    if r.get("misu_amt") is not None:
+        misu_amt = 0 if is_vacant else _to_int_amt(r.get("misu_amt"))
+    else:
+        misu_amt = 0 if is_vacant else max(0, expected - paid)
+    if r.get("dache_amt") is not None:
+        dache_amt = 0 if is_vacant else _to_int_amt(r.get("dache_amt"))
+    else:
+        dache_amt = 0 if is_vacant else min(dache_cum, misu_amt)
     return {
         "bunji1": r.get("bunji1") or bunji1,
         "bunji2": r.get("bunji2") or bunji2,
@@ -192,6 +298,8 @@ def misu():
     results = []
     total_misu = 0
     total_dache = 0
+    total_count = 0
+    pager = None
     if ran:
         try:
             as_of = datetime.strptime(as_of_s[:10], "%Y-%m-%d").date()
@@ -199,41 +307,27 @@ def misu():
             as_of = today
             as_of_s = as_of.isoformat()
 
-        # 건물 하나를 통째로 볼 때(호수·이름 지정 없음): 공실 포함 그 건물 전체 호수
         building_wide = bool(bunji1 and bunji2 and not hosu and not name)
-
-        if building_wide:
-            rows = _building_room_rows(bunji1, bunji2, as_of_s)
-        else:
-            rows = _filtered_tenant_rows(bunji1, bunji2, hosu, name, as_of_s)
-
-        for r in rows:
-            row = _room_row_to_result(
+        pager = _make_pager(0)
+        rows, total_count, total_misu, total_dache = query_misu_page(
+            bunji1, bunji2, hosu, name, as_of_s,
+            building_wide=building_wide, only_misu=only_misu,
+            limit=pager["per_page"], offset=0,
+        )
+        pager = _make_pager(total_count)
+        if pager["offset"]:
+            rows, total_count, total_misu, total_dache = query_misu_page(
+                bunji1, bunji2, hosu, name, as_of_s,
+                building_wide=building_wide, only_misu=only_misu,
+                limit=pager["per_page"], offset=pager["offset"],
+            )
+        results = [
+            _room_row_to_result(
                 r, as_of=as_of, building_wide=building_wide,
                 bunji1=bunji1, bunji2=bunji2,
             )
-            if only_misu and not row["is_vacant"] and row["misu_amt"] <= 0:
-                continue
-            total_misu += row["misu_amt"]
-            total_dache += row["dache_amt"]
-            results.append(row)
-        if building_wide:
-            # 건물 전체 보기: 호수 순서(지하부터 높은 층) 그대로 유지
-            results.sort(key=lambda x: (
-                0 if (x["hosu"] or "").upper().startswith("B") else
-                1 if (x["hosu"] or "")[:1].isdigit() else 2,
-                x["hosu"] or "",
-            ))
-        else:
-            # 미수 큰 순
-            results.sort(key=lambda x: (-x["misu_amt"], x["bunji1"] or "", x["hosu"] or ""))
-
-    # 전체 건수 저장 (페이징 전)
-    total_count = len(results)
-
-    pager = None
-    if ran and results:
-        results, pager = _paginate(results)
+            for r in rows
+        ]
 
     return render_template(
         "misu.html",
@@ -306,7 +400,7 @@ def misu_print():
             1 if (x["hosu"] or "")[:1].isdigit() else 2,
             x["hosu"] or "",
         ))
-    elif bunji1 or bunji2 or hosu or name:
+    else:
         try:
             as_of = datetime.strptime(as_of_s[:10], "%Y-%m-%d").date()
         except ValueError:

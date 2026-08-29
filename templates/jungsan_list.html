@@ -7,7 +7,7 @@
     {% if ran %}
     <span class="muted">
       {{ month_label }}
-      {% if results %} · {{ results|length }}건 · 당월지급 합 {{ sum_pay|money }}원{% endif %}
+      {% if results %} · {{ results|length }}건 · 지급·청구 합 {{ sum_pay|money }}원{% endif %}
     </span>
     {% endif %}
     <span class="caption-actions">
@@ -75,14 +75,14 @@
         <tr>
           <th class="tc">주소</th>
           <th class="tc">건물명</th>
-          <th class="tc">당월지급액</th>
+          <th class="tc">당월지급/청구</th>
           <th class="tc">최초보증금</th>
           <th class="tc">보증금총액</th>
           <th class="tc">월세총액</th>
           <th class="tc">관리비총액</th>
           <th class="tc">입금총액</th>
           <th class="tc">수리비</th>
-          <th class="tc">중개수수료</th>
+          <th class="tc">중개보수</th>
           <th class="tc">미수총액</th>
           <th class="tc">상세</th>
         </tr>

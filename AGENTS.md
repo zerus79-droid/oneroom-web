@@ -9,6 +9,8 @@ Claude Code 사용 한도가 다 떨어지면 그동안은 Grok이 메인 역할
 ## 더 필요하면
 
 - **할 일 목록**: `docs/TODO.md` (작업 시작 전에만)
+- **XP 전체 프로그램 정적 분석 지도**: `docs/xp-program-analysis.md` (레거시 기능 수정 전에 먼저 확인)
+- **XP 월정산·퇴실정산 계산 참고**: `docs/xp-settlement-logic.md` (정산 계산 수정 전에 필수)
 - **인터페이스 현대화 배경/결정사항**: `docs/modernization.md` (현대화 작업할 때만)
 - **집사(zipsa.net) 디자인/메뉴 구조 참고자료**: `docs/zipsa/` (디자인 화면 작업할 때만)
 - **로컬 AI(Grok/Ollama/Groq)로 크레딧 아끼기**: `docs/local-ai.md`

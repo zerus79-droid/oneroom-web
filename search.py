@@ -30,9 +30,9 @@ def search():
             bunji1, bunji2 = "", ""
     hosu = (request.args.get("hosu") or "").strip().upper()
     ipju_seq = (request.args.get("ipju_seq") or "").strip()
-    tenant_status = (request.args.get("tenant_status") or "all").strip().lower()
+    tenant_status = (request.args.get("tenant_status") or "current").strip().lower()
     if tenant_status not in ("current", "past", "all"):
-        tenant_status = "all"
+        tenant_status = "current"
 
     results = []
     total = 0

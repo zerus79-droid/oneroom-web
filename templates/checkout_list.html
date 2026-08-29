@@ -55,7 +55,7 @@
         </div>
       </div>
     </div>
-    <p class="muted" style="margin:0;font-size:0.85rem">※ 주소 · 호수 · 이름 중 하나 이상 입력 후 조회</p>
+    <p class="muted" style="margin:0;font-size:0.85rem">※ 주소 또는 이름 중 하나를 입력 후 조회</p>
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
@@ -83,7 +83,27 @@
     'name': filters.name or none,
     'mode': filters.mode
   } %}
-  {% include '_pager.html' %}
+  <div class="checkout-list-tools">
+    {% include '_pager.html' %}
+    {% if ran and results %}
+    <form method="post" id="restore-form" class="ls-actions" autocomplete="off">
+      <input type="hidden" name="action" value="restore">
+      <input type="hidden" name="bunji1" id="rf_b1" value="">
+      <input type="hidden" name="bunji2" id="rf_b2" value="">
+      <input type="hidden" name="hosu" id="rf_hosu" value="">
+      <input type="hidden" name="ipju_seq" id="rf_seq" value="">
+      <input type="hidden" name="q_bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}">
+      <input type="hidden" name="q_bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}">
+      <input type="hidden" name="q_hosu" value="{{ filters.hosu or '' }}">
+      <input type="hidden" name="q_name" value="{{ filters.name or '' }}">
+      <input type="hidden" name="mode" value="{{ filters.mode }}">
+      <span class="muted" id="pick-hint">목록에서 선택 후 변환</span>
+      <button type="submit" class="btn" id="btn-restore"
+              onclick="return window.appConfirmSubmit(this.form, '선택 건을 현입주자로 변환할까요?\n(퇴실일·예정일이 지워집니다)');"
+              disabled>현입주자로 변환</button>
+    </form>
+    {% endif %}
+  </div>
   <div class="panel-table-wrap table-scroll">
     {% if ran and results %}
     <table class="legacy-grid">
@@ -123,9 +143,9 @@
           <td>{{ r.ipju_nm or '' }}</td>
           <td class="tc">
             {% if r.kind == '퇴실예정' %}
-            <span class="badge empty">{{ r.kind }}</span>
+            <span class="st-badge wait checkout-kind-badge">{{ r.kind }}</span>
             {% else %}
-            <span class="badge out">{{ r.kind }}</span>
+            <span class="st-badge empty checkout-kind-badge">퇴&nbsp;&nbsp;실</span>
             {% endif %}
           </td>
           <td class="tc col-nowrap">{{ r.jumin_disp }}</td>
@@ -139,34 +159,18 @@
           <td class="tc">{{ r.bojung_amt|money }}</td>
           <td class="num">{{ r.rent_amt|money }}</td>
           <td class="tc">
-            <a href="{{ url_for('checkout', bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, ipju_seq=r.ipju_seq, out_dt=r.kind_dt|fmt_date) }}">정산</a>
+            <a class="st-badge checkout-action-badge {{ 'wait' if r.kind == '퇴실예정' else 'info' }}"
+               href="{{ url_for('checkout', bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, ipju_seq=r.ipju_seq, out_dt=r.kind_dt|fmt_date) }}">{{ '예정' if r.kind == '퇴실예정' else '정산' }}</a>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
 
-    <form method="post" id="restore-form" class="ls-actions" style="margin-top:12px" autocomplete="off">
-      <input type="hidden" name="action" value="restore">
-      <input type="hidden" name="bunji1" id="rf_b1" value="">
-      <input type="hidden" name="bunji2" id="rf_b2" value="">
-      <input type="hidden" name="hosu" id="rf_hosu" value="">
-      <input type="hidden" name="ipju_seq" id="rf_seq" value="">
-      <input type="hidden" name="q_bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}">
-      <input type="hidden" name="q_bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}">
-      <input type="hidden" name="q_hosu" value="{{ filters.hosu or '' }}">
-      <input type="hidden" name="q_name" value="{{ filters.name or '' }}">
-      <input type="hidden" name="mode" value="{{ filters.mode }}">
-      <span class="muted" id="pick-hint">목록에서 선택 후 변환</span>
-      <button type="submit" class="btn" id="btn-restore"
-              onclick="return confirm('선택 건을 현입주자로 변환할까요?\\n(퇴실일·예정일이 지워집니다)');"
-              disabled>현입주자로 변환</button>
-    </form>
-
     {% elif want_query or ran %}
     <p class="empty">{{ empty_msg or '조건에 맞는 퇴실·예정 이력이 없습니다.' }}</p>
     {% else %}
-    <p class="empty">주소 · 호수 · 이름 중 하나 이상 입력한 뒤 「조회」하세요.</p>
+    <p class="empty">주소 또는 이름 중 하나를 입력한 뒤 「조회」하세요.</p>
     {% endif %}
   </div>
   </div>

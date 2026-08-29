@@ -94,7 +94,15 @@
     delBtn.addEventListener('click', function () {
       if (delBtn.disabled) return;
       var title = delBtn.getAttribute('data-title') || '';
-      if (!window.confirm((title || '이 자료') + '를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.')) return;
+      var q = (title || '이 자료') + '를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.';
+      if (window.appConfirm) {
+        window.appConfirm(q, function () {
+          if (act) act.value = 'delete';
+          HTMLFormElement.prototype.submit.call(form);
+        });
+        return;
+      }
+      if (!window.confirm(q)) return;
       if (act) act.value = 'delete';
       HTMLFormElement.prototype.submit.call(form);
     });

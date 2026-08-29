@@ -59,10 +59,10 @@
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn" id="co-print-btn" target="_blank" rel="noopener"
-         href="{{ url_for('checkout_print', bunji1=form.bunji1|bunji if form.bunji1 else none, bunji2=form.bunji2|bunji if form.bunji2 else none, hosu=form.hosu, ipju_seq=data.ipju_seq if data else form.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}"
-         data-ipju-seq="{{ data.ipju_seq if data else (form.ipju_seq or '') }}"
-         title="계약 해지 인쇄">인쇄</a>
+      {% if data and data.is_current %}
+      <button type="button" class="btn secondary"
+              onclick="registerCheckoutPlan(this)">퇴실예정 등록</button>
+      {% endif %}
     </div>
   </form>
 </div>
@@ -83,10 +83,12 @@
       <div class="js-item"><span class="js-lab">입주일</span><span class="js-val">{{ data.ipju_dt }}</span></div>
       <div class="js-item"><span class="js-lab">성명</span><span class="js-val left">{{ data.ipju_nm }}</span></div>
       <div class="js-item"><span class="js-lab">연락처</span><span class="js-val left">{{ data.tel }}</span></div>
+      {% if data.bojung_amt %}
       <div class="js-item"><span class="js-lab">보증금</span><span class="js-val">{{ data.bojung_amt|money }}</span></div>
+      {% elif data.yechi_amt %}
       <div class="js-item"><span class="js-lab">예치금</span><span class="js-val">{{ data.yechi_amt|money }}</span></div>
+      {% endif %}
       <div class="js-item"><span class="js-lab">임대/관리</span><span class="js-val">{{ data.rent_manage_label }}</span></div>
-      <div class="js-item"><span class="js-lab">입주기간</span><span class="js-val">{{ data.period_label }}</span></div>
     </div>
 
     <h2 style="font-size:1rem;margin:12px 0 8px">①~⑥ 정산 요약</h2>
@@ -99,8 +101,6 @@
       <div class="js-item warn"><span class="js-lab">⑥ 미수총액</span><span class="js-val">{{ data.misu_amt|money }}</span></div>
       <div class="js-item highlight"><span class="js-lab">♧ 정산금액 (⑤−⑥−⑦)</span><span class="js-val">{{ data.jungsan_amt|money }}</span></div>
     </div>
-
-    {% include "checkout_pays.html" %}
 
     <form method="post" class="legacy-sukum-body" style="padding:12px 0 0;border-top:1px solid var(--line);margin-top:14px" autocomplete="off">
       <input type="hidden" name="out_dt" value="{{ form.out_dt }}">
@@ -123,41 +123,47 @@
                  value="{{ form.elec|money if form.elec else '0' }}" inputmode="numeric">
         </div>
       </div>
-      <div class="ls-row">
-        <label class="ls-lab">도시가스</label>
-        <div class="ls-val">
-          <input type="text" name="gas" class="ls-box money-input ls-money-in"
-                 value="{{ form.gas|money if form.gas else '0' }}" inputmode="numeric">
+      <div class="checkout-utility-lower">
+        <div class="checkout-utility-fields">
+          <div class="ls-row">
+            <label class="ls-lab">도시가스</label>
+            <div class="ls-val">
+              <input type="text" name="gas" class="ls-box money-input ls-money-in"
+                     value="{{ form.gas|money if form.gas else '0' }}" inputmode="numeric">
+            </div>
+            <label class="ls-lab">수도</label>
+            <div class="ls-val">
+              <input type="text" name="water" class="ls-box money-input ls-money-in"
+                     value="{{ form.water|money if form.water else '0' }}" inputmode="numeric">
+            </div>
+          </div>
+          <div class="ls-row">
+            <label class="ls-lab">청소비</label>
+            <div class="ls-val">
+              <input type="text" name="restore" class="ls-box money-input ls-money-in"
+                     value="{{ form.restore|money if form.restore else '0' }}" inputmode="numeric">
+            </div>
+            <label class="ls-lab">기타</label>
+            <div class="ls-val">
+              <input type="text" name="etc" class="ls-box money-input ls-money-in"
+                     value="{{ form.etc|money if form.etc else '0' }}" inputmode="numeric">
+            </div>
+          </div>
         </div>
-        <label class="ls-lab">수도</label>
-        <div class="ls-val">
-          <input type="text" name="water" class="ls-box money-input ls-money-in"
-                 value="{{ form.water|money if form.water else '0' }}" inputmode="numeric">
+        <div class="checkout-utility-actions">
+          <button type="submit" class="btn" data-action="save"
+                  onclick="document.getElementById('co_action').value='save'">저장<br>(퇴실확정)</button>
+          <button type="submit" class="btn secondary" data-action="calc"
+                  onclick="document.getElementById('co_action').value='calc'">다시<br>계산</button>
+          <a class="btn btn-accent" id="co-print-btn" target="_blank" rel="noopener"
+             href="{{ url_for('checkout_print', bunji1=form.bunji1|bunji, bunji2=form.bunji2|bunji, hosu=form.hosu, ipju_seq=data.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}"
+             data-ipju-seq="{{ data.ipju_seq }}" title="계약 해지 인쇄">인쇄</a>
         </div>
-      </div>
-      <div class="ls-row">
-        <label class="ls-lab">청소비</label>
-        <div class="ls-val">
-          <input type="text" name="restore" class="ls-box money-input ls-money-in"
-                 value="{{ form.restore|money if form.restore else '0' }}" inputmode="numeric">
-        </div>
-        <label class="ls-lab">기타</label>
-        <div class="ls-val">
-          <input type="text" name="etc" class="ls-box money-input ls-money-in"
-                 value="{{ form.etc|money if form.etc else '0' }}" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="ls-actions">
-        <button type="submit" class="btn" data-action="save"
-                onclick="document.getElementById('co_action').value='save'">저장 (퇴실 확정)</button>
-        <button type="submit" class="btn secondary" data-action="calc"
-                onclick="document.getElementById('co_action').value='calc'">다시 계산</button>
-        <a class="btn secondary" target="_blank"
-           href="{{ url_for('checkout_print', bunji1=form.bunji1|bunji, bunji2=form.bunji2|bunji, hosu=form.hosu, ipju_seq=data.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}">인쇄</a>
       </div>
 
     </form>
+
+    {% include "checkout_pays.html" %}
   </div>
 </div>
 {% elif form.bunji1 and form.hosu %}
@@ -168,6 +174,58 @@
 
 <script>
 (function () {
+  window.registerCheckoutPlan = function (button) {
+    var form = button && button.form;
+    if (!form) return;
+    var submitPlan = function () {
+      var action = form.querySelector('input[name="action"]');
+      if (!action) {
+        action = document.createElement("input");
+        action.type = "hidden";
+        action.name = "action";
+        form.appendChild(action);
+      }
+      action.value = "plan";
+      form.method = "post";
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.submit();
+    };
+    if (window.appConfirm) {
+      window.appConfirm("입력한 퇴실일자로 퇴실예정을 등록하시겠습니까?", submitPlan);
+    } else if (window.confirm("입력한 퇴실일자로 퇴실예정을 등록하시겠습니까?")) {
+      submitPlan();
+    }
+  };
+
+  // 공과 입력 Enter 순서: 1·2 / 3·4 / 5·6. 마지막 Enter는 인쇄.
+  var utilityForm = document.querySelector('form input[name="suri"]');
+  utilityForm = utilityForm ? utilityForm.form : null;
+  if (utilityForm) {
+    var utilityNames = ["suri", "elec", "gas", "water", "restore", "etc"];
+    var utilityInputs = utilityNames.map(function (name) {
+      return utilityForm.querySelector('input[name="' + name + '"]');
+    }).filter(function (el) { return !!el; });
+
+    utilityInputs.forEach(function (el, index) {
+      el.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter" && e.key !== "NumpadEnter" && e.keyCode !== 13) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+        var next = utilityInputs[index + 1];
+        if (next) {
+          next.focus();
+          if (typeof next.select === "function") next.select();
+          return;
+        }
+
+        var printBtn = document.getElementById("co-print-btn");
+        if (printBtn) printBtn.click();
+      });
+    });
+  }
+
   // 퇴실일자 오늘/달력 버튼
   (function initOutDtButtons() {
     var root = document.getElementById('out_dt_parts');
@@ -302,8 +360,8 @@
   }
 
   document.addEventListener("click", function (e) {
-    var a = e.target.closest("#checkout-pays a.pager-num, #checkout-pays a.pager-btn");
-    if (!a || !a.getAttribute("href")) return;
+    var a = e.target.closest("a.pager-num, a.pager-btn");
+    if (!a || !a.closest("#checkout-pays") || !a.getAttribute("href")) return;
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;
     e.preventDefault();
     loadPays(a.href, true);

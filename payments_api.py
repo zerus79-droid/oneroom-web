@@ -18,6 +18,8 @@ from utils import (
     fmt_bunji_pair,
     login_required,
     lookup_current_tenant as _lookup_current_tenant,
+    resolve_hosu as _resolve_hosu,
+    is_common_hosu as _is_common_hosu,
     money,
     pad_bunji as _pad_bunji,
     parse_bunji_src as _parse_bunji_src,
@@ -105,14 +107,20 @@ def api_building():
         }
         # 호수까지 넘기면 호수 등록 여부도 검사
         if hosu:
+            resolved = _resolve_hosu(bunji1, bunji2, hosu)
+            if _is_common_hosu(resolved):
+                payload["hosu"] = "공용"
+                payload["room_found"] = True
+                return jsonify(payload)
             room = db.query_one(
                 """
                 SELECT hosu FROM bd03_m
                 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
                 """,
-                (bunji1, bunji2, hosu),
+                (bunji1, bunji2, resolved),
             )
             if room:
+                payload["hosu"] = (room.get("hosu") or resolved).strip().upper()
                 payload["room_found"] = True
             else:
                 payload["room_found"] = False

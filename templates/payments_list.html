@@ -13,16 +13,15 @@
   'date_to': filters.date_to or none,
   'ym_year': filters.ym_year or none,
   'ym_month': filters.ym_month or none,
-  'all_hist': filters.all_hist or none
+  'all_hist': filters.all_hist or none,
+  'include_dache': filters.include_dache or none
 } %}
-<div class="panel-section-lab">
+<div class="panel-section-lab pay-list-lab">
   수금 내역
   <span class="muted">{{ pager.total if pager else payments|length }}건</span>
-</div>
-{% include '_pager.html' %}
-<div class="filter-bar-btns" style="justify-content:flex-end;">
   <button type="button" id="btn-pay-delete" class="btn secondary" disabled>삭제</button>
 </div>
+{% include '_pager.html' %}
 <div class="panel-table-wrap table-scroll">
   <table class="legacy-grid">
     <thead>

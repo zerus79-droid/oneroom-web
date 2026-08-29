@@ -13,6 +13,7 @@
     html, body {
       margin: 0;
       padding: 0;
+      padding-top: 56px;
       background: #e8e8e8;
       color: #000;
       font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
@@ -128,7 +129,7 @@
     }
     @media print {
       .toolbar { display: none !important; }
-      html, body { background: #fff; }
+      html, body { background: #fff; padding-top: 0; }
       .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
       .sheet.page-break { page-break-after: always; break-after: page; }
     }
@@ -155,7 +156,7 @@
     <button type="submit">적용</button>
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary"
-       href="{{ url_for('misu', bunji1=bunji1|bunji, bunji2=bunji2|bunji, hosu=hosu, name=name, as_of=as_of, only_misu=('1' if only_misu else '0'), nav_from='base') }}">닫기</a>
+       href="{{ url_for('misu', bunji1=bunji1|bunji, bunji2=bunji2|bunji, hosu=hosu, name=name, as_of=as_of, only_misu=('1' if only_misu else '0'), nav_from='base') }}">이전</a>
     <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
   </form>
 
@@ -167,12 +168,12 @@
         {% if building_wide %}{{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}
         {% else %}
           {% if building_name %}{{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}{% endif %}
-          {% if hosu %}{{ hosu }}호{% endif %}
+          {% if hosu == '공용' %}공용{% elif hosu %}{{ hosu }}호{% endif %}
           {% if name %}「{{ name }}」 검색{% endif %}
         {% endif %}
       </span>
       <span class="head-center">
-        {% if building_wide %}기간 : {{ date_from }} ~ {{ date_to }}{% else %}기준일자 : {{ as_of }}{% endif %}
+        {% if building_wide %}기간 : {{ date_from|fmt_ipju_short }} ~ {{ date_to|fmt_ipju_short }}{% else %}기준일자 : {{ as_of|fmt_ipju_short }}{% endif %}
       </span>
       <span class="head-right">Page : {{ loop.index }}/{{ total_pages }}</span>
     </div>
@@ -206,7 +207,7 @@
         <tr>
           <td>{{ r.hosu }}</td>
           <td class="left">{{ r.ipju_nm or '' }}</td>
-          <td>{{ r.ipju_dt|fmt_date }}</td>
+          <td>{{ r.ipju_dt|fmt_ipju_short }}</td>
           <td class="num">{{ r.misu_amt|money }}</td>
           <td>{{ r.dache_amt|money }}</td>
           <td>{{ r.bojung_amt|money }}</td>
@@ -219,7 +220,7 @@
       {% if loop.last %}
       <tfoot>
         <tr>
-          <td colspan="3">합 계 ({{ total_count }}호)</td>
+          <td colspan="3">합 계 ({{ total_count }}건)</td>
           <td class="num">{{ total_misu|money }}</td>
           <td class="num">{{ total_dache|money }}</td>
           <td class="num">{{ total_bojung|money }}</td>

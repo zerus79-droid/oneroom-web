@@ -14,6 +14,7 @@ from app_instance import app
 from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
     building_label as _building_label,
+    calc_contract_period_charge,
     make_pager as _make_pager,
     paginate as _paginate,
     fmt_bunji,
@@ -52,6 +53,31 @@ def _to_date(v):
         return datetime.strptime(s, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _checkout_tenant_adjustment_total(b1, b2, hosu, seq, ipju_dt, out_dt):
+    """거주기간 중 월정산에서 확정한 월세·관리비 감면/면제 합계."""
+    ipju_d = _to_date(ipju_dt)
+    out_d = _to_date(out_dt)
+    if not ipju_d or not out_d or out_d < ipju_d:
+        return 0
+    start_month = ipju_d.replace(day=1).isoformat()
+    end_month = out_d.replace(day=1).isoformat()
+    try:
+        row = db.query_one(
+            """SELECT COALESCE(SUM(COALESCE(adj_amt,0)),0) AS amt
+               FROM jungsan_adjustment
+               WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+                 AND adj_month >= %s AND adj_month <= %s
+                 AND adj_kind IN (
+                   'RENT_DISCOUNT','RENT_WAIVE','MANAGE_DISCOUNT','MANAGE_WAIVE'
+                 )
+                 AND del_yn='N'""",
+            (b1, b2, hosu, seq, start_month, end_month),
+        )
+    except Exception:
+        return 0
+    return max(0, _to_int_amt((row or {}).get("amt")))
 
 
 def _add_months(d, months):
@@ -107,6 +133,11 @@ def _cycle_label(start, end):
 def _pay_kind(char):
     c = str(char or "").strip().zfill(2)
     return "임대" if c == "01" else "보증"
+
+
+def _pay_label(char):
+    c = str(char or "").strip().zfill(2)
+    return {"01": "월세", "02": "보증금", "03": "예치금"}.get(c, "기타")
 
 
 def _period_mm_dd(ipju_dt, out_dt):
@@ -232,7 +263,7 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
 
     mm, dd = _period_mm_dd(ipju_d, out_d)
     monthly = rent + manage
-    # 후납 기준 입금총액: 보증+예치+(임+관)×개월 + 일할(임+관) + 수리
+    # 미수 기준 청구총액: (임+관)×개월 + 일할(임+관) + 수리
     suri = _to_int_amt(extra.get("suri"))
     if suri <= 0:
         suri_row = db.query_one(
@@ -259,8 +290,15 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
                 if day_amt > monthly:
                     day_amt = monthly
     # ③거주기간(총액) = (임+관)×개월 + 일할. 보증/예치·수리는 넣지 않음.
-    stay_amt = monthly * mm + day_amt
-    base = max(0, bojung + yechi + stay_amt + suri)
+    stay_amt_gross = calc_contract_period_charge(
+        b1, b2, hosu, seq, ipju_d, out_d, rent, manage
+    )
+    tenant_adjustment = _checkout_tenant_adjustment_total(
+        b1, b2, hosu, seq, ipju_d, out_d
+    )
+    stay_amt = max(0, stay_amt_gross - tenant_adjustment)
+    # 보증/예치는 환불성 수금이므로 임대료 미수 계산에서 제외한다.
+    base = max(0, stay_amt + suri)
 
     pays = db.query(
         """
@@ -279,8 +317,14 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         sil = _to_int_amt(p.get("su_sil_amt"))
         dac = _to_int_amt(p.get("su_dache_amt"))
         tot = sil + dac
-        sukum_tot += tot
         kind = _pay_kind(p.get("sukum_char"))
+        # 수금총액은 임대 전표의 실입만. 보증/예치와 대체는 합산하지 않음.
+        if kind == "임대":
+            sukum_tot += sil
+        gb = str(p.get("sukum_gb") or "").strip()
+        # 납부현황은 실입만. 대체전표(종류 02 또는 실입 0·대체>0)는 안 그림.
+        if gb == "02" or (dac > 0 and sil == 0):
+            continue
         cyc_s, cyc_e = _cycle_bounds(ipju_d, p.get("sukum_dt"), napbu)
         period = _cycle_label(cyc_s, cyc_e) if kind == "임대" else ""
         dt_s = _fmt_ipju_short(p.get("sukum_dt"))
@@ -295,6 +339,7 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
                 "dache": dac,
                 "char": p.get("sukum_char") or "",
                 "kind": kind,
+                "label": _pay_label(p.get("sukum_char")),
                 "period": period,
                 "cycle_start": cyc_s.isoformat() if cyc_s else "",
                 "cycle_end": cyc_e.isoformat() if cyc_e else "",
@@ -350,6 +395,8 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         "period_label": f"{mm}개월 {dd}일",
         "day_amt": day_amt,
         "suri_amt": suri,
+        "ipkum_gijun_gross": stay_amt_gross,
+        "tenant_adjustment_amt": tenant_adjustment,
         "ipkum_gijun": stay_amt,
         "sukum_tot": sukum_tot,
         "h_amt": h_amt,
@@ -625,7 +672,7 @@ def _checkout_to_print(data):
         "confirm_year": str(date.today().year),
         "confirm_month": "",
         "confirm_day": "",
-        "confirmer": session.get("s_name") or "",
+        "confirmer": "",
     }
     return doc, fac, rent, payments, util, settle
 
@@ -794,7 +841,7 @@ def _save_checkout(data, uid):
             (
                 out_d,
                 out_seq,
-                data["jungsan_amt"],
+                "Y",
                 uid,
                 data["bunji1"],
                 data["bunji2"],
@@ -802,8 +849,9 @@ def _save_checkout(data, uid):
                 data["ipju_seq"],
             ),
         )
-    except Exception as e:
-        return str(e)
+    except Exception:
+        app.logger.exception("퇴실 정산 저장 실패")
+        return "퇴실 정산을 저장하지 못했습니다. 입력 내용을 확인한 뒤 다시 시도하세요."
     return None
 
 
@@ -829,10 +877,75 @@ def checkout():
             flash(data["error"], "err")
             return redirect(url_for("checkout", **{k: v for k, v in f.items() if v}))
 
+        if action == "plan":
+            plan_date = _to_date(data.get("out_dt"))
+            if not plan_date or plan_date <= date.today():
+                flash("퇴실예정일은 오늘보다 이후 날짜로 입력해 주세요.", "err")
+            elif not data.get("is_current"):
+                flash("현재 입주자만 퇴실예정을 등록할 수 있습니다.", "err")
+            else:
+                try:
+                    db.execute(
+                        """
+                        UPDATE bd03_det
+                        SET plan_out_dt=%s, sys_dt=NOW(), uid=%s
+                        WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
+                          AND ipju_seq=%s
+                          AND (out_dt IS NULL OR out_dt < '1000-01-01')
+                        """,
+                        (
+                            plan_date.isoformat(),
+                            session.get("sabun") or "",
+                            data["bunji1"],
+                            data["bunji2"],
+                            data["hosu"],
+                            data["ipju_seq"],
+                        ),
+                    )
+                    flash(
+                        f"퇴실예정이 등록되었습니다. ({data['ipju_nm']} · {plan_date.isoformat()})",
+                        "ok",
+                    )
+                except Exception:
+                    app.logger.exception("퇴실예정 등록 실패")
+                    flash("퇴실예정을 등록하지 못했습니다. 다시 시도해 주세요.", "err")
+            return redirect(
+                url_for(
+                    "checkout",
+                    bunji1=fmt_bunji(data["bunji1"]),
+                    bunji2=fmt_bunji(data["bunji2"]),
+                    hosu=data["hosu"],
+                    ipju_seq=data["ipju_seq"],
+                    out_dt=data["out_dt"],
+                )
+            )
+
         if action == "save":
+            out_date = _to_date(data.get("out_dt"))
+            if out_date and out_date > date.today():
+                flash(
+                    "퇴실일자가 미래 날짜입니다. 퇴실 확정은 오늘 또는 이전 날짜로 입력해 주세요.",
+                    "err",
+                )
+                return redirect(
+                    url_for(
+                        "checkout",
+                        bunji1=fmt_bunji(data["bunji1"]),
+                        bunji2=fmt_bunji(data["bunji2"]),
+                        hosu=data["hosu"],
+                        ipju_seq=data["ipju_seq"],
+                        out_dt=data["out_dt"],
+                        suri=f["suri"],
+                        elec=f["elec"],
+                        water=f["water"],
+                        restore=f["restore"],
+                        gas=f["gas"],
+                        etc=f["etc"],
+                    )
+                )
             err = _save_checkout(data, session.get("sabun") or "")
             if err:
-                flash(f"저장 실패: {err}", "err")
+                flash(err, "err")
             else:
                 flash(
                     f"퇴실 정산을 저장했습니다. ({data['ipju_nm']} · 정산 {money(data['jungsan_amt'])}원)",
@@ -979,13 +1092,13 @@ def checkout_list():
     mode = (request.args.get("mode") or "all").strip().lower()
     if mode not in ("all", "out", "plan"):
         mode = "all"
-    # 최소 조건: 주소 · 호수 · 이름 중 하나 이상
-    has_min_filter = bool(bunji1 or hosu or name)
+    # 호수만으로는 건물을 특정할 수 없으므로 주소 또는 이름이 필요하다.
+    has_min_filter = bool(bunji1 or name)
     want_query = "q" in request.args
     ran = want_query and has_min_filter
     empty_msg = ""
     if want_query and not has_min_filter:
-        empty_msg = "주소 · 호수 · 이름 중 하나 이상 입력한 뒤 조회하세요."
+        empty_msg = "주소 또는 이름 중 하나를 입력한 뒤 조회하세요."
 
     results = []
     total = 0
@@ -1173,6 +1286,7 @@ def checkout_print():
         payments=payments,
         util=util,
         settle=settle,
+        form=f,
     )
 
 

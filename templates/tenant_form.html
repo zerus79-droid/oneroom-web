@@ -216,6 +216,11 @@
 
 <script>
 window.onTenantDeleteClick = function (e) {
+  var f = document.getElementById('tenant-form');
+  if (f && f._tenantDelOk) {
+    f._tenantDelOk = false;
+    return true;
+  }
   var badge = document.getElementById('tenant-status-badge');
   var st = badge ? (badge.getAttribute('data-status') || '') : '';
   if (st === 'past') {
@@ -228,7 +233,21 @@ window.onTenantDeleteClick = function (e) {
     if (window.appAlert) window.appAlert('신규(미저장) 상태에서는 삭제할 항목이 없습니다.');
     return false;
   }
-  return confirm('이 입주 이력을 삭제할까요?');
+  if (e) e.preventDefault();
+  if (window.appConfirm) {
+    window.appConfirm('이 입주 이력을 삭제할까요?', function () {
+      var act = document.getElementById('form_action');
+      if (act) act.value = 'delete';
+      if (f) {
+        f._tenantDelOk = true;
+        if (typeof f.requestSubmit === 'function') f.requestSubmit();
+        else f.submit();
+      }
+    });
+  } else if (window.confirm('이 입주 이력을 삭제할까요?')) {
+    return true;
+  }
+  return false;
 };
 
 (function () {

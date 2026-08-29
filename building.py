@@ -16,6 +16,7 @@ from utils import (
     login_required,
     money,
     pad_bunji as _pad_bunji,
+    paginate as _paginate,
     parse_bunji_input as _parse_bunji_input,
     parse_money as _parse_money,
     require_write_access,
@@ -34,6 +35,11 @@ ELEC_OPTIONS = [
 MGMT_OPTIONS = [
     ("R", "책임관리"),
     ("G", "일반관리"),
+]
+
+SUKUM_ACCT_OPTIONS = [
+    ("M", "관리주체 통장"),
+    ("O", "건물주 통장"),
 ]
 
 BANK_OPTIONS = [
@@ -97,12 +103,23 @@ def _apply_bank_fields(form, raw=None):
 
 
 def _building_selects():
-    return {"elec_options": ELEC_OPTIONS, "bank_options": BANK_OPTIONS, "mgmt_options": MGMT_OPTIONS}
+    return {
+        "elec_options": ELEC_OPTIONS, "bank_options": BANK_OPTIONS,
+        "mgmt_options": MGMT_OPTIONS, "sukum_acct_options": SUKUM_ACCT_OPTIONS,
+    }
 
 
 def _mgmt_label(v):
     key = (v or "").strip().upper()
     for code, name in MGMT_OPTIONS:
+        if code == key:
+            return name
+    return "미지정"
+
+
+def _sukum_acct_label(v):
+    key = (v or "").strip().upper()
+    for code, name in SUKUM_ACCT_OPTIONS:
         if code == key:
             return name
     return "미지정"
@@ -137,6 +154,31 @@ def _normalize_mgmt_gb(value):
     return mgmt_gb
 
 
+def _normalize_sukum_acct_gb(value, mgmt_gb="R"):
+    key = (value or "").strip().upper()
+    if key not in ("M", "O"):
+        return "O" if _normalize_mgmt_gb(mgmt_gb) == "G" else "M"
+    return key
+
+
+def _ensure_g_cost_cols():
+    for col in ("stair_cost", "inet_cost", "option_cost"):
+        try:
+            db.execute(
+                f"ALTER TABLE bd01 ADD COLUMN {col} decimal(18,0) NULL DEFAULT 0"
+            )
+        except Exception:
+            pass
+    try:
+        db.execute("ALTER TABLE bd01 ADD COLUMN sukum_acct_gb char(1) NULL DEFAULT NULL")
+    except Exception:
+        pass
+    db.execute(
+        """UPDATE bd01 SET sukum_acct_gb=CASE WHEN COALESCE(mgmt_gb,'R')='G' THEN 'O' ELSE 'M' END
+           WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
+    )
+
+
 def _extract_building_form_values(form):
     return {
         "bunji1": _pad_bunji(form.get("bunji1")),
@@ -148,9 +190,13 @@ def _extract_building_form_values(form):
         "bank_cd": _join_bank_cd(form.get("bank_name"), form.get("bank_acc") or form.get("bank_cd")),
         "elec_gb": _normalize_elec_gb(form.get("elec_gb")),
         "mgmt_gb": _normalize_mgmt_gb(form.get("mgmt_gb")),
+        "sukum_acct_gb": _normalize_sukum_acct_gb(form.get("sukum_acct_gb"), form.get("mgmt_gb")),
         "floor_no": _coerce_building_floor_no(form.get("floor_no")),
         "man_cost": _parse_money(form.get("man_cost")),
         "first_amt": _parse_money(form.get("first_amt")),
+        "stair_cost": _parse_money(form.get("stair_cost")),
+        "inet_cost": _parse_money(form.get("inet_cost")),
+        "option_cost": _parse_money(form.get("option_cost")),
     }
 
 
@@ -162,6 +208,10 @@ def _building_from_form(form, *, for_insert=False):
             "uid": session.get("sabun") or "",
         }
     )
+    if data.get("mgmt_gb") != "G":
+        data["stair_cost"] = 0
+        data["inet_cost"] = 0
+        data["option_cost"] = 0
     return data
 
 
@@ -207,8 +257,13 @@ def _validate_building(data, *, for_insert=False):
 
 
 def _decorate_building_card(r):
+    r["mgmt_gb"] = _normalize_mgmt_gb(r.get("mgmt_gb"))
+    r["sukum_acct_gb"] = _normalize_sukum_acct_gb(r.get("sukum_acct_gb"), r.get("mgmt_gb"))
     r["elec_label"] = _elec_label(r.get("elec_gb"))
     r["mgmt_label"] = _mgmt_label(r.get("mgmt_gb"))
+    r["sukum_acct_label"] = _sukum_acct_label(r.get("sukum_acct_gb"))
+    for col in ("stair_cost", "inet_cost", "option_cost"):
+        r.setdefault(col, 0)
     _apply_bank_fields(r)
     dt = r.get("building_dt")
     r["build_year"] = str(dt)[:4] if dt else ""
@@ -223,6 +278,7 @@ def buildings():
     """기초 내역 관리 · 건물 내역 조회 (목록)
     ?next=rooms 이면 카드에서 호수 내역으로 이동
     """
+    _ensure_g_cost_cols()
     next_mode = (request.args.get("next") or "").strip()
     q = (request.args.get("q") or "").strip()
     rows = db.query(
@@ -263,6 +319,14 @@ def buildings():
         rows = filtered
     for r in rows:
         _decorate_building_card(r)
+        room_rows = _get_rooms(r.get("bunji1"), r.get("bunji2"))
+        floor_map = {}
+        for room in room_rows:
+            h = str(room.get("hosu") or "").strip()
+            d = "".join(c for c in h if c.isdigit())
+            f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
+            floor_map.setdefault(f, []).append((h, bool(room.get("ipju_seq") or room.get("ipju_nm"))))
+        r["floor_map"] = [(f, ([rooms] if len(rooms) <= 5 else [rooms[i:i + ((len(rooms) + 1) // 2)] for i in range(0, len(rooms), (len(rooms) + 1) // 2)])) for f, rooms in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]
     return render_template(
         "buildings.html",
         buildings=rows,
@@ -495,6 +559,7 @@ def vacancies():
 @require_write_access
 def building_new():
     """건물 신규 등록"""
+    _ensure_g_cost_cols()
     form = {
         "bunji1": "",
         "bunji2": "",
@@ -508,8 +573,12 @@ def building_new():
         "bank_acc": "",
         "man_cost": "",
         "first_amt": "",
+        "stair_cost": "",
+        "inet_cost": "",
+        "option_cost": "",
         "elec_gb": "B",
         "mgmt_gb": "R",
+        "sukum_acct_gb": "M",
     }
     if request.method == "POST":
         data = _building_from_form(request.form, for_insert=True)
@@ -519,6 +588,9 @@ def building_new():
                 "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
                 "man_cost": data["man_cost"],
                 "first_amt": data["first_amt"],
+                "stair_cost": data["stair_cost"],
+                "inet_cost": data["inet_cost"],
+                "option_cost": data["option_cost"],
             }
         )
         err = _validate_building(data, for_insert=True)
@@ -535,11 +607,13 @@ def building_new():
                 """
                 INSERT INTO bd01 (
                     bunji1, bunji2, juso, building_dt, floor_no, bank_cd,
-                    owner_nm, owner_tel, man_cost, first_amt, elec_gb, mgmt_gb,
+                    owner_nm, owner_tel, man_cost, first_amt, elec_gb, mgmt_gb, sukum_acct_gb,
+                    stair_cost, inet_cost, option_cost,
                     del_yn, uid, sys_dt
                 ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s,
                     'N', %s, NOW()
                 )
                 """,
@@ -556,6 +630,10 @@ def building_new():
                     data["first_amt"],
                     data["elec_gb"] or None,
                     data["mgmt_gb"],
+                    data["sukum_acct_gb"],
+                    data.get("stair_cost") or 0,
+                    data.get("inet_cost") or 0,
+                    data.get("option_cost") or 0,
                     data["uid"],
                 ),
             )
@@ -581,6 +659,7 @@ def building_new():
 
 
 def _get_building_or_redirect(bunji1, bunji2):
+    _ensure_g_cost_cols()
     b = db.query_one(
         "SELECT * FROM bd01 WHERE bunji1=%s AND bunji2=%s",
         (bunji1, bunji2),
@@ -622,7 +701,19 @@ def building_detail(bunji1, bunji2):
     if not b:
         flash("건물을 찾을 수 없습니다.", "err")
         return redirect(url_for("buildings"))
-    return render_template("building_detail.html", building=b, **_building_selects())
+    # 층별 호실 현황(현재 입주자는 파란색, 공실은 빨간색)
+    rooms = _get_rooms(bunji1, bunji2)
+    floor_map = {}
+    for room in rooms:
+        hosu = str(room.get("hosu") or "").strip()
+        digits = "".join(ch for ch in hosu if ch.isdigit())
+        floor = int(digits[:-2] or 0) if len(digits) >= 3 else 0
+        floor_map.setdefault(floor, []).append({
+            "hosu": hosu,
+            "occupied": bool(room.get("ipju_seq") or room.get("ipju_nm")),
+        })
+    floors = sorted(floor_map.items(), key=lambda item: item[0], reverse=True)
+    return render_template("building_detail.html", building=b, floors=floors, **_building_selects())
 
 
 @app.route("/building/<bunji1>/<bunji2>/rooms")
@@ -634,7 +725,14 @@ def building_rooms(bunji1, bunji2):
         flash("건물을 찾을 수 없습니다.", "err")
         return redirect(url_for("buildings"))
     rooms = _get_rooms(bunji1, bunji2)
-    return render_template("building_rooms.html", building=b, rooms=rooms)
+    floor_map = {}
+    for room in rooms:
+        h = str(room.get("hosu") or "").strip(); d = "".join(c for c in h if c.isdigit())
+        f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
+        floor_map.setdefault(f, []).append((h, bool(room.get("ipju_seq") or room.get("ipju_nm"))))
+    floor_map = [(f, [rs] if len(rs) <= 5 else [rs[i:i + ((len(rs)+1)//2)] for i in range(0, len(rs), (len(rs)+1)//2)]) for f, rs in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]
+    rooms, pager = _paginate(rooms)
+    return render_template("building_rooms.html", building=b, rooms=rooms, pager=pager, floor_map=floor_map)
 
 
 @app.route("/building/<bunji1>/<bunji2>/room/new", methods=["GET", "POST"])
@@ -790,8 +888,12 @@ def _building_form_from_row(b):
         "bank_cd": b.get("bank_cd") or "",
         "man_cost": b.get("man_cost"),
         "first_amt": b.get("first_amt"),
+        "stair_cost": b.get("stair_cost"),
+        "inet_cost": b.get("inet_cost"),
+        "option_cost": b.get("option_cost"),
         "elec_gb": (b.get("elec_gb") or "").strip().upper(),
         "mgmt_gb": _normalize_mgmt_gb(b.get("mgmt_gb")),
+        "sukum_acct_gb": _normalize_sukum_acct_gb(b.get("sukum_acct_gb"), b.get("mgmt_gb")),
     }
     return _apply_bank_fields(form)
 
@@ -809,8 +911,12 @@ def _building_orig_for_js(form):
         "bank_acc": form.get("bank_acc") or "",
         "elec_gb": form.get("elec_gb") or "",
         "mgmt_gb": form.get("mgmt_gb") or "",
+        "sukum_acct_gb": form.get("sukum_acct_gb") or "",
         "first_amt": money(form.get("first_amt")),
         "man_cost": money(form.get("man_cost")),
+        "stair_cost": money(form.get("stair_cost")),
+        "inet_cost": money(form.get("inet_cost")),
+        "option_cost": money(form.get("option_cost")),
     }
 
 
@@ -823,13 +929,17 @@ _BUILDING_CHANGE_FIELDS = (
     ("bank_cd", "은행계좌"),
     ("elec_gb", "전기료납부"),
     ("mgmt_gb", "관리형태"),
+    ("sukum_acct_gb", "입금통장 주체"),
     ("first_amt", "최초보증금"),
     ("man_cost", "관리수수료"),
+    ("stair_cost", "계단청소"),
+    ("inet_cost", "인터넷+유선"),
+    ("option_cost", "옵션비"),
 )
 
 
 def _norm_building_val(key, v):
-    if key in ("first_amt", "man_cost"):
+    if key in ("first_amt", "man_cost", "stair_cost", "inet_cost", "option_cost"):
         if v is None or v == "":
             return None
         return int(v)
@@ -839,18 +949,20 @@ def _norm_building_val(key, v):
         return int(v)
     if key == "building_dt":
         return (str(v)[:10] if v else "")
-    if key in ("elec_gb", "mgmt_gb"):
+    if key in ("elec_gb", "mgmt_gb", "sukum_acct_gb"):
         return (str(v).strip().upper() if v else "")
     return ("" if v is None else str(v)).strip()
 
 
 def _disp_building_val(key, v):
-    if key in ("first_amt", "man_cost"):
+    if key in ("first_amt", "man_cost", "stair_cost", "inet_cost", "option_cost"):
         return money(v) if v is not None else "빈값"
     if key == "elec_gb":
         return _elec_label(v)
     if key == "mgmt_gb":
         return _mgmt_label(v)
+    if key == "sukum_acct_gb":
+        return _sukum_acct_label(v)
     if v is None or v == "":
         return "빈값"
     return str(v)
@@ -858,7 +970,12 @@ def _disp_building_val(key, v):
 
 def _building_changes(orig, data):
     rows = []
+    orig_g = _normalize_mgmt_gb(orig.get("mgmt_gb")) == "G"
+    data_g = data.get("mgmt_gb") == "G"
+    skip_g_cost = not orig_g and not data_g
     for key, label in _BUILDING_CHANGE_FIELDS:
+        if skip_g_cost and key in ("stair_cost", "inet_cost", "option_cost"):
+            continue
         before = _norm_building_val(key, orig.get(key))
         after = _norm_building_val(key, data.get(key))
         if before != after:
@@ -876,6 +993,7 @@ def _building_change_flash(changes):
 @require_write_access
 def building_edit(bunji1, bunji2):
     """건물 내역 수정"""
+    _ensure_g_cost_cols()
     b = db.query_one(
         "SELECT * FROM bd01 WHERE bunji1=%s AND bunji2=%s",
         (bunji1, bunji2),
@@ -897,6 +1015,9 @@ def building_edit(bunji1, bunji2):
                 "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
                 "man_cost": data["man_cost"],
                 "first_amt": data["first_amt"],
+                "stair_cost": data["stair_cost"],
+                "inet_cost": data["inet_cost"],
+                "option_cost": data["option_cost"],
             }
         )
         err = _validate_building(data, for_insert=False)
@@ -927,6 +1048,10 @@ def building_edit(bunji1, bunji2):
                     first_amt=%s,
                     elec_gb=%s,
                     mgmt_gb=%s,
+                    sukum_acct_gb=%s,
+                    stair_cost=%s,
+                    inet_cost=%s,
+                    option_cost=%s,
                     uid=%s,
                     sys_dt=NOW()
                 WHERE bunji1=%s AND bunji2=%s
@@ -942,6 +1067,10 @@ def building_edit(bunji1, bunji2):
                     data["first_amt"],
                     data["elec_gb"] or None,
                     data["mgmt_gb"],
+                    data["sukum_acct_gb"],
+                    data.get("stair_cost") or 0,
+                    data.get("inet_cost") or 0,
+                    data.get("option_cost") or 0,
                     data["uid"],
                     bunji1,
                     bunji2,

@@ -13,7 +13,7 @@
         <input type="text" value="{{ form.bunji1|bunji }}" readonly class="ls-ro ls-box">
         <input type="hidden" name="bunji1" value="{{ form.bunji1 }}">
         {% else %}
-        <input type="text" name="bunji1" value="{{ form.bunji1|bunji if form.bunji1 else '' }}" maxlength="4" required placeholder="예: 508" class="ls-box">
+        <input type="text" name="bunji1" value="{{ form.bunji1|bunji if form.bunji1 else '' }}" maxlength="4" required placeholder="예: 508" class="ls-box" inputmode="numeric" autocomplete="off">
         {% endif %}
       </div>
       <label class="ls-lab star">주소2</label>
@@ -22,7 +22,7 @@
         <input type="text" value="{{ form.bunji2|bunji }}" readonly class="ls-ro ls-box">
         <input type="hidden" name="bunji2" value="{{ form.bunji2 }}">
         {% else %}
-        <input type="text" name="bunji2" value="{{ form.bunji2|bunji if form.bunji2 else '' }}" maxlength="4" required placeholder="예: 88" class="ls-box">
+        <input type="text" name="bunji2" value="{{ form.bunji2|bunji if form.bunji2 else '' }}" maxlength="4" required placeholder="예: 88" class="ls-box" inputmode="numeric" autocomplete="off">
         {% endif %}
       </div>
     </div>
@@ -89,12 +89,20 @@
       </div>
     </div>
 
-    <div class="ls-row ls-row-span">
+    <div class="ls-row">
       <label class="ls-lab star">관리형태</label>
       <div class="ls-val">
         <select name="mgmt_gb" class="ls-select">
           {% for code, name in mgmt_options %}
           <option value="{{ code }}" {% if form.mgmt_gb==code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <label class="ls-lab star">입금통장 주체</label>
+      <div class="ls-val">
+        <select name="sukum_acct_gb" class="ls-select">
+          {% for code, name in sukum_acct_options %}
+          <option value="{{ code }}" {% if form.sukum_acct_gb==code %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -110,9 +118,25 @@
         <input type="text" name="man_cost" value="{{ form.man_cost|money }}" inputmode="numeric" placeholder="예: 250,000" class="money-input ls-money-in">
       </div>
     </div>
+    <div class="ls-row js-g-cost"{% if form.mgmt_gb != 'G' %} hidden{% endif %}>
+      <label class="ls-lab">계단청소</label>
+      <div class="ls-val">
+        <input type="text" name="stair_cost" value="{{ form.stair_cost|money }}" inputmode="numeric" placeholder="예: 50,000" class="money-input ls-money-in">
+      </div>
+      <label class="ls-lab">인터넷+유선</label>
+      <div class="ls-val">
+        <input type="text" name="inet_cost" value="{{ form.inet_cost|money }}" inputmode="numeric" placeholder="예: 30,000" class="money-input ls-money-in">
+      </div>
+    </div>
+    <div class="ls-row ls-row-span js-g-cost"{% if form.mgmt_gb != 'G' %} hidden{% endif %}>
+      <label class="ls-lab">옵션비</label>
+      <div class="ls-val">
+        <input type="text" name="option_cost" value="{{ form.option_cost|money }}" inputmode="numeric" placeholder="예: 20,000" class="money-input ls-money-in">
+      </div>
+    </div>
 
     <p class="panel-inline-note">
-      전기료납부: 각세대별(B) / 관리비에 포함(A) · 관리형태: 책임관리(우리 통장으로 수금, 임대료만 정산) / 일반관리(임대인 통장으로 직접 입금, 관리비 별도 청구) · 주소는 화면 앞 0 없이, 저장 시 4자리
+      전기료납부: 각세대별(B) / 관리비에 포함(A) · 관리형태와 입금통장 주체는 별도 선택 · 주소는 화면 앞 0 없이, 저장 시 4자리
     </p>
     <div class="ls-actions">
       <button type="submit">{% if mode=='new' %}등록{% else %}수정 저장{% endif %}</button>
@@ -124,6 +148,20 @@
     </div>
   </form>
 </div>
+<script>
+(function () {
+  function syncGCostRows() {
+    var sel = document.querySelector('select[name="mgmt_gb"]');
+    var show = sel && String(sel.value || "").toUpperCase() === "G";
+    document.querySelectorAll(".js-g-cost").forEach(function (row) {
+      row.hidden = !show;
+    });
+  }
+  var mgmtSel = document.querySelector('select[name="mgmt_gb"]');
+  if (mgmtSel) mgmtSel.addEventListener("change", syncGCostRows);
+  syncGCostRows();
+})();
+</script>
 
 {% if mode=='edit' %}
 <div class="confirm-overlay" id="edit-confirm" hidden>
@@ -171,6 +209,11 @@
     var k = String(code == null ? "" : code).trim().toUpperCase();
     return map[k] != null ? map[k] : "미지정";
   }
+  function sukumAcctLabel(code) {
+    var map = { "M": "관리주체 통장", "O": "건물주 통장" };
+    var k = String(code == null ? "" : code).trim().toUpperCase();
+    return map[k] != null ? map[k] : "미지정";
+  }
   function dateNorm(v) {
     return String(v == null ? "" : v).trim().slice(0, 10);
   }
@@ -189,8 +232,12 @@
     { name: "bank_name", label: "은행" },
     { name: "elec_gb", label: "전기료납부", display: elecLabel },
     { name: "mgmt_gb", label: "관리형태", display: mgmtLabel },
+    { name: "sukum_acct_gb", label: "입금통장 주체", display: sukumAcctLabel },
     { name: "first_amt", label: "최초보증금", normalize: moneyNorm, display: moneyDisp },
-    { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp }
+    { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp },
+    { name: "stair_cost", label: "계단청소", normalize: moneyNorm, display: moneyDisp },
+    { name: "inet_cost", label: "인터넷+유선", normalize: moneyNorm, display: moneyDisp },
+    { name: "option_cost", label: "옵션비", normalize: moneyNorm, display: moneyDisp }
   ];
   function syncDateHidden() {
     var root = document.getElementById("building_dt_parts");

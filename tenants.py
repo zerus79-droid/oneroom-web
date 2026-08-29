@@ -22,6 +22,8 @@ from utils import (
     require_write_access,
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
+    record_contract_terms_change,
+    record_initial_contract_terms,
     tenant_is_past_out as _tenant_is_past_out,
 )
 
@@ -472,7 +474,8 @@ def tenant_manage():
 
     exists = db.query_one(
         """
-        SELECT ipju_seq, ipju_nm, ipju_jumin_no, ipju_dt, out_dt
+        SELECT ipju_seq, ipju_nm, ipju_jumin_no, ipju_dt, out_dt,
+               bojung_amt, rent_amt, manage_amt, yechi_amt, napbu_gb
         FROM bd03_det
         WHERE bunji1=%s AND bunji2=%s
           AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
@@ -522,6 +525,12 @@ def tenant_manage():
                     form["ipju_seq"],
                 ),
             )
+            record_contract_terms_change(
+                form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"],
+                exists.get("ipju_dt"), exists,
+                {"bojung_amt": bojung, "rent_amt": rent, "manage_amt": manage,
+                 "yechi_amt": yechi, "napbu_gb": form["napbu_gb"]}, uid,
+            )
             # 성공 안내는 popup_msg 한 번만 (flash 중복 방지)
         else:
             db.execute(
@@ -558,6 +567,12 @@ def tenant_manage():
                     form["napbu_gb"],
                     uid,
                 ),
+            )
+            record_initial_contract_terms(
+                form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"],
+                date.fromisoformat(form["ipju_dt"]),
+                {"bojung_amt": bojung, "rent_amt": rent, "manage_amt": manage,
+                 "yechi_amt": yechi, "napbu_gb": form["napbu_gb"]}, uid,
             )
     except Exception as e:
         flash(f"저장 실패: {e}", "err")

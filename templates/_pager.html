@@ -5,10 +5,10 @@
 {% set _pq = pager_query if pager_query is defined else {} %}
 {% set _lab = pager_label if pager_label is defined else '목록 페이지' %}
 <nav class="pager" aria-label="{{ _lab }}">
-  {% if pager.has_next %}
-  <a class="pager-btn" href="{{ url_for(pager_endpoint, page=pager.next_page, **_pq) }}">다음 ›</a>
+  {% if pager.has_prev %}
+  <a class="pager-btn" href="{{ url_for(pager_endpoint, page=pager.prev_page, **_pq) }}">‹ 이전</a>
   {% else %}
-  <span class="pager-btn is-disabled">다음 ›</span>
+  <span class="pager-btn is-disabled">‹ 이전</span>
   {% endif %}
   {% for p in pager.page_window %}
     {% if p == pager.page %}
@@ -17,10 +17,10 @@
     <a class="pager-num" href="{{ url_for(pager_endpoint, page=p, **_pq) }}">{{ p }}</a>
     {% endif %}
   {% endfor %}
-  {% if pager.has_prev %}
-  <a class="pager-btn" href="{{ url_for(pager_endpoint, page=pager.prev_page, **_pq) }}">‹ 이전</a>
+  {% if pager.has_next %}
+  <a class="pager-btn" href="{{ url_for(pager_endpoint, page=pager.next_page, **_pq) }}">다음 ›</a>
   {% else %}
-  <span class="pager-btn is-disabled">‹ 이전</span>
+  <span class="pager-btn is-disabled">다음 ›</span>
   {% endif %}
 </nav>
 {% endif %}

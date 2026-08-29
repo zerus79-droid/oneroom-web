@@ -172,8 +172,17 @@
 
   <div class="panel-section-lab">
     오늘 등록한 수금 내역
-    <span class="muted">{% if recent_payments %}{{ recent_payments|length }}건{% else %}0건{% endif %}</span>
+    <span class="muted">{{ pager.total if pager else (recent_payments|length if recent_payments else 0) }}건</span>
   </div>
+  {% set pager_endpoint = 'payment_new' %}
+  {% set pager_label = '오늘 등록 수금 페이지' %}
+  {% set pager_query = {
+    'bunji1': form.bunji1|bunji if form.bunji1 else none,
+    'bunji2': form.bunji2|bunji if form.bunji2 else none,
+    'hosu': form.hosu or none,
+    'ipju_seq': form.ipju_seq or none
+  } %}
+  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
   {% if recent_payments is defined and recent_payments %}
   <table class="legacy-grid">
@@ -815,6 +824,27 @@ window.addEventListener('pageshow', function (e) {
     setMonthMisuDisplay(null, '');
   }
 
+  var lastPayTenantKey = '';
+  function clearPayInputs() {
+    var sil = document.getElementById('su_sil_amt');
+    var dac = document.getElementById('su_dache_amt');
+    var gb = document.getElementById('sukum_gb');
+    var ch = document.getElementById('sukum_char');
+    if (sil) sil.value = '';
+    if (dac) {
+      dac.value = '0';
+      dac.dataset.wasOff = '1';
+    }
+    if (gb) gb.value = '03';
+    if (ch) ch.value = '01';
+    updateDacheState();
+  }
+  function onTenantKeyChange(key) {
+    key = key || '';
+    if (lastPayTenantKey && lastPayTenantKey !== key) clearPayInputs();
+    lastPayTenantKey = key;
+  }
+
   function applyTenant(hosu, seq, name, doFocus, misuAmt, misuDisplay, extra) {
     extra = extra || {};
     if (hosuEl) hosuEl.value = normHosu(hosu);
@@ -872,6 +902,7 @@ window.addEventListener('pageshow', function (e) {
     if (hres && hres.found === false) {
       if (ipjuNmView) ipjuNmView.value = quiet ? '' : '';
       setHint(quiet ? '' : '', false);
+      onTenantKeyChange('');
       clearTenantViews();
       if (seqEl && quiet) seqEl.value = '';
       return Promise.resolve(false);
@@ -894,6 +925,7 @@ window.addEventListener('pageshow', function (e) {
         if (gen !== resolveGen) return false;
         looking = false;
         if (data && data.ok && data.ipju_seq) {
+          onTenantKeyChange(bunji + '|' + (data.hosu || hosu) + '|' + padSeq(data.ipju_seq));
           applyTenant(
             data.hosu || hosu,
             data.ipju_seq,
@@ -905,6 +937,7 @@ window.addEventListener('pageshow', function (e) {
           );
           return true;
         }
+        onTenantKeyChange('');
         setHint('입주자 없음', false);
         if (ipjuNmView) ipjuNmView.value = '';
         clearTenantViews();
@@ -916,6 +949,7 @@ window.addEventListener('pageshow', function (e) {
         if (gen !== resolveGen) return false;
         looking = false;
         setHint('입주자 조회 실패', false);
+        onTenantKeyChange('');
         clearTenantViews();
         return false;
       });
@@ -928,6 +962,7 @@ window.addEventListener('pageshow', function (e) {
     var h = normHosu(hosuEl.value);
     if (!h || !hasBunji()) {
       setHint('', true);
+      onTenantKeyChange('');
       clearTenantViews();
       if (seqEl) seqEl.value = '';
       return;
@@ -1179,6 +1214,7 @@ window.addEventListener('pageshow', function (e) {
         dac.dataset.wasOff = '1';
       }
       if (seqEl) seqEl.value = '';
+      lastPayTenantKey = '';
       clearTenantViews();
       setHint('', true);
       updateDacheState();

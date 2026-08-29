@@ -17,35 +17,35 @@
     </div>
 
     <div class="dash-kpi-row">
-      <a class="dash-kpi" href="{{ url_for('buildings') }}">
+      <a class="dash-kpi kpi-building" href="{{ url_for('buildings') }}">
         <span class="dash-kpi-circle st-navy">{{ stats.building_total }}</span>
         <span class="dash-kpi-lab">건물</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('vacancies', only_empty=0) }}">
+      <a class="dash-kpi kpi-rooms" href="{{ url_for('vacancies', only_empty=0) }}">
         <span class="dash-kpi-circle st-info">{{ stats.room_total }}</span>
         <span class="dash-kpi-lab">전체 호수</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('search') }}">
+      <a class="dash-kpi kpi-occupied" href="{{ url_for('search') }}">
         <span class="dash-kpi-circle st-paid">{{ stats.occupied_total }}</span>
         <span class="dash-kpi-lab">입주</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('vacancies') }}">
+      <a class="dash-kpi kpi-vacant" href="{{ url_for('vacancies') }}">
         <span class="dash-kpi-circle st-empty">{{ stats.vacant_total }}</span>
         <span class="dash-kpi-lab">공실</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('misu') }}">
+      <a class="dash-kpi kpi-misu" href="{{ url_for('misu') }}">
         <span class="dash-kpi-circle st-overdue">{{ stats.misu_total }}</span>
         <span class="dash-kpi-lab">미수조회</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('checkout_list') }}">
+      <a class="dash-kpi kpi-checkout" href="{{ url_for('checkout_list') }}">
         <span class="dash-kpi-circle st-wait">퇴</span>
         <span class="dash-kpi-lab">퇴실예정</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('payments', fresh=1) }}">
+      <a class="dash-kpi kpi-payments" href="{{ url_for('payments', fresh=1) }}">
         <span class="dash-kpi-circle st-info">수</span>
         <span class="dash-kpi-lab">수금현황</span>
       </a>
-      <a class="dash-kpi" href="{{ url_for('repairs') }}">
+      <a class="dash-kpi kpi-repairs" href="{{ url_for('repairs') }}">
         <span class="dash-kpi-circle st-wait">수</span>
         <span class="dash-kpi-lab">수리</span>
       </a>
@@ -123,7 +123,7 @@
     </div>
 
     <div class="legacy-group">
-      <div class="legacy-group-title">수금관리</div>
+      <div class="legacy-group-title">수금/중개/미수금</div>
       <ul>
         <li class="menu-row is-link">
           <a href="{{ url_for('payment_new') }}">수금(대체) 등록</a>
@@ -132,7 +132,7 @@
           <a href="{{ url_for('payments', fresh=1) }}">기간별 수금(대체) 현황</a>
         </li>
         <li class="menu-row is-link">
-          <a href="{{ url_for('jungke', reset=1) }}">중개수수료등록</a>
+          <a href="{{ url_for('jungke', reset=1) }}">중개보수등록</a>
         </li>
         <li class="menu-row is-link">
           <a href="{{ url_for('misu') }}">미수금 현황 조회</a>

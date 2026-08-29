@@ -15,6 +15,7 @@ from utils import (
     clamp_date_str,
     first_date_for_tenant as _first_date_for_tenant,
     login_required,
+    make_pager as _make_pager,
     next_sukum_seq as _next_sukum_seq,
     pad_bunji as _pad_bunji,
     pad_ipju_seq as _pad_ipju_seq,
@@ -63,11 +64,28 @@ def _hist_page_for_payment(bunji1, bunji2, hosu, ipju_seq, sukum_dt, sukum_seq, 
     return before // int(_PAGE_SIZE) + 1
 
 
-def _recent_payments(bunji1="", bunji2="", hosu="", sukum_dt="", limit=80):
-    """수금 등록 화면 하단: 오늘 입력(등록)한 수금 전부 표시.
+def _recent_payments():
+    """수금 등록 화면 하단: 오늘 입력한 수금. 20건씩 페이지.
     각 행에 hist_from/hist_to·hist_page 를 붙여 클릭 시 그 수금이 있는 페이지로 이동.
     """
     today = date.today().isoformat()
+    day_from = today + " 00:00:00"
+    total = int(
+        (
+            db.query_one(
+                """
+                SELECT COUNT(*) AS c
+                FROM sukum01 s
+                WHERE s.sys_dt >= %s AND s.sys_dt < %s + INTERVAL 1 DAY
+                  AND (s.del_yn IS NULL OR s.del_yn='' OR s.del_yn='N')
+                """,
+                (day_from, today),
+            )
+            or {}
+        ).get("c")
+        or 0
+    )
+    pager = _make_pager(total)
     rows = db.query(
         """
         SELECT s.sukum_dt, s.sukum_seq, s.bunji1, s.bunji2, s.hosu, s.ipju_seq,
@@ -86,9 +104,9 @@ def _recent_payments(bunji1="", bunji2="", hosu="", sukum_dt="", limit=80):
         WHERE s.sys_dt >= %s AND s.sys_dt < %s + INTERVAL 1 DAY
           AND (s.del_yn IS NULL OR s.del_yn='' OR s.del_yn='N')
         ORDER BY s.sys_dt DESC, s.sukum_dt DESC, CAST(s.sukum_seq AS UNSIGNED) DESC
-        LIMIT %s
+        LIMIT %s OFFSET %s
         """,
-        (today + " 00:00:00", today, int(limit)),
+        (day_from, today, pager["per_page"], pager["offset"]),
     )
     cache = {}
     for r in rows or []:
@@ -107,7 +125,7 @@ def _recent_payments(bunji1="", bunji2="", hosu="", sukum_dt="", limit=80):
             r.get("sukum_seq"),
             cache[key],
         )
-    return rows
+    return rows, pager
 
 
 def _payment_form_codes():
@@ -142,7 +160,7 @@ def _tenants_in_building(bunji1, bunji2):
     )
 
 
-def _render_payment_new(buildings, rooms, chars, gbs, form, tenants, recent):
+def _render_payment_new(buildings, rooms, chars, gbs, form, tenants, recent, pager=None):
     resp = make_response(
         render_template(
             "payment_new.html",
@@ -153,6 +171,7 @@ def _render_payment_new(buildings, rooms, chars, gbs, form, tenants, recent):
             form=form,
             tenants=tenants,
             recent_payments=recent,
+            pager=pager,
             building_label=_building_label(form.get("bunji1"), form.get("bunji2")),
         )
     )
@@ -225,7 +244,7 @@ def payment_new():
             }
         )
         tenants = _tenants_in_building(bunji1, bunji2)
-        recent = _recent_payments()
+        recent, pager = _recent_payments()
 
         try:
             amount = int(amount_raw or 0)
@@ -233,13 +252,13 @@ def payment_new():
         except ValueError:
             flash("금액은 숫자로 입력하세요.", "err")
             return _render_payment_new(
-                buildings, rooms, chars, gbs, pre, tenants, recent
+                buildings, rooms, chars, gbs, pre, tenants, recent, pager
             )
 
         if not (bunji1 and bunji2 and hosu and ipju_seq and sukum_dt):
             flash("건물(주소·주소2), 호실, 입주순번, 수금일은 필수입니다.", "err")
             return _render_payment_new(
-                buildings, rooms, chars, gbs, pre, tenants, recent
+                buildings, rooms, chars, gbs, pre, tenants, recent, pager
             )
 
         # 순번: 같은 날 + 같은 건물·호실만 카운트
@@ -276,9 +295,10 @@ def payment_new():
         except Exception as e:
             flash(f"저장 실패: {e}", "err")
             return _render_payment_new(
-                buildings, rooms, chars, gbs, pre, tenants, recent
+                buildings, rooms, chars, gbs, pre, tenants, recent, pager
             )
 
+        flash("저장했습니다.", "ok")
         # 같은 수금 등록 화면에 머무름 + 하단 목록에 방금 입력 표시
         return redirect(
             url_for(
@@ -290,5 +310,5 @@ def payment_new():
             )
         )
 
-    recent = _recent_payments()
-    return _render_payment_new(buildings, rooms, chars, gbs, pre, tenants, recent)
+    recent, pager = _recent_payments()
+    return _render_payment_new(buildings, rooms, chars, gbs, pre, tenants, recent, pager)

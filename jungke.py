@@ -1,8 +1,9 @@
-"""중개수수료 등록 화면.
+"""중개보수 등록 화면.
 
-중개수수료 등록/수정/삭제와 기간별 목록 조회 라우트를 모아둔
+중개보수 등록/수정/삭제와 기간별 목록 조회 라우트를 모아둔
 모듈입니다. (수금관리 메뉴)
 """
+import re
 from datetime import date, timedelta
 
 from flask import flash, redirect, render_template, request, session, url_for
@@ -16,10 +17,86 @@ from utils import (
     login_required,
     money,
     pad_bunji as _pad_bunji,
-    paginate as _paginate,
+    make_pager as _make_pager,
     parse_money as _parse_money,
     require_write_access,
+    resolve_hosu as _resolve_hosu,
 )
+
+JUNGKE_DESC_FIXED = "중개보수"
+_HOSU_IN_DESC = re.compile(
+    r"^\s*([Bb]?\d+)\s*(?:호)?\s*(?:깔)?\s*(?:(?:중개|중계)?\s*수수료|복비).*$",
+    re.I,
+)
+
+
+def _hosu_from_desc(desc):
+    s = (desc or "").strip()
+    if not s or "," in s:
+        return ""
+    m = _HOSU_IN_DESC.match(s)
+    if m:
+        return m.group(1).upper()
+    if re.fullmatch(r"[Bb]?\d+", s):
+        return s.upper()
+    return ""
+
+
+def _ensure_jungke_hosu_col():
+    try:
+        db.execute(
+            "ALTER TABLE sjungke01 ADD COLUMN hosu char(3) NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass
+    try:
+        db.execute(
+            """
+            UPDATE sjungke01
+            SET jungke_desc=%s
+            WHERE jungke_desc=%s
+            """,
+            (JUNGKE_DESC_FIXED, "중개수수료"),
+        )
+    except Exception:
+        pass
+    try:
+        db.execute(
+            """
+            UPDATE gicho_code
+            SET g_cd_nm=%s
+            WHERE g_cd='01' AND g_sub_cd='05' AND g_cd_nm=%s
+            """,
+            ("중개보수", "중개수수료"),
+        )
+    except Exception:
+        pass
+    rows = db.query(
+        """
+        SELECT jungke_dt, jungke_seq, bunji1, bunji2, jungke_desc
+        FROM sjungke01
+        WHERE hosu IS NULL OR TRIM(hosu)=''
+        """
+    )
+    for r in rows or []:
+        h = _hosu_from_desc(r.get("jungke_desc"))
+        if not h:
+            continue
+        db.execute(
+            """
+            UPDATE sjungke01
+            SET hosu=%s, jungke_desc=%s
+            WHERE jungke_dt=%s AND jungke_seq=%s AND bunji1=%s AND bunji2=%s
+            """,
+            (
+                h[:3],
+                JUNGKE_DESC_FIXED,
+                r.get("jungke_dt"),
+                r.get("jungke_seq"),
+                r.get("bunji1"),
+                r.get("bunji2"),
+            ),
+        )
 
 
 def _empty_jungke_form():
@@ -29,7 +106,8 @@ def _empty_jungke_form():
         "jungke_seq": "",
         "bunji1": "",
         "bunji2": "",
-        "jungke_desc": "",
+        "hosu": "",
+        "jungke_desc": JUNGKE_DESC_FIXED,
         "jungke_amt": "0",
         "orig_dt": "",
         "orig_seq": "",
@@ -61,7 +139,7 @@ def _jungke_next_seq(jungke_dt):
 @login_required
 @require_write_access
 def jungke():
-    """중개수수료 등록 · 기간 목록 (XP「중개수수료 등록」 → sjungke01)."""
+    """중개보수 등록 · 기간 목록 (XP「중개수수료 등록」 → sjungke01)."""
     today = date.today()
     # 목록 기본 시작일: 전월 1일
     _first_this = today.replace(day=1)
@@ -78,6 +156,8 @@ def jungke():
             "bunji1": _pad_bunji(src.get("q_bunji1") or src.get("keep_q_b1")),
             "bunji2": _pad_bunji(src.get("q_bunji2") or src.get("keep_q_b2")),
         }
+
+    _ensure_jungke_hosu_col()
 
     if request.method == "POST":
         action = (request.form.get("action") or "save").strip()
@@ -97,7 +177,8 @@ def jungke():
         jungke_dt = (request.form.get("jungke_dt") or "").strip()
         bunji1 = _pad_bunji(request.form.get("bunji1"))
         bunji2 = _pad_bunji(request.form.get("bunji2"))
-        desc = (request.form.get("jungke_desc") or "").strip()
+        hosu = _resolve_hosu(bunji1, bunji2, request.form.get("hosu"))
+        desc = JUNGKE_DESC_FIXED
         amt = _parse_money(request.form.get("jungke_amt"))
         mode = (request.form.get("mode") or "new").strip()
         orig_dt = (request.form.get("orig_dt") or "").strip()
@@ -134,8 +215,8 @@ def jungke():
         if not bunji1 or not bunji2:
             flash("주소를 입력하세요.", "err")
             return redirect(url_for("jungke", **redirect_kw))
-        if not desc:
-            flash("내역을 입력하세요.", "err")
+        if not hosu:
+            flash("호수를 입력하세요.", "err")
             return redirect(url_for("jungke", **redirect_kw))
         if amt is None:
             amt = 0
@@ -145,7 +226,7 @@ def jungke():
                 db.execute(
                     """
                     UPDATE sjungke01
-                    SET jungke_dt=%s, bunji1=%s, bunji2=%s,
+                    SET jungke_dt=%s, bunji1=%s, bunji2=%s, hosu=%s,
                         jungke_desc=%s, jungke_amt=%s, uid=%s, sys_dt=NOW()
                     WHERE jungke_dt=%s AND jungke_seq=%s
                       AND bunji1=%s AND bunji2=%s
@@ -154,6 +235,7 @@ def jungke():
                         jungke_dt,
                         bunji1,
                         bunji2,
+                        hosu[:3],
                         desc[:50],
                         amt,
                         uid,
@@ -169,11 +251,11 @@ def jungke():
                 db.execute(
                     """
                     INSERT INTO sjungke01
-                      (jungke_dt, jungke_seq, bunji1, bunji2,
+                      (jungke_dt, jungke_seq, bunji1, bunji2, hosu,
                        jungke_desc, jungke_amt, uid, sys_dt)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     """,
-                    (jungke_dt, seq, bunji1, bunji2, desc[:50], amt, uid),
+                    (jungke_dt, seq, bunji1, bunji2, hosu[:3], desc[:50], amt, uid),
                 )
                 flash(f"등록했습니다. (순번 {seq})", "ok")
         except Exception as e:
@@ -211,16 +293,24 @@ def jungke():
     if filters["bunji2"]:
         where.append("bunji2=%s")
         args.append(filters["bunji2"])
-    results = db.query(
-        f"""
-        SELECT jungke_dt, jungke_seq, bunji1, bunji2, jungke_desc, jungke_amt
-        FROM sjungke01
-        WHERE {" AND ".join(where)}
-        ORDER BY jungke_dt DESC, bunji1, bunji2, jungke_seq
-        LIMIT 500
-        """,
-        args,
+    where_sql = " AND ".join(where)
+    total = int(
+        (db.query_one(f"SELECT COUNT(*) AS c FROM sjungke01 WHERE {where_sql}", args) or {}).get("c")
+        or 0
     )
+    pager = _make_pager(total)
+    results = []
+    if total:
+        results = db.query(
+            f"""
+            SELECT jungke_dt, jungke_seq, bunji1, bunji2, hosu, jungke_desc, jungke_amt
+            FROM sjungke01
+            WHERE {where_sql}
+            ORDER BY jungke_dt DESC, bunji1, bunji2, jungke_seq
+            LIMIT %s OFFSET %s
+            """,
+            args + [pager["per_page"], pager["offset"]],
+        )
 
     form = _empty_jungke_form()
     building_label = ""
@@ -231,7 +321,7 @@ def jungke():
     if edit_dt and edit_seq and edit_b1 and edit_b2:
         row = db.query_one(
             """
-            SELECT jungke_dt, jungke_seq, bunji1, bunji2, jungke_desc, jungke_amt
+            SELECT jungke_dt, jungke_seq, bunji1, bunji2, hosu, jungke_desc, jungke_amt
             FROM sjungke01
             WHERE jungke_dt=%s AND jungke_seq=%s AND bunji1=%s AND bunji2=%s
             """,
@@ -244,7 +334,9 @@ def jungke():
                 "jungke_seq": str(row.get("jungke_seq") or "").zfill(2),
                 "bunji1": row.get("bunji1") or "",
                 "bunji2": row.get("bunji2") or "",
-                "jungke_desc": row.get("jungke_desc") or "",
+                "hosu": (row.get("hosu") or "").strip()
+                or _hosu_from_desc(row.get("jungke_desc")),
+                "jungke_desc": JUNGKE_DESC_FIXED,
                 "jungke_amt": money(row.get("jungke_amt")) or "0",
                 "orig_dt": fmt_date(row.get("jungke_dt")),
                 "orig_seq": str(row.get("jungke_seq") or "").zfill(2),
@@ -253,9 +345,6 @@ def jungke():
             }
             building_label = _building_label(form["bunji1"], form["bunji2"])
 
-    pager = None
-    if results:
-        results, pager = _paginate(results)
     return render_template(
         "jungke.html",
         form=form,

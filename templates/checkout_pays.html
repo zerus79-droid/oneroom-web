@@ -22,6 +22,7 @@
       <thead>
         <tr>
           <th class="tc">일자</th>
+          <th class="tc">구분</th>
           <th class="tc">금액</th>
           <th class="tc">실입</th>
         </tr>
@@ -30,11 +31,12 @@
         {% for p in data.payments %}
         <tr>
           <td class="tc">{{ p.dt_full or p.dt }}</td>
+          <td class="tc">{{ p.label }}</td>
           <td class="num">{{ p.amt_disp }}</td>
           <td class="num">{{ p.sil|money }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="empty">수금 내역 없음</td></tr>
+        <tr><td colspan="4" class="empty">수금 내역 없음</td></tr>
         {% endfor %}
       </tbody>
     </table>

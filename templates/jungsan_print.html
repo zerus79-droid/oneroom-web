@@ -14,8 +14,8 @@
       background: #e5e7eb;
       color: #000;
       font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
-      font-size: 10pt;
-      line-height: 1.25;
+      font-size: 11pt;
+      line-height: 1.15;
     }
     .toolbar {
       position: sticky; top: 0; z-index: 5;
@@ -37,7 +37,7 @@
     }
     h1 {
       text-align: center;
-      font-size: 18pt;
+      font-size: 22pt;
       font-weight: 700;
       margin: 0 0 10px;
       letter-spacing: 0.06em;
@@ -47,7 +47,7 @@
       justify-content: space-between;
       align-items: baseline;
       margin-bottom: 6px;
-      font-size: 10pt;
+      font-size: 11pt;
     }
     table.main {
       width: 100%;
@@ -89,16 +89,35 @@
       display: grid;
       grid-template-columns: 1fr 1.1fr 1fr;
       gap: 8px 16px;
-      font-size: 10pt;
+      font-size: 11pt;
       align-items: start;
     }
-    .foot .blk { line-height: 1.55; }
+    .foot .blk { line-height: 1.15; }
     .foot .lab { display: inline-block; min-width: 5.2em; }
     .foot .amt {
       display: inline-block;
       min-width: 5.5em;
       text-align: right;
       font-variant-numeric: tabular-nums;
+    }
+    /* 일반관리 추가항목(인터넷+유선)이 가장 김 → 그 너비 기준, 라벨·금액 오른쪽 끝 */
+    .foot .costs > div {
+      display: grid;
+      grid-template-columns: 7.2em 6.4em;
+      column-gap: 8px;
+      justify-content: start;
+      align-items: baseline;
+    }
+    .foot .costs .lab {
+      display: block;
+      min-width: 0;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .foot .costs .amt {
+      display: block;
+      min-width: 0;
+      text-align: right;
     }
     .foot .sum-line {
       border-top: 1px solid #222;
@@ -108,21 +127,24 @@
     }
     .foot .center {
       text-align: center;
-      padding-top: 4px;
+      padding-top: 0;
     }
     .foot .center .big {
       font-size: 12pt;
       font-weight: 700;
-      margin-top: 4px;
+      margin-top: 0;
+      margin-left: 8px;
       font-variant-numeric: tabular-nums;
     }
     .foot .right { text-align: right; }
-    .suri {
-      margin-top: 10px;
+    .detail-area {
+      margin-top: 1.5em;
       font-size: 9pt;
       line-height: 1.5;
       font-variant-numeric: tabular-nums;
     }
+    .detail-group + .detail-group { margin-top: 1.5em; }
+    .detail-title { font-weight: 700; }
     .err { padding: 24px; text-align: center; color: #991b1b; }
 
     @media print {
@@ -142,7 +164,7 @@
 <body>
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
-    <a class="sec" href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}">화면 조회로</a>
+    <a class="sec" href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}">이전</a>
     <span style="opacity:.75;font-size:.85rem">Ctrl+P · PDF로 저장</span>
   </div>
 
@@ -153,7 +175,7 @@
     <h1>{{ data.bunji_label }} 결산현황</h1>
     <div class="meta">
       <span>최초보증금 : {{ data.summary.first_amt|money }}</span>
-      <span>기준일자:{{ data.summary.as_of_kr }}</span>
+      <span>{{ '관리주체 통장' if data.manager_account else '건물주 통장' }} · 기준일자:{{ filters.as_of|fmt_ipju_short }}</span>
     </div>
 
     <table class="main">
@@ -184,7 +206,7 @@
           <td>{{ r.wolse_disp }}</td>
           <td class="num">{{ r.manage_disp }}</td>
           <td>{{ r.ipkum_disp }}</td>
-          <td class="left">{{ r.jisi_disp }}</td>
+          <td class="left">{{ r.print_jisi_disp }}</td>
           <td class="num">{{ r.misu_disp }}</td>
         </tr>
         {% endfor %}
@@ -196,7 +218,7 @@
           <th>{{ '{:,}'.format(data.totals.bojung_man) if data.totals.bojung_man else '' }}</th>
           <th>{{ data.totals.rent_man }}</th>
           <th class="num">{{ data.totals.manage_man_disp }}</th>
-          <th>{{ data.totals.ipkum_amt|money }}</th>
+          <th>{{ data.summary.ipkum_tot|money }}</th>
           <th></th>
           <th class="num">{{ data.totals.misu_amt|money }}</th>
         </tr>
@@ -204,18 +226,23 @@
     </table>
 
     <div class="foot">
-      <div class="blk">
+      <div class="blk costs">
         <div><span class="lab">관리수수료</span> <span class="amt">{{ data.summary.man_cost|money }}</span></div>
+        {% if not data.is_resp %}
+        <div><span class="lab">계단청소</span> <span class="amt">{{ data.summary.stair_cost|money }}</span></div>
+        <div><span class="lab">인터넷+유선</span> <span class="amt">{{ data.summary.inet_cost|money }}</span></div>
+        <div><span class="lab">옵션비</span> <span class="amt">{{ data.summary.option_cost|money }}</span></div>
+        {% endif %}
         <div><span class="lab">수　리　비</span> <span class="amt">{{ data.summary.owner_suri|money }}</span></div>
-        <div><span class="lab">중개수수료</span> <span class="amt">{{ data.summary.jungke_cost|money }}</span></div>
+        <div><span class="lab">중개　보수</span> <span class="amt">{{ data.summary.jungke_cost|money }}</span></div>
         <div class="sum-line"><span class="lab">계</span> <span class="amt">{{ data.summary.cost_sum|money }}</span></div>
       </div>
       <div class="blk center">
-        <div>당월지급액</div>
-        <div class="big">{{ data.summary.pay_amt|money }}</div>
+        <div>{{ data.summary.pay_label or '당월지급액' }}<span class="big">{{ data.summary.pay_amt|money }}</span></div>
       </div>
       <div class="blk right">
         <div><span class="lab">임대료대체</span> <span class="amt">{{ data.summary.imdae_dache|money }}</span></div>
+        <div>&nbsp;</div>
         <div><span class="lab">보증금대체</span> <span class="amt">{{ data.summary.bojung_dache|money }}</span></div>
         {% if data.summary.claim_tot %}
         <div><span class="lab">선불청구</span> <span class="amt">{{ data.summary.claim_tot|money }}</span></div>
@@ -223,11 +250,31 @@
       </div>
     </div>
 
-    {% if data.suri_detail %}
-    <div class="suri">
-      {% for s in data.suri_detail %}
-      <div>{{ s.dt }} {{ s.amt_disp }} {{ s.desc }}</div>
-      {% endfor %}
+    {% if data.manage_detail or data.suri_detail or data.jungke_detail %}
+    <div class="detail-area">
+      {% if data.manage_detail %}
+      <div class="detail-group">
+        {% for m in data.manage_detail %}
+        <div>{{ m.hosu }}호 {{ m.desc }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if data.suri_detail %}
+      <div class="detail-group">
+        <div class="detail-title">수리비내역</div>
+        {% for s in data.suri_detail %}
+        <div>{{ s.dt }} {{ s.amt_disp }} {{ s.desc }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if data.jungke_detail %}
+      <div class="detail-group">
+        <div class="detail-title">중개 보수</div>
+        {% for j in data.jungke_detail %}
+        <div>{{ j.dt }} {{ j.amt_disp }} {{ j.desc }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
     {% endif %}
   </div>

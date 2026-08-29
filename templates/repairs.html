@@ -7,7 +7,7 @@
     {% if ran %}
     <span class="muted">
       {{ filters.date_from }} ~ {{ filters.date_to }}
-      {% if results %} · {{ results|length }}건{% endif %}
+      {% if pager %} · {{ pager.total }}건 ({{ pager.page }}/{{ pager.total_pages }}){% endif %}
     </span>
     {% endif %}
     <span class="caption-actions">
@@ -35,13 +35,6 @@
         </div>
       </div>
       <div class="ls-row">
-        <label class="ls-lab">성명</label>
-        <div class="ls-val">
-          <input type="text" name="name" value="{{ filters.name }}" class="ls-box"
-                 placeholder="입주자 이름" autocomplete="off">
-        </div>
-      </div>
-      <div class="ls-row ls-date-bottom">
         <label class="ls-lab star">기준일자</label>
         <div class="ls-val">
           <div class="date-with-cal">
@@ -65,16 +58,25 @@
           </div>
         </div>
       </div>
+      <div class="ls-row">
+        <label class="ls-lab" for="suri_desc">수리내역</label>
+        <div class="ls-val">
+          <input type="text" name="suri_desc" id="suri_desc" value="{{ filters.suri_desc }}"
+                 class="ls-box" maxlength="50" placeholder="예: 에어컨" autocomplete="off">
+        </div>
+      </div>
       </div>
       <div class="filter-bar-btns">
         <button type="submit" class="btn">조회</button>
         <a class="btn" href="{{ url_for('repairs') }}">초기화</a>
+        <a class="btn btn-accent" id="btn-repairs-print" target="_blank" rel="noopener"
+           href="{{ url_for('repairs_print', bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, hosu=filters.hosu or none, suri_desc=filters.suri_desc or none, date_from=filters.date_from, date_to=filters.date_to) }}">인쇄</a>
       </div>
     </form>
 
     <div class="panel-section-lab">
       수리 목록
-      {% if ran and results %}<span class="muted">{{ pager.total if pager else results|length }}건</span>{% endif %}
+      {% if ran and pager %}<span class="muted">{{ pager.total }}건 ({{ pager.page }}/{{ pager.total_pages }})</span>{% elif ran and results %}<span class="muted">{{ results|length }}건</span>{% endif %}
     </div>
     {% set pager_endpoint = 'repairs' %}
     {% set pager_label = '수리 목록 페이지' %}
@@ -82,7 +84,7 @@
       'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
       'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
       'hosu': filters.hosu or none,
-      'name': filters.name or none,
+      'suri_desc': filters.suri_desc or none,
       'date_from': filters.date_from,
       'date_to': filters.date_to
     } %}
@@ -95,7 +97,6 @@
             <th class="tc">수리일자</th>
             <th class="tc">주소</th>
             <th class="tc">호수</th>
-            <th class="tc">성명</th>
             <th class="tc">입주일</th>
             <th class="tc">수리내역</th>
             <th class="tc">수리총액</th>
@@ -111,9 +112,8 @@
               onclick="location.href='{{ url_for('repair_new', suri_dt=r.suri_dt|fmt_date, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, suri_seq=r.suri_seq) }}'">
             <td class="tc col-nowrap">{{ r.suri_dt|fmt_date }}</td>
             <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
-            <td class="tc">{{ r.hosu }}</td>
-            <td>{{ r.ipju_nm or '' }}</td>
-            <td class="tc col-nowrap">{{ r.ipju_dt|fmt_date }}</td>
+            <td class="tc">{% if r.hosu == '공용' %}공용{% else %}{{ r.hosu }}{% endif %}</td>
+            <td class="tc col-nowrap">{% if r.hosu == '공용' %}—{% elif r.ipju_dt %}{{ r.ipju_dt|fmt_date }}{% else %}공실{% endif %}</td>
             <td class="left">{{ r.suri_desc or '' }}</td>
             <td class="num">{{ r.suri_won_amt|money }}</td>
             <td class="num">{{ r.ipjuja_budam|money }}</td>
@@ -131,4 +131,23 @@
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var form = document.getElementById('repairs-filter');
+  var btn = document.getElementById('btn-repairs-print');
+  if (!form || !btn) return;
+  function sync() {
+    var fd = new FormData(form);
+    var q = new URLSearchParams();
+    fd.forEach(function (v, k) {
+      if (String(v).trim() !== '') q.set(k, v);
+    });
+    var qs = q.toString();
+    btn.setAttribute('href', '/repairs/print' + (qs ? ('?' + qs) : ''));
+  }
+  form.addEventListener('change', sync);
+  form.addEventListener('input', sync);
+  sync();
+})();
+</script>
 {% endblock %}

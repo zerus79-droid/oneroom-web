@@ -1,12 +1,11 @@
 {% extends "base.html" %}
-{% block title %}중개수수료 등록 · 주택관리 시스템{% endblock %}
+{% block title %}중개보수 등록 · 주택관리 시스템{% endblock %}
 {% block content %}
 
 {# ── 등록 + 목록 일체형 ── #}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">중개수수료 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
-    {% if results %}<span class="muted">목록 {{ results|length }}건</span>{% endif %}
+    <span class="caption-title">중개보수 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
   </div>
   <div class="legacy-sukum-body xp-form">
   <form method="post" id="jungke-form" autocomplete="off">
@@ -58,7 +57,13 @@
         </div>
       </div>
       <div class="xp-field">
-        <label class="ls-lab star">수수료</label>
+        <label class="ls-lab star" for="hosu">호수</label>
+        <input type="text" name="hosu" id="hosu" class="hosu-input ls-box" required
+               value="{{ form.hosu }}" maxlength="3" placeholder="201"
+               style="text-transform:uppercase" autocomplete="off">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab star">중개보수</label>
         <div class="xp-inline">
           <input type="text" name="jungke_amt" id="jungke_amt" class="ls-box ls-money money-input"
                  value="{{ form.jungke_amt }}" inputmode="numeric" required
@@ -66,23 +71,17 @@
           <span class="ls-unit">원</span>
         </div>
       </div>
-      <div class="xp-field xp-field-wide">
-        <label class="ls-lab star">내역</label>
-        <input type="text" name="jungke_desc" id="jungke_desc" class="ls-box" required
-               value="{{ form.jungke_desc }}" maxlength="50"
-               placeholder="예: 205호 복비" autocomplete="off">
-      </div>
     </div>
 
     <div class="xp-actions">
       <button type="submit" class="btn" data-action="save">저장</button>
       <button type="submit" class="btn secondary" data-action="delete"
-              onclick="return confirm('이 중개수수료 내역을 삭제할까요?');">삭제</button>
+              onclick="return window.appConfirmSubmit(this.form, '이 중개보수 내역을 삭제할까요?');">삭제</button>
       <button type="submit" class="btn secondary" data-action="new">신규</button>
     </div>
   </form>
 
-  <div class="panel-section-lab">중개수수료 목록</div>
+  <div class="panel-section-lab">중개보수 목록</div>
   <form method="get" id="jungke-list-filter" class="filter-bar" autocomplete="off">
     <div class="filter-bar-fields">
     <div class="ls-row">
@@ -125,6 +124,14 @@
         </div>
       </div>
     </div>
+    {% if pager and pager.total %}
+    <div class="ls-row">
+      <label class="ls-lab"></label>
+      <div class="ls-val">
+        <span class="muted">{{ pager.total }}건 ({{ pager.page }}/{{ pager.total_pages }})</span>
+      </div>
+    </div>
+    {% endif %}
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
@@ -147,10 +154,10 @@
       <thead>
         <tr>
           <th class="tc">일자</th>
+          <th class="tc">순번</th>
           <th class="tc">주소</th>
           <th class="tc">중개내역</th>
-          <th class="tc">중개수수료</th>
-          <th class="tc">순번</th>
+          <th class="tc">중개보수</th>
         </tr>
       </thead>
       <tbody>
@@ -158,16 +165,16 @@
         <tr class="click-row"
             onclick="location.href='{{ url_for('jungke', date_from=filters.date_from, date_to=filters.date_to, q_bunji1=filters.bunji1|bunji if filters.bunji1 else '', q_bunji2=filters.bunji2|bunji if filters.bunji2 else '', edit_dt=r.jungke_dt|fmt_date, edit_seq=r.jungke_seq, edit_b1=r.bunji1, edit_b2=r.bunji2) }}'">
           <td class="tc col-nowrap">{{ r.jungke_dt|fmt_date }}</td>
-          <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
-          <td>{{ r.jungke_desc or '' }}</td>
-          <td class="num">{{ r.jungke_amt|money }}</td>
           <td class="tc">{{ r.jungke_seq }}</td>
+          <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+          <td>{% if r.hosu == '공용' %}공용{% elif r.hosu %}{{ r.hosu }}호{% else %}{{ r.jungke_desc or '' }}{% endif %}</td>
+          <td class="num">{{ r.jungke_amt|money }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p class="empty">해당 기간 중개수수료 내역이 없습니다.</p>
+    <p class="empty">해당 기간 중개보수 내역이 없습니다.</p>
     {% endif %}
   </div>
   </div>

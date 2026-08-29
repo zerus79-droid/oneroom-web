@@ -47,7 +47,7 @@
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
       <a class="btn" href="{{ url_for('jungsan') }}">초기화</a>
-      <a class="btn" id="jungsan-print-btn" target="_blank" rel="noopener"
+      <a class="btn btn-accent" id="jungsan-print-btn" target="_blank" rel="noopener"
          href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, as_of=filters.as_of) }}"
          title="결산현황 인쇄">인쇄</a>
     </div>
@@ -72,49 +72,51 @@
       <div class="jungsan-meta-line">
         기준일 <strong>{{ data.as_of }}</strong>
         · 대상월 <strong>{{ data.month_start[:7] }}</strong>
+        · 입금통장 <strong>{{ '관리주체 통장' if data.manager_account else '건물주 통장' }}</strong>
       </div>
     </div>
   </div>
 
   {# 요약 (XP 상단 필드) #}
+  {% set can_dache_edit = current_user and (current_user.grade or '')|upper != 'C' %}
+  {% if can_dache_edit %}
+  <form method="post" action="{{ url_for('jungsan_dache') }}" id="js-dache-form"
+        onsubmit="return false;">
+    <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
+    <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
+    <input type="hidden" name="as_of" value="{{ filters.as_of }}">
+  {% endif %}
   <div class="jungsan-summary">
     <div class="js-item"><span class="js-lab">최초보증금</span><span class="js-val">{{ data.summary.first_amt|money }}</span></div>
     <div class="js-item"><span class="js-lab">관리수수료</span><span class="js-val">{{ data.summary.man_cost|money }}</span></div>
+    {% if not data.is_resp %}
+    <div class="js-item"><span class="js-lab">계단청소</span><span class="js-val">{{ data.summary.stair_cost|money }}</span></div>
+    <div class="js-item"><span class="js-lab">인터넷+유선</span><span class="js-val">{{ data.summary.inet_cost|money }}</span></div>
+    <div class="js-item"><span class="js-lab">옵션비</span><span class="js-val">{{ data.summary.option_cost|money }}</span></div>
+    {% endif %}
     <div class="js-item"><span class="js-lab">수리비</span><span class="js-val">{{ data.summary.owner_suri|money }}</span></div>
-    <div class="js-item"><span class="js-lab">중개수수료</span><span class="js-val">{{ data.summary.jungke_cost|money }}</span></div>
-    <div class="js-item highlight"><span class="js-lab">당월지급액</span><span class="js-val">{{ data.summary.pay_amt|money }}</span></div>
+    <div class="js-item"><span class="js-lab">중개보수</span><span class="js-val">{{ data.summary.jungke_cost|money }}</span></div>
+    <div class="js-item highlight"><span class="js-lab">{{ data.summary.pay_label or '당월지급액' }}</span><span class="js-val">{{ data.summary.pay_amt|money }}</span></div>
     {% if data.summary.claim_tot %}
     <div class="js-item"><span class="js-lab">선불청구</span><span class="js-val">{{ data.summary.claim_tot|money }}</span></div>
     {% endif %}
     <div class="js-item"><span class="js-lab">임대료대체·입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
     <div class="js-item warn"><span class="js-lab">미수 합계</span><span class="js-val">{{ data.summary.misu_tot|money }}</span></div>
-    {% if current_user and (current_user.grade or '')|upper != 'C' %}
-    <form method="post" action="{{ url_for('jungsan_dache') }}" class="js-dache-wrap no-print"
-          onsubmit="return submitJungsanDache(this, 'apply');">
-      <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
-      <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
-      <input type="hidden" name="as_of" value="{{ filters.as_of }}">
-      <button type="submit" class="js-item js-dache-btn"
-              {% if not data.dache_target_cnt %}disabled title="대체할 미입금이 없습니다."{% endif %}
-              data-cnt="{{ data.dache_target_cnt or 0 }}"
-              data-amt="{{ data.dache_target_amt|money }}">
-        <span class="js-lab">일괄대체</span>
-        <span class="js-val">{{ data.dache_target_amt|money }}</span>
-      </button>
-    </form>
-    <form method="post" action="{{ url_for('jungsan_dache_undo') }}" class="js-dache-wrap no-print"
-          onsubmit="return submitJungsanDache(this, 'undo');">
-      <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
-      <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
-      <input type="hidden" name="as_of" value="{{ filters.as_of }}">
-      <button type="submit" class="js-item js-dache-btn"
-              {% if not data.dache_undo_cnt %}disabled title="해제할 대체가 없습니다."{% endif %}
-              data-cnt="{{ data.dache_undo_cnt or 0 }}"
-              data-amt="{{ data.dache_undo_amt|money }}">
-        <span class="js-lab">대체해제</span>
-        <span class="js-val">{{ data.dache_undo_amt|money }}</span>
-      </button>
-    </form>
+    {% if can_dache_edit %}
+    <button type="button" class="js-item js-dache-btn no-print" name="dache_mode" value="apply"
+            {% if not data.dache_target_cnt %}disabled title="대체할 미입금이 없습니다."{% endif %}
+            data-cnt="{{ data.dache_target_cnt or 0 }}"
+            data-amt="{{ data.dache_target_amt|money }}">
+      <span class="js-lab">대체</span>
+      <span class="js-val">{{ data.dache_target_amt|money }}</span>
+    </button>
+    <button type="button" class="js-item js-dache-btn no-print" name="dache_mode" value="undo"
+            {% if not data.dache_undo_cnt %}disabled title="해제할 대체가 없습니다."{% endif %}
+            data-cnt="{{ data.dache_undo_cnt or 0 }}"
+            data-amt="{{ data.dache_undo_amt|money }}">
+      <span class="js-lab">대체해제</span>
+      <span class="js-val">{{ data.dache_undo_amt|money }}</span>
+    </button>
     {% endif %}
     {% if data.summary.note %}
     <div class="js-item wide"><span class="js-lab">특기사항</span><span class="js-val left">{{ data.summary.note }}</span></div>
@@ -133,7 +135,7 @@
           <th class="tc">관리비</th>
           <th class="tc">입금액</th>
           <th class="tc">관리지시</th>
-          <th class="tc">대체</th>
+          <th class="tc">{% if can_dache_edit %}<label class="js-dache-all-lab"><input type="checkbox" id="js-dache-all" title="대상 전체"> 대체</label>{% else %}대체{% endif %}</th>
           <th class="tc">미수금</th>
         </tr>
       </thead>
@@ -146,9 +148,21 @@
           <td class="tc">{% if not r.is_empty %}{{ r.bojung_amt|money }}{% endif %}</td>
           <td class="tc">{% if not r.is_empty %}{{ r.rent_amt|money }}{% endif %}</td>
           <td class="num">{% if not r.is_empty %}{{ r.manage_amt|money }}{% endif %}</td>
-          <td class="tc">{% if not r.is_empty %}{{ r.ipkum_amt|money }}{% endif %}</td>
-          <td class="left">{% if not r.is_empty %}{{ r.manage_desc or '' }}{% endif %}</td>
-          <td class="tc">{% if r.dache_gb %}{{ r.dache_gb }}{% endif %}</td>
+          <td class="tc">{% if not r.is_empty and r.ipkum_amt %}{{ r.ipkum_amt|money }}{% endif %}</td>
+          <td class="left">
+            {% if not r.is_empty %}{% if r.manage_desc == '미납' %}<span class="st-badge overdue">미납</span>{% elif r.manage_desc in ('대체', '(대체)') %}<span class="st-badge info">대체</span>{% else %}{{ r.manage_desc or '' }}{% endif %}{% endif %}
+          </td>
+          <td class="tc">
+            {% if can_dache_edit and r.can_dache %}
+            <label class="js-dache-done"><input type="checkbox" class="js-dache-check js-dache-apply" name="dache_sel"
+                   value="{{ r.dache_key }}" data-amt="{{ r.dache_remain }}" title="체크하면 바로 대체"> 대체</label>
+            {% elif r.can_undo %}
+            {% if can_dache_edit %}
+            <label class="js-dache-done"><input type="checkbox" class="js-dache-check js-dache-undo" name="dache_undo"
+                   value="{{ r.dache_key }}" data-amt="{{ r.dache_amt }}" checked title="체크 해제하면 바로 대체해제"> 대체</label>
+            {% else %}{{ r.dache_gb }}{% endif %}
+            {% elif r.dache_gb %}{{ r.dache_gb }}{% endif %}
+          </td>
           <td class="num {% if r.misu_amt > 0 %}text-warn{% endif %}">
             {% if not r.is_empty %}{{ r.misu_amt|money }}{% endif %}
           </td>
@@ -171,13 +185,58 @@
       </tfoot>
     </table>
   </div>
+  {% if can_dache_edit %}
+  </form>
+  <div class="js-adjust-register no-print">
+    <button type="button" id="js-adjust-open">감면·조정 등록</button>
+    <div id="js-adjust-panel" class="is-hidden">
+      <input type="hidden" id="js-adjust-id" value="">
+      <select id="js-adjust-tenant" aria-label="호실 선택">
+        <option value="">호실 선택</option>
+        {% for r in data.rows %}{% if not r.is_empty and (r.misu_amt > 0 or r.adjustment_items) %}
+        <option value="{{ r.hosu }}|{{ r.ipju_seq }}" data-rent="{{ r.rent_calc if r.rent_calc is not none else r.rent_amt }}" data-manage="{{ r.manage_amt }}">{{ r.hosu }}호 · {{ r.ipju_nm }}</option>
+        {% endif %}{% endfor %}
+      </select>
+      <select id="js-adjust-kind">
+        <option value="">구분 선택</option><option value="RENT_DISCOUNT">월세 감면</option><option value="RENT_WAIVE">월세 면제</option>
+        <option value="MANAGE_DISCOUNT">관리비 감면</option><option value="MANAGE_WAIVE">관리비 면제</option><option value="OTHER">기타 조정</option>
+      </select>
+      <input type="text" id="js-adjust-amt" inputmode="numeric" placeholder="금액">
+      <select id="js-adjust-burden"><option value="O">건물주 부담</option><option value="C">관리주체 부담</option></select>
+      <input type="text" id="js-adjust-reason" maxlength="200" placeholder="사유">
+      <button type="button" id="js-adjust-save">저장</button>
+      <button type="button" id="js-adjust-cancel">취소</button>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if data.manage_detail %}
+  <div class="js-adjust-list no-print">
+    <div class="js-adjust-list-title">이번 달 감면·조정 내역 {{ data.manage_detail|length }}건</div>
+    <table class="legacy-grid">
+      <thead><tr><th>호수</th><th>세입자</th><th>구분</th><th>금액</th><th>부담 주체</th><th>사유</th>{% if can_dache_edit %}<th>처리</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for a in data.manage_detail %}
+        <tr>
+          <td class="tc">{{ a.hosu }}</td><td>{{ a.ipju_nm }}</td><td class="tc">{{ a.kind_label }}</td>
+          <td class="num">{{ a.amt|money }}</td><td class="tc">{{ a.burden_label }}</td><td>{{ a.reason }}</td>
+          {% if can_dache_edit %}<td class="tc col-nowrap">
+            <button type="button" class="js-adjust-edit" data-id="{{ a.adj_id }}" data-hosu="{{ a.hosu }}" data-seq="{{ a.ipju_seq }}"
+                    data-kind="{{ a.kind }}" data-amt="{{ a.amt }}" data-burden="{{ a.burden_gb }}" data-reason="{{ a.reason|e }}">수정</button>
+            <button type="button" class="js-adjust-delete" data-id="{{ a.adj_id }}">삭제</button>
+          </td>{% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   <p class="muted jungsan-note no-print">
     {% if data.source == 'saved' %}
     저장된 정산서 기준입니다. 입금액은 해당 월 수금(월세+관리)으로 보강 표시합니다.
     {% else %}
-    실시간 미리보기입니다. 「일괄대체」는 임대료만 집주인에게 대납합니다. 세입자 미수에서는 빼지 않습니다. 당월 퇴실: 선불은 대체금이 있을 때만 남은 기간 청구, 후불은 퇴실일까지 일할.
-    일반관리는 미납 표기.
+    실시간 미리보기입니다. 체크하면 바로 대체되고, 대체 체크를 빼면 바로 해제됩니다. 위 버튼은 대상 전체입니다. 대체는 임대료만(관리비 제외). 세입자 미수에서는 빼지 않습니다.
     {% endif %}
   </p>
 </div>
@@ -188,20 +247,251 @@
 {% endif %}
 
 <script>
-function submitJungsanDache(form, mode) {
-  var btn = form.querySelector(".js-dache-btn");
-  if (!btn || btn.disabled) return false;
-  var cnt = btn.getAttribute("data-cnt") || "0";
-  var amt = btn.getAttribute("data-amt") || "0";
-  var msg = mode === "undo"
-    ? ("당월 대체 " + cnt + "건, " + amt + "원을 해제합니다. 계속할까요?")
-    : ("미입금 " + cnt + "건, " + amt + "원을 대체 처리합니다. 계속할까요?");
-  if (!window.confirm(msg)) {
-    return false;
-  }
-  btn.disabled = true;
-  return true;
+function saveJungsanScroll() {
+  try {
+    sessionStorage.setItem("jungsanScrollKey", location.pathname + location.search);
+    sessionStorage.setItem("jungsanScrollY", String(window.scrollY || window.pageYOffset || 0));
+    var wrap = document.querySelector(".jungsan-sheet .table-scroll");
+    if (wrap) sessionStorage.setItem("jungsanTblScroll", String(wrap.scrollTop || 0));
+  } catch (e) {}
 }
+function restoreJungsanScroll() {
+  try {
+    var key = location.pathname + location.search;
+    if (sessionStorage.getItem("jungsanScrollKey") !== key) return;
+    var y = parseInt(sessionStorage.getItem("jungsanScrollY") || "", 10);
+    var ty = parseInt(sessionStorage.getItem("jungsanTblScroll") || "", 10);
+    sessionStorage.removeItem("jungsanScrollKey");
+    sessionStorage.removeItem("jungsanScrollY");
+    sessionStorage.removeItem("jungsanTblScroll");
+    var go = function () {
+      if (!isNaN(y)) window.scrollTo(0, y);
+      var wrap = document.querySelector(".jungsan-sheet .table-scroll");
+      if (wrap && !isNaN(ty)) wrap.scrollTop = ty;
+    };
+    go();
+    requestAnimationFrame(go);
+    setTimeout(go, 0);
+  } catch (e) {}
+}
+(function bindJungsanDachePick() {
+  restoreJungsanScroll();
+  var form = document.getElementById("js-dache-form");
+  if (!form) return;
+  var applyUrl = "{{ url_for('jungsan_dache') }}";
+  var undoUrl = "{{ url_for('jungsan_dache_undo') }}";
+  function syncHeader() {
+    var all = document.getElementById("js-dache-all");
+    if (!all) return;
+    var boxes = form.querySelectorAll(".js-dache-check");
+    var n = boxes.length, on = 0;
+    boxes.forEach(function (el) { if (el.checked) on += 1; });
+    all.indeterminate = on > 0 && on < n;
+    all.checked = n > 0 && on === n;
+  }
+  function formVals() {
+    var b1 = form.querySelector('input[name="bunji1"]');
+    var b2 = form.querySelector('input[name="bunji2"]');
+    var asOf = form.querySelector('input[name="as_of"]');
+    return {
+      bunji1: b1 ? b1.value : "",
+      bunji2: b2 ? b2.value : "",
+      as_of: asOf ? asOf.value : ""
+    };
+  }
+  function postDache(mode, keys, trigger) {
+    if (!keys.length) {
+      syncHeader();
+      return;
+    }
+    saveJungsanScroll();
+    if (trigger) trigger.disabled = true;
+    var fd = new FormData();
+    var v = formVals();
+    fd.append("bunji1", v.bunji1);
+    fd.append("bunji2", v.bunji2);
+    fd.append("as_of", v.as_of);
+    var name = mode === "undo" ? "dache_undo" : "dache_sel";
+    keys.forEach(function (key) { fd.append(name, key); });
+    fetch(mode === "undo" ? undoUrl : applyUrl, {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+      redirect: "manual"
+    }).then(function () {
+      location.reload();
+    }).catch(function () {
+      location.reload();
+    });
+  }
+  function collect(sel) {
+    var keys = [];
+    form.querySelectorAll(sel).forEach(function (el) { keys.push(el.value); });
+    return keys;
+  }
+  function confirmBulk(mode, keys, cnt, amt, ok) {
+    if (!keys.length) {
+      if (window.appAlert) window.appAlert(mode === "undo" ? "해제할 대체가 없습니다." : "대체할 미입금이 없습니다.");
+      else window.alert(mode === "undo" ? "해제할 대체가 없습니다." : "대체할 미입금이 없습니다.");
+      return;
+    }
+    var msg = mode === "undo"
+      ? ("대체 " + cnt + "건, " + amt + "원을 모두 해제합니다. 계속할까요?")
+      : ("미납 " + cnt + "건, " + amt + "원을 모두 대체합니다. 계속할까요?");
+    if (window.appConfirm) {
+      window.appConfirm(msg, function () { ok(); });
+      return;
+    }
+    if (window.confirm(msg)) ok();
+  }
+  form.querySelectorAll(".js-dache-btn").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (btn.disabled) return;
+      var mode = btn.value || "apply";
+      var keys = mode === "undo" ? collect(".js-dache-undo") : collect(".js-dache-apply");
+      confirmBulk(mode, keys, btn.getAttribute("data-cnt") || keys.length, btn.getAttribute("data-amt") || "0", function () {
+        postDache(mode, keys, btn);
+      });
+    });
+  });
+  form.addEventListener("change", function (e) {
+    var t = e.target;
+    if (!t) return;
+    if (t.id === "js-dache-all") {
+      if (t.checked) postDache("apply", collect(".js-dache-apply"), t);
+      else postDache("undo", collect(".js-dache-undo"), t);
+      return;
+    }
+    if (t.classList.contains("js-dache-apply") && t.checked) {
+      postDache("apply", [t.value], t);
+      return;
+    }
+    if (t.classList.contains("js-dache-undo") && !t.checked) {
+      postDache("undo", [t.value], t);
+      return;
+    }
+    syncHeader();
+  });
+  syncHeader();
+})();
+(function bindJungsanAdjustments() {
+  var form = document.getElementById("js-dache-form");
+  if (!form) return;
+  var saveUrl = "{{ url_for('jungsan_adjustment') }}";
+  var deleteUrl = "{{ url_for('jungsan_adjustment_delete') }}";
+  function common(fd) {
+    ["bunji1", "bunji2", "as_of"].forEach(function (name) {
+      var el = form.querySelector('input[name="' + name + '"]');
+      fd.append(name, el ? el.value : "");
+    });
+  }
+  var panel = document.getElementById("js-adjust-panel");
+  var tenant = document.getElementById("js-adjust-tenant");
+  var kind = document.getElementById("js-adjust-kind");
+  var amount = document.getElementById("js-adjust-amt");
+  var burden = document.getElementById("js-adjust-burden");
+  var reason = document.getElementById("js-adjust-reason");
+  var adjustId = document.getElementById("js-adjust-id");
+  function formatAdjustAmount(value) {
+    var digits = String(value || "").replace(/[^0-9]/g, "");
+    return digits ? Number(digits).toLocaleString("ko-KR") : "";
+  }
+  function resetAdjustPanel() {
+    adjustId.value = ""; tenant.value = ""; kind.value = ""; amount.value = "";
+    burden.value = "O"; reason.value = ""; panel.classList.add("is-hidden");
+  }
+  document.getElementById("js-adjust-open").addEventListener("click", function () {
+    resetAdjustPanel(); panel.classList.remove("is-hidden"); tenant.focus();
+  });
+  document.getElementById("js-adjust-cancel").addEventListener("click", resetAdjustPanel);
+  amount.addEventListener("input", function () { amount.value = formatAdjustAmount(amount.value); });
+  kind.addEventListener("change", function () {
+    var opt = tenant.options[tenant.selectedIndex];
+    if (kind.value === "RENT_WAIVE" && opt) amount.value = formatAdjustAmount(opt.dataset.rent);
+    if (kind.value === "MANAGE_WAIVE" && opt) amount.value = formatAdjustAmount(opt.dataset.manage);
+  });
+  document.getElementById("js-adjust-save").addEventListener("click", function () {
+    var key = (tenant.value || "").split("|");
+    var raw = (amount.value || "").replace(/[^0-9]/g, "");
+    if (key.length !== 2 || !kind.value || !raw || parseInt(raw, 10) <= 0) {
+      if (window.appAlert) window.appAlert("호실·구분·금액을 확인하세요."); else alert("호실·구분·금액을 확인하세요.");
+      return;
+    }
+    var fd = new FormData(); common(fd);
+    fd.append("hosu", key[0]); fd.append("ipju_seq", key[1]); fd.append("adj_id", adjustId.value || "");
+    fd.append("adj_kind", kind.value); fd.append("adj_amt", raw); fd.append("burden_gb", burden.value);
+    fd.append("reason", reason.value || ""); saveJungsanScroll();
+    fetch(saveUrl, {method: "POST", body: fd, credentials: "same-origin"}).then(function () { location.reload(); });
+  });
+  document.querySelectorAll(".js-adjust-kind").forEach(function (sel) {
+    var cell = sel.closest(".js-adjust-cell");
+    var editor = cell.querySelector(".js-adjust-editor");
+    var amt = cell.querySelector(".js-adjust-amt");
+    function formatAmount(value) {
+      var digits = String(value || "").replace(/[^0-9]/g, "");
+      return digits ? Number(digits).toLocaleString("ko-KR") : "";
+    }
+    amt.addEventListener("input", function () {
+      amt.value = formatAmount(amt.value);
+    });
+    cell.addEventListener("click", function (e) {
+      if (!sel.classList.contains("is-hidden")) return;
+      sel.classList.remove("is-hidden");
+      cell.classList.remove("js-adjust-empty");
+      sel.focus();
+      e.stopPropagation();
+    });
+    sel.addEventListener("change", function () {
+      if (!sel.value) {
+        editor.classList.add("is-hidden");
+        sel.classList.add("is-hidden");
+        cell.classList.add("js-adjust-empty");
+        return;
+      }
+      editor.classList.remove("is-hidden");
+      if (sel.value === "RENT_WAIVE") amt.value = formatAmount(sel.dataset.rent);
+      if (sel.value === "MANAGE_WAIVE") amt.value = formatAmount(sel.dataset.manage);
+      amt.focus(); amt.select();
+    });
+    cell.querySelector(".js-adjust-save").addEventListener("click", function () {
+      var raw = (amt.value || "").replace(/[^0-9-]/g, "");
+      if (!raw || parseInt(raw, 10) <= 0) {
+        if (window.appAlert) window.appAlert("감면·면제 금액을 입력하세요."); else alert("감면·면제 금액을 입력하세요.");
+        return;
+      }
+      var fd = new FormData(); common(fd);
+      fd.append("hosu", sel.dataset.hosu); fd.append("ipju_seq", sel.dataset.seq);
+      fd.append("adj_id", cell.querySelector(".js-adjust-id").value || "");
+      fd.append("adj_kind", sel.value); fd.append("adj_amt", raw);
+      fd.append("burden_gb", cell.querySelector(".js-adjust-burden").value);
+      fd.append("reason", cell.querySelector(".js-adjust-reason").value || "");
+      saveJungsanScroll();
+      fetch(saveUrl, {method: "POST", body: fd, credentials: "same-origin"}).then(function () { location.reload(); });
+    });
+  });
+  document.querySelectorAll(".js-adjust-edit").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      panel.classList.remove("is-hidden"); adjustId.value = btn.dataset.id || "";
+      tenant.value = (btn.dataset.hosu || "") + "|" + (btn.dataset.seq || "");
+      kind.value = btn.dataset.kind || ""; amount.value = formatAdjustAmount(btn.dataset.amt);
+      burden.value = btn.dataset.burden || "O"; reason.value = btn.dataset.reason || "";
+      panel.scrollIntoView({behavior: "smooth", block: "center"});
+    });
+  });
+  document.querySelectorAll(".js-adjust-delete").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var remove = function () {
+        var fd = new FormData(); common(fd); fd.append("adj_id", btn.dataset.id || "");
+        saveJungsanScroll();
+        fetch(deleteUrl, {method: "POST", body: fd, credentials: "same-origin"}).then(function () { location.reload(); });
+      };
+      if (window.appConfirm) window.appConfirm("이 감면·조정 내역을 삭제할까요?", remove);
+      else if (window.confirm("이 감면·조정 내역을 삭제할까요?")) remove();
+    });
+  });
+})();
 (function () {
   var btn = document.getElementById("jungsan-print-btn");
   if (!btn) return;
@@ -221,6 +511,7 @@ function submitJungsanDache(form, mode) {
 <style>
 @media print {
   .no-print, .topbar, .side-nav, .page-head-row { display: none !important; }
+  .js-dache-check, #js-dache-all { display: none !important; }
   .wrap { max-width: none; padding: 0; margin: 0; }
   body { background: #fff; }
 }

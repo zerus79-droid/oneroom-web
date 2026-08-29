@@ -1,14 +1,15 @@
 {% extends "base.html" %}
-{% block title %}수리내역등록 · 주택관리 시스템{% endblock %}
+{% block title %}수리 등록 · 주택관리 시스템{% endblock %}
 {% block content %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">수리 이력 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
+    <span class="caption-title">수리 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
     <span class="caption-actions">
       <a class="btn secondary" href="{{ url_for('repairs') }}">수리내역조회</a>
     </span>
   </div>
-  <form method="post" class="legacy-sukum-body xp-form" id="repair-form" autocomplete="off">
+  <div class="legacy-sukum-body xp-form">
+  <form method="post" id="repair-form" autocomplete="off">
     <input type="hidden" name="action" id="form_action" value="save">
     <input type="hidden" name="mode" value="{{ form.mode }}">
     <input type="hidden" name="orig_dt" value="{{ form.orig_dt }}">
@@ -18,73 +19,88 @@
     <input type="hidden" name="orig_hosu" value="{{ form.orig_hosu }}">
     <input type="hidden" name="ipju_seq" id="ipju_seq" value="{{ form.ipju_seq }}">
 
-    <div class="xp-key-row">
-      <label class="ls-lab star">수리일자</label>
-      <div class="date-with-cal">
-        <div class="date-parts" id="suri_dt_parts">
-          <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년">
-          <span class="dp-sep">-</span>
-          <input type="text" class="dp-m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
-          <span class="dp-sep">-</span>
-          <input type="text" class="dp-d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
-          <input type="hidden" name="suri_dt" id="suri_dt" value="{{ form.suri_dt }}">
+    <div class="xp-grid xp-grid-3 xp-key-end">
+      <div class="xp-field">
+        <label class="ls-lab star">수리일자</label>
+        <div class="date-with-cal">
+          <div class="date-parts" id="suri_dt_parts">
+            <input type="text" class="dp-y" maxlength="4" inputmode="numeric" placeholder="년" aria-label="년" tabindex="-1">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-m" id="suri_m" maxlength="2" inputmode="numeric" placeholder="월" aria-label="월">
+            <span class="dp-sep">-</span>
+            <input type="text" class="dp-d" id="suri_d" maxlength="2" inputmode="numeric" placeholder="일" aria-label="일">
+            <input type="hidden" name="suri_dt" id="suri_dt" value="{{ form.suri_dt }}">
+          </div>
+          <button type="button" class="btn secondary today-btn" id="suri_today_btn" title="오늘" tabindex="-1">오늘</button>
+          <button type="button" class="btn secondary cal-btn" id="suri_cal_btn" title="달력" tabindex="-1">📅</button>
+          <input type="date" id="suri_cal" class="cal-native" tabindex="-1" aria-label="달력">
         </div>
       </div>
+      <div class="xp-field">
+        <label class="ls-lab">순번</label>
+        <input type="text" id="suri_seq_disp" class="seq-field ls-ro ls-box ls-narrow" readonly tabindex="-1"
+               value="{{ form.suri_seq or '자동' }}" placeholder="—" title="저장 시 자동">
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">입주일</label>
+        <input type="text" id="ipju_dt_view" class="ls-ro ls-box" readonly tabindex="-1"
+               value="{{ form.ipju_dt }}" placeholder="—">
+      </div>
+
+      <div class="xp-field">
+        <label class="ls-lab star" for="bunji1">번지</label>
+        <div class="bunji-pair-input">
+          <input type="text" name="bunji1" id="bunji1" required class="ls-box"
+                 value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
+          <span class="bunji-sep">-</span>
+          <input type="text" name="bunji2" id="bunji2" required class="ls-box"
+                 value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
+                 inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
+        </div>
+        <span class="ls-building" id="building-hint"{% if not building_label %} hidden{% endif %}>
+          {% if building_label %}<strong>{{ building_label }}</strong>{% endif %}
+        </span>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">성명</label>
+        <input type="text" id="ipju_nm_view" class="ls-ro ls-name ls-box" readonly tabindex="-1"
+               value="{{ form.ipju_nm }}" placeholder="호실 선택 시 표시">
+      </div>
+      <div class="xp-field"></div>
+
+      <div class="xp-field">
+        <label class="ls-lab star" for="hosu">호수</label>
+        <div class="xp-inline">
+          <input type="text" name="hosu" id="hosu" class="hosu-input ls-box ls-narrow"
+                 value="{{ form.hosu }}" maxlength="3" placeholder="201"
+                 style="text-transform:uppercase" autocomplete="off"
+                 data-next-focus="#suri_desc"
+                 data-empty-focus="#hosu_common">
+          <label class="hosu-side-opt" for="hosu_common">
+            <input type="checkbox" id="hosu_common" tabindex="0"
+                   {% if form.hosu == '공용' %}checked{% endif %}>
+            <span>공용</span>
+          </label>
+        </div>
+      </div>
+      <div class="xp-field">
+        <label class="ls-lab">연락처</label>
+        <input type="text" id="ipju_tel_view" class="ls-ro ls-box" readonly tabindex="-1"
+               value="{{ form.ipju_tel }}" placeholder="—">
+      </div>
+      <div class="xp-field"></div>
     </div>
 
     <fieldset class="xp-section">
-      <legend>수리 대상</legend>
+      <legend>수리 입력</legend>
       <div class="xp-grid">
-        <div class="xp-field">
-          <label class="ls-lab star" for="bunji1">주소</label>
-          <div class="ls-val xp-inline">
-            <div class="bunji-pair-input">
-              <input type="text" name="bunji1" id="bunji1" required class="ls-box"
-                     value="{{ form.bunji1|bunji if form.bunji1 else '' }}"
-                     inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소">
-              <span class="bunji-sep">-</span>
-              <input type="text" name="bunji2" id="bunji2" required class="ls-box"
-                     value="{{ form.bunji2|bunji if form.bunji2 else '' }}"
-                     inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2">
-            </div>
-            {% if building_label %}
-            <span class="ls-building"><strong>{{ building_label }}</strong></span>
-            {% endif %}
-          </div>
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab star" for="hosu">호수</label>
-          <div class="xp-inline">
-            <input type="text" name="hosu" id="hosu" class="hosu-input ls-box" required
-                   value="{{ form.hosu }}" maxlength="3" placeholder="201"
-                   style="text-transform:uppercase" autocomplete="off">
-            <label class="ls-lab" for="suri_seq_disp">순번</label>
-            <input type="text" id="suri_seq_disp" class="ls-box ls-narrow ls-ro" readonly tabindex="-1"
-                   value="{{ form.suri_seq or '자동' }}" style="max-width:4.5em" title="수리 순번">
-          </div>
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">성명</label>
-          <input type="text" class="ls-box ls-ro ls-name" readonly tabindex="-1"
-                 value="{{ form.ipju_nm }}" placeholder="호수 조회 시 표시">
-        </div>
-        <div class="xp-field">
-          <label class="ls-lab">연락처</label>
-          <input type="text" class="ls-box ls-ro" readonly tabindex="-1"
-                 value="{{ form.ipju_tel }}" placeholder="—">
-        </div>
         <div class="xp-field xp-field-wide">
           <label class="ls-lab star">수리내역</label>
-          <input type="text" name="suri_desc" class="ls-box" required
+          <input type="text" name="suri_desc" id="suri_desc" class="ls-box" required
                  value="{{ form.suri_desc }}" maxlength="50"
                  placeholder="예: 에어컨가스보충" autocomplete="off">
         </div>
-      </div>
-    </fieldset>
-
-    <fieldset class="xp-section">
-      <legend>금액 · 부담</legend>
-      <div class="xp-grid">
         <div class="xp-field">
           <label class="ls-lab star">수리총액</label>
           <div class="xp-inline">
@@ -93,7 +109,6 @@
             <span class="ls-unit">원</span>
           </div>
         </div>
-        <div class="xp-spacer"></div>
         <div class="xp-field">
           <label class="ls-lab">건물주</label>
           <div class="xp-inline">
@@ -105,7 +120,7 @@
         <div class="xp-field">
           <label class="ls-lab">입주자</label>
           <div class="xp-inline">
-            <input type="text" name="ipjuja_budam" class="ls-box money-input ls-money-in"
+            <input type="text" name="ipjuja_budam" id="ipjuja_budam" class="ls-box money-input ls-money-in"
                    value="{{ form.ipjuja_budam }}" inputmode="numeric">
             <span class="ls-unit">원</span>
           </div>
@@ -113,7 +128,7 @@
         <div class="xp-field">
           <label class="ls-lab">관리실</label>
           <div class="xp-inline">
-            <input type="text" name="manage_budam" class="ls-box money-input ls-money-in"
+            <input type="text" name="manage_budam" id="manage_budam" class="ls-box money-input ls-money-in"
                    value="{{ form.manage_budam }}" inputmode="numeric">
             <span class="ls-unit">원</span>
           </div>
@@ -131,12 +146,16 @@
                      {% if form.ipju_su_churi == 'Y' %}checked{% endif %}>
               <span>수금</span>
             </label>
+            <label class="tenant-status-opt" for="js_print_yn">
+              <input type="checkbox" name="js_print_yn" id="js_print_yn" value="Y"
+                     {% if form.js_print_yn != 'N' %}checked{% endif %}>
+              <span>정산서에 출력</span>
+            </label>
           </div>
         </div>
       </div>
     </fieldset>
 
-    <p class="panel-inline-note">호수 저장 시 현재 입주자 연결 · 건물주 부담 비우면 수리총액과 동일</p>
     <div class="xp-actions">
       <button type="submit" class="btn" data-action="save">저장</button>
       <button type="submit" class="btn secondary" data-action="delete" id="btn-repair-delete"
@@ -146,6 +165,60 @@
       <button type="submit" class="btn secondary" data-action="new">신규</button>
     </div>
   </form>
+
+  <div class="panel-section-lab">
+    오늘 등록한 수리 내역
+    <span class="muted">{{ pager.total if pager else (recent_repairs|length if recent_repairs else 0) }}건</span>
+  </div>
+  {% set pager_endpoint = 'repair_new' %}
+  {% set pager_label = '오늘 등록 수리 페이지' %}
+  {% set pager_query = {
+    'bunji1': form.bunji1|bunji if form.bunji1 else none,
+    'bunji2': form.bunji2|bunji if form.bunji2 else none,
+    'hosu': form.hosu or none,
+    'suri_dt': form.suri_dt or none,
+    'suri_seq': form.suri_seq if form.mode == 'edit' else none
+  } %}
+  {% include '_pager.html' %}
+  <div class="panel-table-wrap table-scroll">
+  {% if recent_repairs is defined and recent_repairs %}
+  <table class="legacy-grid">
+    <thead>
+      <tr>
+        <th class="tc">수리일</th>
+        <th class="tc">주소</th>
+        <th class="tc">호</th>
+        <th class="tc">세입자</th>
+        <th class="tc">수리내역</th>
+        <th class="tc">수리총액</th>
+        <th class="tc">건물주</th>
+        <th class="tc">입주자</th>
+        <th class="tc">관리실</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recent_repairs %}
+      <tr class="click-row"
+          title="클릭: 수정"
+          onclick="location.href='{{ url_for('repair_new', suri_dt=r.suri_dt|fmt_date, bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, suri_seq=r.suri_seq) }}'">
+        <td class="tc col-nowrap">{{ r.suri_dt|fmt_date }}</td>
+        <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
+        <td class="tc">{% if r.hosu == '공용' %}공용{% else %}{{ r.hosu }}{% endif %}</td>
+        <td>{% if r.hosu == '공용' %}공용{% else %}{{ r.ipju_nm or '' }}{% endif %}</td>
+        <td class="left">{{ r.suri_desc or '' }}</td>
+        <td class="num">{{ r.suri_won_amt|money }}</td>
+        <td class="num">{{ r.owner_budam|money }}</td>
+        <td class="num">{{ r.ipjuja_budam|money }}</td>
+        <td class="num">{{ r.manage_budam|money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty" style="margin:0;">오늘 등록한 수리가 없습니다. 저장하면 여기에 표시됩니다.</p>
+  {% endif %}
+  </div>
+  </div>
 </div>
 
 <script>
@@ -157,6 +230,10 @@
       var act = btn.getAttribute('data-action') || 'save';
       document.getElementById('form_action').value = act;
       if (act === 'delete') {
+        if (form._repairDelOk) {
+          form._repairDelOk = false;
+          return;
+        }
         var mode = (form.querySelector('input[name="mode"]') || {}).value || '';
         var od = (form.querySelector('input[name="orig_dt"]') || {}).value || '';
         var os = (form.querySelector('input[name="orig_seq"]') || {}).value || '';
@@ -166,27 +243,108 @@
           else alert('신규(미저장) 상태에서는 삭제할 항목이 없습니다.');
           return false;
         }
-        if (!confirm('이 수리 내역을 삭제할까요?')) {
-          e.preventDefault();
-          return false;
+        e.preventDefault();
+        if (window.appConfirm) {
+          window.appConfirm('이 수리 내역을 삭제할까요?', function () {
+            document.getElementById('form_action').value = 'delete';
+            form._repairDelOk = true;
+            if (typeof form.requestSubmit === 'function') form.requestSubmit(btn);
+            else form.submit();
+          });
+        } else if (window.confirm('이 수리 내역을 삭제할까요?')) {
+          document.getElementById('form_action').value = 'delete';
+          form.submit();
         }
+        return false;
       }
     });
   });
   var won = document.getElementById('suri_won_amt');
   var owner = document.getElementById('owner_budam');
+  var ipjuja = document.getElementById('ipjuja_budam');
+  var manage = document.getElementById('manage_budam');
   var desc = form.querySelector('input[name="suri_desc"]');
   var saveBtn = form.querySelector('button[data-action="save"]');
+  var bunji1El = document.getElementById('bunji1');
 
-  function copyWonToOwnerIfEmpty() {
+  function moneyDigits(el) {
+    return (el && el.value ? el.value : '').replace(/[^\d]/g, '');
+  }
+  function moneyNum(el) {
+    var d = moneyDigits(el);
+    return d ? parseInt(d, 10) : 0;
+  }
+  function setMoney(el, n) {
+    if (!el) return;
+    n = parseInt(n, 10) || 0;
+    el.value = n ? String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+  }
+  function expandManwonEl(el) {
+    if (!el) return;
+    var n = moneyNum(el);
+    if (n > 0 && n < 10000) setMoney(el, n * 10000);
+  }
+  function fillBudam(src) {
     if (!won || !owner) return;
-    var o = (owner.value || '').replace(/[^\d]/g, '');
-    if (!o || o === '0') owner.value = won.value;
+    [won, owner, ipjuja, manage].forEach(expandManwonEl);
+    var w = moneyNum(won);
+    var o = moneyNum(owner);
+    var i = moneyNum(ipjuja);
+    var m = moneyNum(manage);
+    if (w <= 0 && o > 0) {
+      setMoney(won, o);
+      w = o;
+    }
+    if (w <= 0) return;
+    /* 총액만 넣으면 건물주. 건물주 0 → 입주자, 입주자 0 → 관리실 */
+    if (!src || src === won) {
+      if (o === 0 && i === 0 && m === 0) setMoney(owner, w);
+      return;
+    }
+    if (src === owner) {
+      if (o === 0) {
+        setMoney(ipjuja, Math.max(0, w - m));
+        return;
+      }
+      if (i === 0 && m === 0 && o < w) setMoney(ipjuja, w - o);
+      return;
+    }
+    if (src === ipjuja) {
+      if (i === 0) {
+        setMoney(manage, Math.max(0, w - o));
+        return;
+      }
+      if (m === 0 && o + i < w) setMoney(manage, w - o - i);
+    }
+  }
+  function budamOk() {
+    var w = moneyNum(won);
+    var o = moneyNum(owner);
+    var i = moneyNum(ipjuja);
+    var m = moneyNum(manage);
+    return w > 0 && o >= 0 && i >= 0 && m >= 0 && o + i + m === w;
   }
 
-  if (won && owner) {
-    won.addEventListener('blur', copyWonToOwnerIfEmpty);
-  }
+  [won, owner, ipjuja, manage].forEach(function (el) {
+    if (el) el.addEventListener('blur', function () { fillBudam(el); });
+  });
+  form.addEventListener('submit', function (e) {
+    if ((document.getElementById('form_action') || {}).value === 'delete') return;
+    if (hosuCommon && hosuCommon.checked) applyCommonHosu(true);
+    var hv = String((document.getElementById('hosu') || {}).value || '').trim();
+    if (!hv) {
+      e.preventDefault();
+      if (window.appAlert) window.appAlert('호수를 입력하거나 공용을 선택하세요.');
+      else window.alert('호수를 입력하거나 공용을 선택하세요.');
+      return;
+    }
+    fillBudam();
+    if (!budamOk()) {
+      e.preventDefault();
+      if (window.appAlert) window.appAlert('건물주+입주자+관리실 합이 수리총액과 다릅니다.');
+      else window.alert('건물주+입주자+관리실 합이 수리총액과 다릅니다.');
+    }
+  });
 
   function focusEl(el) {
     if (!el) return;
@@ -195,10 +353,115 @@
     }
   }
 
+  (function bindSuriDateFlow() {
+    var root = document.getElementById('suri_dt_parts');
+    var m = document.getElementById('suri_m');
+    var d = document.getElementById('suri_d');
+    if (!root || !m || !d) return;
+
+    function goToAddress() {
+      if (bunji1El) {
+        bunji1El.focus();
+        if (typeof bunji1El.select === 'function') bunji1El.select();
+      }
+    }
+
+    var mTyping = false;
+    var dTyping = false;
+    m.addEventListener('focus', function () { mTyping = false; });
+    d.addEventListener('focus', function () { dTyping = false; });
+    m.addEventListener('keydown', function (e) {
+      if (e.key >= '0' && e.key <= '9') mTyping = true;
+    });
+    d.addEventListener('keydown', function (e) {
+      if (e.key >= '0' && e.key <= '9') dTyping = true;
+    });
+    m.addEventListener('input', function () {
+      m.value = (m.value || '').replace(/\D/g, '').slice(0, 2);
+      if (mTyping && m.value.length === 2) {
+        d.focus();
+        d.select();
+      }
+    });
+    d.addEventListener('input', function () {
+      d.value = (d.value || '').replace(/\D/g, '').slice(0, 2);
+      if (dTyping && d.value.length === 2) {
+        setTimeout(goToAddress, 0);
+      }
+    });
+    m.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        d.focus();
+        d.select();
+      }
+    });
+    d.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+        e.preventDefault();
+        goToAddress();
+      }
+    });
+
+    var todayBtn = document.getElementById('suri_today_btn');
+    var calBtn = document.getElementById('suri_cal_btn');
+    var cal = document.getElementById('suri_cal');
+    var y = root.querySelector('.dp-y');
+    var hidden = document.getElementById('suri_dt');
+    function syncCalFromParts() {
+      if (!cal || !hidden) return;
+      var v = (hidden.value || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) cal.value = v;
+    }
+    function applyIso(iso) {
+      if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      var p = iso.split('-');
+      if (y) y.value = p[0];
+      m.value = p[1];
+      d.value = p[2];
+      if (hidden) hidden.value = iso;
+      if (window.setDateParts) window.setDateParts('suri_dt_parts', iso);
+    }
+    function todayIso() {
+      var n = new Date();
+      var yy = n.getFullYear();
+      var mm = String(n.getMonth() + 1).padStart(2, '0');
+      var dd = String(n.getDate()).padStart(2, '0');
+      return yy + '-' + mm + '-' + dd;
+    }
+    if (todayBtn) {
+      todayBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        applyIso(todayIso());
+        goToAddress();
+      });
+    }
+    if (calBtn && cal) {
+      syncCalFromParts();
+      calBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        syncCalFromParts();
+        try {
+          if (typeof cal.showPicker === 'function') cal.showPicker();
+          else cal.click();
+        } catch (err) {
+          cal.focus();
+          cal.click();
+        }
+      });
+      cal.addEventListener('change', function () {
+        if (!cal.value) return;
+        applyIso(cal.value);
+        goToAddress();
+      });
+    }
+  })();
+
   /*
    * 주소·호수 검증/Tab·Enter 는 base.html 전역 게이트 사용.
+   * 수리일자 월·일은 위 bindSuriDateFlow.
    * 여기서는 수리 전용 Enter 흐름만:
-   *  수리내역 → 수리총액 → 건물주 → 저장
+   *  수리내역 → 수리총액 → 건물주 → 입주자 → 관리실 → 저장
    */
   form.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
@@ -207,6 +470,7 @@
     var tag = (t.tagName || '').toUpperCase();
     var typ = (t.type || '').toLowerCase();
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || typ === 'submit' || typ === 'radio') return;
+    if (t.classList && (t.classList.contains('dp-y') || t.classList.contains('dp-m') || t.classList.contains('dp-d'))) return;
 
     var name = t.name || t.id || '';
     if (name === 'bunji1' || name === 'bunji2' || name === 'hosu' ||
@@ -219,13 +483,25 @@
     }
     if (t === won && owner) {
       e.preventDefault();
-      copyWonToOwnerIfEmpty();
+      fillBudam(won);
       focusEl(owner);
       return;
     }
-    if (t === owner && saveBtn) {
+    if (t === owner && ipjuja) {
       e.preventDefault();
-      copyWonToOwnerIfEmpty();
+      fillBudam(owner);
+      focusEl(ipjuja);
+      return;
+    }
+    if (t === ipjuja && manage) {
+      e.preventDefault();
+      fillBudam(ipjuja);
+      focusEl(manage);
+      return;
+    }
+    if (t === manage && saveBtn) {
+      e.preventDefault();
+      fillBudam(manage);
       document.getElementById('form_action').value = 'save';
       if (typeof form.requestSubmit === 'function') form.requestSubmit(saveBtn);
       else saveBtn.click();
@@ -244,7 +520,108 @@
     }
   });
 
-  /* 주소·호수 제출 검사는 base 전역 form 게이트 사용 */
+  var nmView = document.getElementById('ipju_nm_view');
+  var seqEl = document.getElementById('ipju_seq');
+  var telEl = document.getElementById('ipju_tel_view');
+  var dtView = document.getElementById('ipju_dt_view');
+  var hosuCommon = document.getElementById('hosu_common');
+  var hosuEl = document.getElementById('hosu');
+  function isCommonHosu(h) {
+    var x = String(h || '').replace(/\s+/g, '');
+    return x === '공용' || x === '00' || x === '000';
+  }
+  function clearTenantViews() {
+    if (nmView) nmView.value = '';
+    if (seqEl) seqEl.value = '';
+    if (telEl) telEl.value = '';
+    if (dtView) dtView.value = '';
+  }
+  function applyCommonHosu(on) {
+    if (!hosuEl) return;
+    if (on) {
+      hosuEl.value = '공용';
+      hosuEl.readOnly = true;
+      hosuEl.classList.add('ls-ro');
+      if (nmView) nmView.value = '공용';
+      if (seqEl) seqEl.value = '00';
+      if (telEl) telEl.value = '';
+      if (dtView) dtView.value = '';
+    } else {
+      hosuEl.readOnly = false;
+      hosuEl.classList.remove('ls-ro');
+      if (isCommonHosu(hosuEl.value)) hosuEl.value = '';
+      if (nmView && nmView.value === '공용') nmView.value = '';
+      if (seqEl && seqEl.value === '00') seqEl.value = '';
+      if (dtView) dtView.value = '';
+    }
+  }
+  if (hosuCommon) {
+    if (isCommonHosu(hosuEl && hosuEl.value)) {
+      hosuCommon.checked = true;
+      applyCommonHosu(true);
+    }
+    hosuCommon.addEventListener('change', function () {
+      applyCommonHosu(!!hosuCommon.checked);
+      if (hosuCommon.checked) focusDesc();
+    });
+    hosuCommon.addEventListener('keydown', function (e) {
+      var isEnter = e.key === 'Enter' || e.key === 'NumpadEnter' || e.keyCode === 13;
+      var isTab = (e.key === 'Tab' || e.keyCode === 9) && !e.shiftKey;
+      if (!isEnter && !isTab) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (isEnter && !hosuCommon.checked) {
+        hosuCommon.checked = true;
+        applyCommonHosu(true);
+      }
+      focusDesc();
+    });
+  }
+  function focusDesc() {
+    var el = document.getElementById('suri_desc');
+    if (!el) return;
+    try { el.focus(); el.select && el.select(); } catch (err) {}
+  }
+  window.onHosuEnter = function () {
+    focusDesc();
+  };
+  window.onHosuValueChanged = function () {
+    if (hosuCommon && hosuCommon.checked) {
+      applyCommonHosu(true);
+      return;
+    }
+    var b1 = document.getElementById('bunji1');
+    var b2 = document.getElementById('bunji2');
+    var hosu = document.getElementById('hosu');
+    if (!b1 || !b2 || !hosu || !String(hosu.value || '').trim()) {
+      clearTenantViews();
+      return;
+    }
+    if (isCommonHosu(hosu.value)) {
+      if (hosuCommon) hosuCommon.checked = true;
+      applyCommonHosu(true);
+      return;
+    }
+    var url = '/api/current_tenant?bunji1=' + encodeURIComponent(b1.value)
+      + '&bunji2=' + encodeURIComponent(b2.value)
+      + '&hosu=' + encodeURIComponent(hosu.value);
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.ok && d.current && d.ipju_nm) {
+          if (nmView) nmView.value = d.ipju_nm;
+          if (seqEl) seqEl.value = d.ipju_seq || '';
+          if (telEl) telEl.value = d.ipju_tel || '';
+          if (dtView) dtView.value = d.ipju_dt || '';
+        } else {
+          if (nmView) nmView.value = '공실';
+          if (seqEl) seqEl.value = '00';
+          if (telEl) telEl.value = '';
+          if (dtView) dtView.value = '';
+        }
+      })
+      .catch(function () {});
+  };
 })();
 </script>
 {% endblock %}

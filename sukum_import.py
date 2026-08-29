@@ -95,6 +95,14 @@ def _delete_state(token):
             pass
 
 
+def _write_state(token, state):
+    path = _tmp_path(token)
+    if not path:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+
+
 def _update_state_building(token, bunji1, bunji2):
     state = _load_state(token)
     if not state:
@@ -102,8 +110,7 @@ def _update_state_building(token, bunji1, bunji2):
     state["bunji1"] = bunji1
     state["bunji2"] = bunji2
     state["auto_detected"] = False
-    with open(_tmp_path(token), "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False)
+    _write_state(token, state)
     return state
 
 
@@ -421,6 +428,65 @@ def _monthly_due(t):
     return int(t.get("rent_amt") or 0) + int(t.get("manage_amt") or 0)
 
 
+def _alloc_amounts(dues, amount):
+    """호실별 월세 기준으로 입금액을 나눔. n개월분이면 각 호 n개월, 아니면
+    floor(입금/월세합)개월 + 잔액은 월세 큰 호실. 합은 항상 입금액."""
+    amount = int(amount or 0)
+    n = len(dues)
+    if n <= 0:
+        return []
+    if n == 1:
+        return [amount]
+    if any(int(d or 0) <= 0 for d in dues):
+        base = amount // n
+        alloc = [base] * n
+        alloc[0] += amount - base * n
+        return alloc
+    dues = [int(d or 0) for d in dues]
+    total = sum(dues)
+    months = 1
+    matched = False
+    for m in range(1, 25):
+        if _rent_amount_matches(amount, m * total, 0):
+            months = m
+            matched = True
+            break
+    if not matched:
+        months = max(1, amount // total) if total > 0 else 1
+    alloc = [d * months for d in dues]
+    leftover = amount - sum(alloc)
+    if leftover:
+        biggest = max(range(n), key=lambda i: dues[i])
+        alloc[biggest] += leftover
+        if alloc[biggest] < 0:
+            rest = amount
+            alloc = [0] * n
+            for i in range(n - 1):
+                take = min(max(dues[i], 0), rest)
+                alloc[i] = take
+                rest -= take
+            alloc[-1] = rest
+    return alloc
+
+
+def _alloc_by_caps(caps, amount):
+    """앞 호실부터 한도(미수)만큼 채우고 마지막 호실이 잔액. 합은 항상 입금액."""
+    amount = int(amount or 0)
+    n = len(caps)
+    if n <= 0:
+        return []
+    if n == 1:
+        return [amount]
+    alloc = [0] * n
+    rest = amount
+    for i in range(n - 1):
+        take = min(max(int(caps[i] or 0), 0), rest)
+        alloc[i] = take
+        rest -= take
+    alloc[-1] = rest
+    return alloc
+
+
 def _alloc_lump(candidates, amount):
     """복수 호실에 입금액을 나눔. n개월분이면 각 호 n개월, 아니면
     floor(입금/월세합)개월 + 잔액은 월세 큰 호실."""
@@ -428,35 +494,35 @@ def _alloc_lump(candidates, amount):
         return []
     if len(candidates) == 1:
         return [(candidates[0], int(amount))]
-    dues = [_monthly_due(c) for c in candidates]
-    if any(d <= 0 for d in dues):
-        n = len(candidates)
-        base = int(amount) // n
-        alloc = [base] * n
-        alloc[0] += int(amount) - base * n
-        out = list(zip(candidates, alloc))
-        out.sort(key=lambda x: ((x[0].get("hosu") or "").strip().upper()))
-        return out
-    total = sum(dues)
-    months = 1
-    for n in range(1, 25):
-        if _rent_amount_matches(int(amount), n * total, 0):
-            months = n
-            break
+    ordered = sorted(candidates, key=_hosu_sort_key)
+    alloc = _alloc_amounts([_monthly_due(c) for c in ordered], amount)
+    return list(zip(ordered, alloc))
+
+
+def _split_parts_from_options(room_options, amount):
+    """2호실 선택 시 호실별 금액. 미수가 있으면 미수부터, 없으면 월세 기준."""
+    rooms = [
+        o for o in (room_options or [])
+        if "|" in (o.get("value") or "")
+    ]
+    if not rooms:
+        return {}
+    amount = int(amount or 0)
+    misus = [int(o.get("misu") or 0) for o in rooms]
+    dues = [int(o.get("due") or 0) for o in rooms]
+    if any(m > 0 for m in misus):
+        alloc = _alloc_by_caps(misus, amount)
     else:
-        months = max(1, int(amount) // total) if total > 0 else 1
-    alloc = [d * months for d in dues]
-    leftover = int(amount) - sum(alloc)
-    if leftover:
-        biggest = max(range(len(candidates)), key=lambda i: dues[i])
-        alloc[biggest] += leftover
-    out = [(candidates[i], alloc[i]) for i in range(len(candidates))]
-    out.sort(key=lambda x: ((x[0].get("hosu") or "").strip().upper()))
-    return out
+        alloc = _alloc_amounts(dues, amount)
+    return {
+        rooms[i]["value"]: alloc[i]
+        for i in range(len(rooms))
+        if alloc[i] > 0
+    }
 
 
 def _try_split_lump(candidates, amount):
-    """같은 입금자 복수 호실 + 입금액이 각 호 월세합과 같으면 호실별로 나눔.
+    """같은 입금자 복수 호실 + 입금액이 각 호 월세합(또는 n개월)과 같으면 호실별로 나눔.
     예: 한현승 2,550,000 → 201 2,000,000 + B01 550,000."""
     if len(candidates) < 2:
         return None
@@ -464,7 +530,9 @@ def _try_split_lump(candidates, amount):
     if any(d <= 0 for d in dues):
         return None
     total = sum(dues)
-    if not _rent_amount_matches(int(amount), total, 0):
+    if not any(
+        _rent_amount_matches(int(amount), n * total, 0) for n in range(1, 25)
+    ):
         return None
     return _alloc_lump(candidates, amount)
 
@@ -635,8 +703,26 @@ def _match_deposits(deposits, bunji1, bunji2):
     return results
 
 
+def _hosu_sort_key(t):
+    """지하(B) 먼저, 그다음 지상 1층→높은 층."""
+    h = (t.get("hosu") if isinstance(t, dict) else t) or ""
+    h = str(h).strip().upper()
+    if h.startswith("B"):
+        tail = h[1:].lstrip("0") or "0"
+        try:
+            return (0, int(tail), h)
+        except ValueError:
+            return (0, 0, h)
+    digits = "".join(c for c in h if c.isdigit())
+    try:
+        return (1, int(digits or 0), h)
+    except ValueError:
+        return (2, 0, h)
+
+
 def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
     opts = []
+    tenants = sorted(tenants, key=_hosu_sort_key)
     for t in tenants:
         h = (t.get("hosu") or "").strip().upper()
         seq = str(t.get("ipju_seq") or "").zfill(2)
@@ -654,6 +740,7 @@ def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
             "value": f"{h}|{seq}",
             "label": f"{h}호 {nm}".strip(),
             "misu": misu,
+            "due": _monthly_due(t),
         })
     if with_combo and len(opts) >= 2:
         opts.append({"value": "ALL", "label": f"{len(opts)}호실"})
@@ -696,6 +783,7 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
 def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_map=None):
     split_map = split_map or {}
     saved = 0
+    applied = []
     for i, row in enumerate(rows):
         if row.get("status") == "duplicate":
             continue
@@ -705,9 +793,25 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
         if isinstance(raw, str):
             raw = [raw] if raw else []
         if any(v == "ALL" for v in raw):
-            parts = split_map.get(str(i)) or {}
+            parts = dict(split_map.get(str(i)) or {})
+            room_keys = [
+                o.get("value")
+                for o in (row.get("room_options") or [])
+                if "|" in (o.get("value") or "")
+            ]
+            filled = {k: int(v) for k, v in parts.items() if int(v) > 0}
+            if len(filled) == 1 and len(room_keys) >= 2:
+                rest = int(row["amount"]) - next(iter(filled.values()))
+                empty = [k for k in room_keys if k not in filled]
+                if rest > 0 and len(empty) == 1:
+                    parts[empty[0]] = rest
+            if sum(int(v) for v in parts.values()) != int(row["amount"]):
+                parts = _split_parts_from_options(
+                    row.get("room_options"), row.get("amount")
+                )
             if sum(int(v) for v in parts.values()) != int(row["amount"]):
                 continue
+            n = 0
             for key, amt in parts.items():
                 if "|" not in key:
                     continue
@@ -716,7 +820,10 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
                     bunji1, bunji2, hosu, ipju_seq,
                     row["date"], amt, row.get("name"),
                 ):
+                    n += 1
                     saved += 1
+            if n:
+                applied.append(i)
             continue
         picks = []
         seen = set()
@@ -733,7 +840,8 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
             row["date"], row["amount"], row.get("name"),
         ):
             saved += 1
-    return saved
+            applied.append(i)
+    return saved, applied
 
 
 @app.route("/payments/import", methods=["GET", "POST"])
@@ -754,11 +862,18 @@ def payments_import():
             return redirect(url_for("payments_import"))
         bunji1, bunji2 = state["bunji1"], state["bunji2"]
         selected_idx = set()
-        for v in request.form.getlist("apply_idx"):
+        one = (request.form.get("apply_one") or "").strip()
+        if one != "":
             try:
-                selected_idx.add(int(v))
+                selected_idx.add(int(one))
             except ValueError:
                 pass
+        else:
+            for v in request.form.getlist("apply_idx"):
+                try:
+                    selected_idx.add(int(v))
+                except ValueError:
+                    pass
         manual_overrides = {}
         for k in request.form:
             if not k.startswith("manual_"):
@@ -778,12 +893,22 @@ def payments_import():
             if amt > 0:
                 split_map.setdefault(idx, {})[room] = amt
         rows = _match_deposits(state["deposits"], bunji1, bunji2)
-        saved = _apply_selected(
+        _saved, applied = _apply_selected(
             rows, bunji1, bunji2, selected_idx, manual_overrides, split_map,
         )
-        _delete_state(token)
-        flash(f"{saved}건 반영되었습니다." if saved else "선택된 항목이 없습니다.", "ok" if saved else "err")
-        return redirect(url_for("payments_import"))
+        if applied:
+            drop = {
+                (rows[i]["date"], rows[i]["name"], int(rows[i]["amount"]))
+                for i in applied
+            }
+            state["deposits"] = [
+                d for d in state["deposits"]
+                if (d["date"], d["name"], int(d["amount"])) not in drop
+            ]
+            _write_state(token, state)
+        if one != "" and not applied:
+            return redirect(url_for("payments_import", token=token, err=one))
+        return redirect(url_for("payments_import", token=token))
 
     if request.method == "POST" and request.form.get("action") == "parse":
         bunji1 = _pad_bunji(request.form.get("bunji1"))
@@ -854,6 +979,7 @@ def payments_import():
         rows=rows,
         token=token,
         uploaded_name=uploaded_name,
+        apply_err=(request.args.get("err") or "").strip(),
     )
 
 

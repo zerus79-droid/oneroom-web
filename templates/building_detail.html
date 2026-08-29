@@ -39,6 +39,8 @@
     <div class="ls-row">
       <label class="ls-lab">관리형태</label>
       <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.mgmt_label or '' }}"></div>
+      <label class="ls-lab">입금통장 주체</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.sukum_acct_label or '' }}"></div>
     </div>
     <div class="ls-row">
       <label class="ls-lab">최초보증금</label>
@@ -46,6 +48,18 @@
       <label class="ls-lab">관리수수료</label>
       <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.man_cost|money }}"></div>
     </div>
+    {% if building.mgmt_gb == 'G' %}
+    <div class="ls-row">
+      <label class="ls-lab">계단청소</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.stair_cost|money }}"></div>
+      <label class="ls-lab">인터넷+유선</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.inet_cost|money }}"></div>
+    </div>
+    <div class="ls-row ls-row-span">
+      <label class="ls-lab">옵션비</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.option_cost|money }}"></div>
+    </div>
+    {% endif %}
     <div class="ls-actions">
       <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}">수정</a>
       <a class="btn secondary" href="{{ url_for('buildings') }}">목록</a>

@@ -15,7 +15,7 @@
       <div class="filter-bar-fields">
         <div class="xp-grid">
           <div class="xp-field xp-field-wide">
-            <label class="ls-lab">건물</label>
+            <label class="ls-lab">주　　소</label>
             <select name="bunji1_bunji2" class="ls-select" onchange="
               var v=this.value.split('|');
               this.form.bunji1.value=v[0]||'';
@@ -28,6 +28,9 @@
               </option>
               {% endfor %}
             </select>
+            {% if building_label %}
+            <span class="muted">{{ building_label }}{% if auto_detected %} (자동 감지됨){% endif %}</span>
+            {% endif %}
             <input type="hidden" name="bunji1" value="{{ bunji1 }}">
             <input type="hidden" name="bunji2" value="{{ bunji2 }}">
           </div>
@@ -47,41 +50,38 @@
     </form>
 
     <p class="panel-inline-note">
-      건물을 선택하면 그 건물로 바로 매칭하고, 선택하지 않으면 적요(입금자명)를 전체 건물의
-      현재 입주자 이름과 비교해서 건물을 자동으로 찾습니다.
+      주소를 선택하면 그 주소로 바로 매칭하고, 선택하지 않으면 적요(입금자명)를 전체 주소의
+      현재 입주자 이름과 비교해서 주소를 자동으로 찾습니다.
     </p>
 
     {% if rows is not none %}
-    <div class="panel-section-lab">
-      건물
-      {% if building_label %}<span class="muted">{{ building_label }}{% if auto_detected %} (자동 감지됨){% endif %}</span>{% endif %}
-    </div>
     <form method="get" class="filter-bar" autocomplete="off">
       <input type="hidden" name="token" value="{{ token }}">
       <div class="filter-bar-fields">
         <div class="xp-grid">
           <div class="xp-field">
-            <label class="ls-lab">건물 다시 선택</label>
+            <label class="ls-lab">주소 확인</label>
             <select name="bunji1_bunji2" class="ls-select" {% if not bunji1 %}autofocus{% endif %} onchange="
               var v=this.value.split('|');
               this.form.bunji1.value=v[0]||'';
               this.form.bunji2.value=v[1]||'';
             ">
-              <option value="">건물 선택</option>
+              <option value="">주소 선택</option>
               {% for b in buildings %}
               <option value="{{ b.bunji1 }}|{{ b.bunji2 }}" {% if b.bunji1==bunji1 and b.bunji2==bunji2 %}selected{% endif %}>
                 {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
               </option>
               {% endfor %}
             </select>
-            {% if not bunji1 %}<span class="st-badge overdue">건물을 선택하세요</span>{% endif %}
+            <button type="submit" class="btn secondary">주소선택</button>
+            {% if not bunji1 %}<span class="st-badge overdue">주소를 선택하세요</span>{% endif %}
             <input type="hidden" name="bunji1" value="{{ bunji1 }}">
             <input type="hidden" name="bunji2" value="{{ bunji2 }}">
           </div>
         </div>
       </div>
       <div class="filter-bar-btns filter-bar-btns-single">
-        <button type="submit" class="btn secondary">이 건물로 다시 매칭</button>
+        <button type="submit" class="btn" form="apply-form">일괄반영</button>
       </div>
     </form>
 
@@ -95,17 +95,17 @@
       <input type="hidden" name="action" value="apply">
       <input type="hidden" name="token" value="{{ token }}">
       <div class="panel-table-wrap table-scroll">
-        <table class="legacy-grid">
+        <table class="legacy-grid import-grid">
           <thead>
             <tr>
               <th class="tc"></th>
               <th class="tc">상태</th>
               <th class="tc">거래일</th>
               <th class="tc">매칭 호실</th>
+              <th class="tc">세입자</th>
               <th class="tc">적요(입금자명)</th>
               <th class="tc">입금액</th>
-              <th class="tc">세입자</th>
-              <th class="tc"></th>
+              <th class="tc">제외</th>
             </tr>
           </thead>
           <tbody>
@@ -146,34 +146,35 @@
                 {{ r.hosu or '-' }}
                 {% endif %}
               </td>
+              <td>{{ r.tenant_nm or '' }}</td>
               <td>{{ r.name }}</td>
               <td class="tc">
                 {{ r.amount|money }}
                 {% if r.needs_pick %}
-                <div class="split-amts" id="split-amts-{{ row_i }}" hidden>
+                <div class="split-amts" id="split-amts-{{ row_i }}" data-total="{{ r.amount }}" hidden>
                   {% for opt in r.room_options if opt.value != 'ALL' %}
                   <label>{{ opt.value.split('|')[0] }}
-                    <input type="text" name="split_{{ row_i }}_{{ opt.value }}" class="money-input" inputmode="numeric" autocomplete="off">
-                    <span class="muted">미수 {{ (opt.misu or 0)|money }}</span>
+                    <input type="text" name="split_{{ row_i }}_{{ opt.value }}" class="money-input" inputmode="numeric" autocomplete="off"
+                           data-misu="{{ opt.misu or 0 }}" data-due="{{ opt.due or 0 }}"
+                           placeholder="{{ (opt.misu or 0)|money }}">
                   </label>
                   {% endfor %}
                 </div>
                 {% endif %}
               </td>
-              <td>{{ r.tenant_nm or '' }}</td>
               <td class="tc">
+                {% if r.status!='duplicate' %}
+                <button type="submit" class="btn secondary apply-one-btn{% if r.status=='matched' and not r.amount_flag and not r.needs_pick %} is-on{% endif %}" form="apply-form" name="apply_one" value="{{ row_i }}">반영</button>
+                <span class="apply-err"{% if apply_err != (row_i|string) %} hidden{% endif %}>오류</span>
+                {% endif %}
                 {% if r.status=='unmatched' %}
-                <button type="button" class="btn secondary exclude-quick-btn" data-name="{{ r.name }}"
-                        style="min-height:auto;height:auto;padding:2px 8px;">제외</button>
+                <button type="button" class="btn secondary exclude-quick-btn" data-name="{{ r.name }}">제외</button>
                 {% endif %}
               </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
-      </div>
-      <div class="filter-bar-btns filter-bar-btns-single" style="justify-content:flex-end;">
-        <button type="submit" class="btn">선택 항목 반영</button>
       </div>
     </form>
     {% endif %}
@@ -183,9 +184,62 @@
 <style>
 .import-duplicate { opacity: .55; }
 .import-unmatched { opacity: .7; }
-.split-amts { margin-top:2px; }
-.split-amts label { display:inline-block; white-space:nowrap; margin:0 4px; }
-.split-amts input { width:6em; }
+.panel-table-wrap { max-width:100%; overflow-x:auto; }
+.import-grid th:last-child,
+.import-grid td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  min-width: 3.4em;
+  box-shadow: -6px 0 6px -6px rgba(15,23,42,.28);
+}
+.import-grid thead th:last-child { background: var(--navy); z-index: 3; }
+.import-grid tbody td:last-child { background: #fff; }
+.import-grid tbody tr:nth-child(even) td:last-child { background: #f1f5f9; }
+.split-amts { margin-top:2px; text-align:left; }
+.split-amts label { display:block; white-space:nowrap; margin:1px 0; }
+.split-amts input {
+  width:8em;
+  min-height:0 !important;
+  height:auto !important;
+  padding:2px 6px !important;
+}
+.split-amts input::placeholder {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+  opacity: 1;
+}
+.exclude-quick-btn,
+.apply-one-btn {
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 2px 8px !important;
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+.apply-one-btn.is-on {
+  background: #dcfce7 !important;
+  border-color: #16a34a !important;
+  color: #166534 !important;
+  -webkit-text-fill-color: #166534 !important;
+}
+.apply-err {
+  display: inline-block;
+  margin-top: 2px;
+  min-height: 0;
+  height: auto;
+  padding: 2px 8px;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #b71c1c;
+  -webkit-text-fill-color: #b71c1c;
+  border: 1px solid #e57373;
+  background: #ffebee;
+  border-radius: var(--border-radius);
+  box-sizing: border-box;
+}
+.apply-err[hidden] { display: none; }
 </style>
 <script>
 (function () {
@@ -208,9 +262,86 @@ document.addEventListener('click', function (e) {
   kwField.value = btn.getAttribute('data-name') || '';
   form.submit();
 });
+function allocByCaps(caps, amount) {
+  var n = caps.length;
+  if (n <= 0) return [];
+  if (n === 1) return [amount];
+  var alloc = [];
+  var rest = amount;
+  for (var i = 0; i < n - 1; i++) {
+    var take = Math.min(Math.max(caps[i] || 0, 0), rest);
+    alloc.push(take);
+    rest -= take;
+  }
+  alloc.push(rest);
+  return alloc;
+}
+function allocByDues(dues, amount) {
+  var n = dues.length;
+  if (n <= 0) return [];
+  if (n === 1) return [amount];
+  var dueSum = 0;
+  var anyZero = false;
+  for (var i = 0; i < n; i++) {
+    dueSum += dues[i] || 0;
+    if ((dues[i] || 0) <= 0) anyZero = true;
+  }
+  if (anyZero || dueSum <= 0) {
+    var base = Math.floor(amount / n);
+    var alloc0 = [];
+    for (var j = 0; j < n; j++) alloc0.push(base);
+    alloc0[0] += amount - base * n;
+    return alloc0;
+  }
+  var months = Math.max(1, Math.floor(amount / dueSum));
+  var alloc = [];
+  for (var k = 0; k < n; k++) alloc.push(dues[k] * months);
+  var leftover = amount - alloc.reduce(function (a, b) { return a + b; }, 0);
+  if (leftover) {
+    var biggest = 0;
+    for (var p = 1; p < n; p++) if (dues[p] > dues[biggest]) biggest = p;
+    alloc[biggest] += leftover;
+    if (alloc[biggest] < 0) return allocByCaps(dues, amount);
+  }
+  return alloc;
+}
+function fillSplit(box) {
+  if (!box) return;
+  var total = parseInt(box.getAttribute('data-total') || '0', 10);
+  var inputs = box.querySelectorAll('input');
+  if (!inputs.length || total <= 0) return;
+  var misus = [];
+  var dues = [];
+  var misuSum = 0;
+  var dueSum = 0;
+  for (var i = 0; i < inputs.length; i++) {
+    var m = parseInt(inputs[i].getAttribute('data-misu') || '0', 10);
+    var d = parseInt(inputs[i].getAttribute('data-due') || '0', 10);
+    misus.push(m);
+    dues.push(d);
+    misuSum += m;
+    dueSum += d;
+  }
+  var alloc = misuSum > 0 ? allocByCaps(misus, total) : allocByDues(dues, total);
+  for (var j = 0; j < inputs.length; j++) {
+    inputs[j].value = alloc[j] > 0 ? splitComma(alloc[j]) : '';
+  }
+}
 function toggleSplit(sel) {
   var box = document.getElementById('split-amts-' + sel.name.slice(7));
-  if (box) box.hidden = sel.value !== 'ALL';
+  if (!box) return;
+  var show = sel.value === 'ALL';
+  box.hidden = !show;
+  if (show) fillSplit(box);
+}
+function rowHasRoom(idx) {
+  var sel = document.querySelector('select[name="manual_' + idx + '"]');
+  if (!sel) return true;
+  return !!sel.value;
+}
+function syncApplyLight(idx) {
+  var btn = document.querySelector('.apply-one-btn[value="' + idx + '"]');
+  if (btn) btn.classList.toggle('is-on', rowHasRoom(idx));
 }
 document.addEventListener('change', function (e) {
   var t = e.target;
@@ -218,8 +349,85 @@ document.addEventListener('change', function (e) {
   toggleSplit(t);
   var idx = t.name.slice(7);
   var rowCb = document.querySelector('input[name="apply_idx"][value="' + idx + '"]');
-  if (rowCb && !rowCb.disabled && t.value) rowCb.checked = true;
+  if (rowCb && !rowCb.disabled) rowCb.checked = !!t.value;
+  syncApplyLight(idx);
+  hideApplyErr(idx);
 });
-document.querySelectorAll('select[name^="manual_"]').forEach(toggleSplit);
+document.querySelectorAll('select[name^="manual_"]').forEach(function (sel) {
+  toggleSplit(sel);
+  syncApplyLight(sel.name.slice(7));
+});
+function rowApplyOk(idx) {
+  var sel = document.querySelector('select[name="manual_' + idx + '"]');
+  if (sel && !sel.value) return false;
+  if (sel && sel.value === 'ALL') {
+    var box = document.getElementById('split-amts-' + idx);
+    if (!box) return false;
+    var total = parseInt(box.getAttribute('data-total') || '0', 10);
+    var inputs = box.querySelectorAll('input');
+    var sum = 0;
+    for (var i = 0; i < inputs.length; i++) {
+      var n = parseInt(splitDigits(inputs[i].value) || '0', 10);
+      if (n > 0) sum += n;
+    }
+    return total > 0 && sum === total;
+  }
+  return true;
+}
+function hideApplyErr(idx) {
+  var btn = document.querySelector('.apply-one-btn[value="' + idx + '"]');
+  var err = btn && btn.parentNode && btn.parentNode.querySelector('.apply-err');
+  if (err) err.hidden = true;
+}
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest && e.target.closest('.apply-one-btn');
+  if (!btn) return;
+  var idx = btn.value;
+  var sel = document.querySelector('select[name="manual_' + idx + '"]');
+  if (sel && sel.value === 'ALL') {
+    var box = document.getElementById('split-amts-' + idx);
+    if (box && !rowApplyOk(idx)) fillSplit(box);
+  }
+  if (rowApplyOk(idx)) return;
+  e.preventDefault();
+  var err = btn.parentNode && btn.parentNode.querySelector('.apply-err');
+  if (err) err.hidden = false;
+});
+function splitDigits(v) {
+  return String(v || '').replace(/[^\d]/g, '');
+}
+function splitComma(n) {
+  n = String(parseInt(n, 10) || 0);
+  return n.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+document.addEventListener('input', function (e) {
+  var inp = e.target;
+  if (!inp || inp.tagName !== 'INPUT' || !inp.name || inp.name.indexOf('split_') !== 0) return;
+  var box = inp.closest('.split-amts');
+  if (!box) return;
+  var total = parseInt(box.getAttribute('data-total') || '0', 10);
+  var inputs = box.querySelectorAll('input');
+  var raw = splitDigits(inp.value);
+  var n = raw ? parseInt(raw, 10) : NaN;
+  if (inputs.length === 2) {
+    var other = inputs[0] === inp ? inputs[1] : inputs[0];
+    hideApplyErr(inp.name.replace(/^split_/, '').split('_')[0]);
+    if (!raw || isNaN(n)) {
+      other.value = '';
+      return;
+    }
+    var rest = total - n;
+    other.value = rest > 0 ? splitComma(rest) : (rest === 0 ? '0' : '');
+    return;
+  }
+  var empty = [];
+  for (var i = 0; i < inputs.length; i++) {
+    if (inputs[i] !== inp && !splitDigits(inputs[i].value)) empty.push(inputs[i]);
+  }
+  if (empty.length === 1 && raw && !isNaN(n)) {
+    var rest2 = total - n;
+    empty[0].value = rest2 > 0 ? splitComma(rest2) : '';
+  }
+});
 </script>
 {% endblock %}

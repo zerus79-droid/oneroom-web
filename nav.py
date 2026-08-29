@@ -12,7 +12,7 @@ _SECTION_LABELS = {
     "month": "월정기보고",
     "checkout": "퇴실 정산 관리",
     "repair": "수리",
-    "payment": "수금관리",
+    "payment": "수금/중개/미수금",
     "help": "도움말",
 }
 
@@ -45,11 +45,11 @@ def nav_context():
         "checkout_print": ("checkout", "퇴실 정산 관리", "계약 해지 인쇄"),
         "repairs": ("repair", "수리", "수리내역조회"),
         "repair_new": ("repair", "수리", "수리내역등록"),
-        "payment_new": ("payment", "수금관리", "수금(대체) 등록"),
-        "payments_import": ("payment", "수금관리", "파일등록"),
-        "payments": ("payment", "수금관리", "기간별 수금(대체) 현황"),
-        "jungke": ("payment", "수금관리", "중개수수료등록"),
-        "misu": ("payment", "수금관리", "미수금 현황 조회"),
+        "payment_new": ("payment", "수금/중개/미수금", "수금(대체) 등록"),
+        "payments_import": ("payment", "수금/중개/미수금", "파일등록"),
+        "payments": ("payment", "수금/중개/미수금", "기간별 수금(대체) 현황"),
+        "jungke": ("payment", "수금/중개/미수금", "중개보수등록"),
+        "misu": ("payment", "수금/중개/미수금", "미수금 현황 조회"),
         "docs": ("help", "도움말", "서식 및 자료"),
     }
     # buildings?next=rooms 는 같은 endpoint — 화면명만 보정
@@ -67,7 +67,7 @@ def nav_context():
         elif ep.startswith("repair"):
             sec = ("repair", "수리", "수리")
         elif ep.startswith("payment") or ep in ("jungke", "misu"):
-            sec = ("payment", "수금관리", "수금관리")
+            sec = ("payment", "수금/중개/미수금", "수금/중개/미수금")
         elif ep == "home":
             sec = ("home", "주택관리 시스템", "홈")
         else:

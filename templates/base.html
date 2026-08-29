@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="autocomplete" content="off">
   <title>{% block title %}주택관리시스템{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version('css/style.css') }}">
@@ -15,7 +15,9 @@
         if (!el || !el.matches) return false;
         return el.matches(
           '[inputmode="numeric"],[inputmode="decimal"],[type="number"],[type="date"],[type="password"],' +
-          '.money-input,.ls-money-in,.ls-money,.hosu-input,.seq-field,.dp-y,.dp-m,.dp-d'
+          '.money-input,.ls-money-in,.ls-money,.hosu-input,.seq-field,.dp-y,.dp-m,.dp-d,' +
+          '[name="bunji1"],[name="bunji2"],[name="q_bunji1"],[name="q_bunji2"],' +
+          '#bunji1,#bunji2,#q_bunji1,#q_bunji2,.bunji1-input,.bunji2-input'
         ) || !!(el.closest && el.closest('.bunji-pair-input,.date-parts'));
       }
       function applyIme(el) {
@@ -370,6 +372,31 @@
       while (s.length < 4) s = '0' + s;
       return s.slice(-4);
     }
+    function normalizeHosuTyped(raw) {
+      return String(raw || '').replace(/ㅠ/g, 'B');
+    }
+    window.normalizeHosuTyped = normalizeHosuTyped;
+    function resolveHosuForBuilding(raw, rooms) {
+      var h = normalizeHosuTyped(raw).replace(/\s+/g, '').toUpperCase();
+      if (!h) return h;
+      var list = rooms || [];
+      function has(x) {
+        for (var i = 0; i < list.length; i++) {
+          if (String(list[i]).toUpperCase() === x) return true;
+        }
+        return false;
+      }
+      if (has(h)) return h;
+      if (h.charAt(0) !== 'B') {
+        if (has('B' + h)) return 'B' + h;
+        var d = h.replace(/^0+/, '') || '0';
+        var pad = 'B' + (d.length >= 2 ? d : ('0' + d).slice(-2));
+        if (has(pad)) return pad;
+      }
+      return h;
+    }
+    window.resolveHosuForBuilding = resolveHosuForBuilding;
+    window.pad4Hosu = pad4Hosu;
     function isHosuInput(el) {
       if (!el || !el.tagName || el.tagName.toUpperCase() !== 'INPUT') return false;
       if (el.id === 'hosu') return true;
@@ -381,7 +408,8 @@
       if (!el || !el.tagName || el.tagName.toUpperCase() !== 'INPUT') return false;
       var n = el.getAttribute('name') || '';
       var id = el.id || '';
-      if (n === 'bunji1' || n === 'bunji2' || id === 'bunji1' || id === 'bunji2') return true;
+      if (n === 'bunji1' || n === 'bunji2' || n === 'q_bunji1' || n === 'q_bunji2') return true;
+      if (id === 'bunji1' || id === 'bunji2' || id === 'q_bunji1' || id === 'q_bunji2') return true;
       if (el.classList && (el.classList.contains('bunji1-input') || el.classList.contains('bunji2-input'))) return true;
       return false;
     }
@@ -498,7 +526,7 @@
       if (!el || !step) return false;
       var list = hosuListForBuilding();
       if (!list.length) return false;
-      var cur = String(el.value || '').trim().toUpperCase();
+      var cur = resolveHosuForBuilding(el.value, list);
       var idx = -1;
       for (var i = 0; i < list.length; i++) {
         if (list[i] === cur) {
@@ -636,28 +664,114 @@
       function digitsOf(el) {
         return String(el && el.value != null ? el.value : '').replace(/\D/g, '');
       }
+      function isUsableInput(el) {
+        if (!el || !el.tagName || el.tagName.toUpperCase() !== 'INPUT') return false;
+        if (el.disabled) return false;
+        var t = (el.type || 'text').toLowerCase();
+        return t !== 'hidden' && t !== 'checkbox' && t !== 'radio' && t !== 'button' && t !== 'submit';
+      }
+      function queryUsable(root, selector) {
+        var nodes = (root || document).querySelectorAll(selector);
+        for (var i = 0; i < nodes.length; i++) {
+          if (isUsableInput(nodes[i])) return nodes[i];
+        }
+        return null;
+      }
+      function isHyphenKey(e) {
+        return e.key === '-' || e.key === 'Subtract' || e.key === '－'
+            || e.code === 'Minus' || e.code === 'NumpadSubtract'
+            || e.keyCode === 189 || e.keyCode === 109 || e.keyCode === 173;
+      }
+      function focusJump(el) {
+        if (!el) return;
+        try {
+          el.focus({ preventScroll: true });
+          if (el.select) el.select();
+        } catch (err) {
+          try { el.focus(); if (el.select) el.select(); } catch (err2) {}
+        }
+      }
+      function bunjiNameOf(el) {
+        return String((el && (el.getAttribute('name') || el.id)) || '');
+      }
       function findBunji2For(b1) {
         if (!b1) return null;
+        var wantQ = bunjiNameOf(b1).indexOf('q_bunji') === 0;
         var wrap = b1.closest && b1.closest('.bunji-pair-input');
         if (wrap) {
-          var b2in = wrap.querySelector(
-            'input[name="bunji2"], #bunji2, input.bunji2-input, input[name="q_bunji2"], #q_bunji2'
+          var inWrap = queryUsable(
+            wrap,
+            wantQ
+              ? 'input[name="q_bunji2"], #q_bunji2, input.bunji2-input, input[name="bunji2"], #bunji2'
+              : 'input[name="bunji2"], #bunji2, input.bunji2-input, input[name="q_bunji2"], #q_bunji2'
           );
-          if (b2in) return b2in;
+          if (inWrap) return inWrap;
           var inputs = wrap.querySelectorAll('input');
-          if (inputs.length >= 2) return inputs[1];
+          for (var i = 0; i < inputs.length; i++) {
+            if (inputs[i] !== b1 && isUsableInput(inputs[i])) return inputs[i];
+          }
         }
-        return document.getElementById('bunji2')
-            || document.querySelector('input[name="bunji2"]')
-            || document.getElementById('q_bunji2')
-            || document.querySelector('input[name="q_bunji2"]');
-      }
-      function findHosuNear(b1) {
-        var form = b1 && b1.form;
+        var form = b1.form;
         if (form) {
-          return form.querySelector('#hosu, input[name="hosu"], input.hosu-input');
+          var inForm = queryUsable(
+            form,
+            wantQ
+              ? 'input[name="q_bunji2"], #q_bunji2, input.bunji2-input'
+              : 'input[name="bunji2"], #bunji2, input.bunji2-input'
+          );
+          if (inForm) return inForm;
         }
-        return document.getElementById('hosu') || document.querySelector('input[name="hosu"]');
+        var row = b1.closest && (b1.closest('.ls-row') || b1.closest('.xp-key-row') || b1.closest('.tr-key-row') || b1.closest('.xp-grid'));
+        if (row) {
+          var inRow = queryUsable(row, 'input[name="bunji2"], #bunji2, input.bunji2-input, input[name="q_bunji2"], #q_bunji2');
+          if (inRow) return inRow;
+        }
+        return queryUsable(document, 'input[name="bunji2"], #bunji2, input.bunji2-input, input[name="q_bunji2"], #q_bunji2');
+      }
+      function findBunji1For(b2) {
+        if (!b2) return null;
+        var wrap = b2.closest && b2.closest('.bunji-pair-input');
+        if (wrap) {
+          var inWrap = queryUsable(
+            wrap,
+            'input[name="bunji1"], #bunji1, input.bunji1-input, input[name="q_bunji1"], #q_bunji1'
+          );
+          if (inWrap) return inWrap;
+        }
+        var form = b2.form;
+        if (form) {
+          var wantQ = bunjiNameOf(b2).indexOf('q_bunji') === 0;
+          var inForm = queryUsable(
+            form,
+            wantQ
+              ? 'input[name="q_bunji1"], #q_bunji1, input.bunji1-input'
+              : 'input[name="bunji1"], #bunji1, input.bunji1-input'
+          );
+          if (inForm) return inForm;
+        }
+        return queryUsable(document, 'input[name="bunji1"], #bunji1, input.bunji1-input, input[name="q_bunji1"], #q_bunji1');
+      }
+      function findHosuNear(fromEl) {
+        var form = fromEl && fromEl.form;
+        if (form) {
+          var inForm = queryUsable(form, '#hosu, input[name="hosu"], input.hosu-input');
+          if (inForm) return inForm;
+        }
+        return queryUsable(document, '#hosu, input[name="hosu"], input.hosu-input');
+      }
+      function splitHyphen(raw) {
+        return String(raw || '').split(/[-－]/);
+      }
+      function applyHyphenJump(fromEl, toEl, raw) {
+        fromEl._bunjiHyphenJustJumped = true;
+        var parts = splitHyphen(raw);
+        fromEl.value = String(parts[0] || '').replace(/\D/g, '');
+        if (toEl) {
+          var rest = parts.slice(1).join('').replace(/\D/g, '');
+          if (rest) toEl.value = rest;
+          focusJump(toEl);
+        }
+        setTimeout(function () { fromEl._bunjiHyphenJustJumped = false; }, 0);
       }
       function clearPairAfterB1(b1) {
         if (window.__suppressBunjiAutoJump) return;
@@ -686,27 +800,43 @@
         } catch (e6) {}
       }
       function focusBunji2(b1) {
-        var b2 = findBunji2For(b1);
-        if (!b2) return;
-        try {
-          b2.focus({ preventScroll: true });
-          b2.select();
-        } catch (err) {
-          try { b2.focus(); b2.select(); } catch (err2) {}
-        }
+        focusJump(findBunji2For(b1));
+      }
+      function bindHyphenOn(el, getNext) {
+        if (!el || el._bunjiHyphenBound) return;
+        el._bunjiHyphenBound = true;
+        el.addEventListener('keydown', function (e) {
+          if (!isHyphenKey(e)) return;
+          e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          el._bunjiHyphenJustJumped = true;
+          el.value = digitsOf(el);
+          focusJump(getNext());
+          setTimeout(function () { el._bunjiHyphenJustJumped = false; }, 0);
+        }, true);
+        el.addEventListener('input', function () {
+          if (window.__suppressBunjiAutoJump) return;
+          var raw = String(el.value || '');
+          if (raw.indexOf('-') < 0 && raw.indexOf('－') < 0) return;
+          applyHyphenJump(el, getNext(), raw);
+        });
       }
       function bindBunjiClearAll() {
         document.querySelectorAll(
           'input#bunji1, input[name="bunji1"], input.bunji1-input, input#q_bunji1, input[name="q_bunji1"]'
         ).forEach(function (b1) {
-          if (!b1 || b1._bunjiClearBound) return;
+          if (!isUsableInput(b1)) return;
+          bindHyphenOn(b1, function () { return findBunji2For(b1); });
+          if (b1._bunjiClearBound) return;
           b1._bunjiClearBound = true;
           b1._bunjiDigitsAtFocus = digitsOf(b1);
           b1.addEventListener('focus', function () {
             b1._bunjiDigitsAtFocus = digitsOf(b1);
           });
           b1.addEventListener('input', function () {
-            if (window.__suppressBunjiAutoJump) return;
+            if (window.__suppressBunjiAutoJump || b1._bunjiHyphenJustJumped) return;
+            var raw = String(b1.value || '');
+            if (raw.indexOf('-') >= 0 || raw.indexOf('－') >= 0) return;
             var now = digitsOf(b1);
             var was = b1._bunjiDigitsAtFocus;
             if (now !== was) {
@@ -719,10 +849,17 @@
             b1._bunjiDigitsAtFocus = digitsOf(b1);
           });
         });
+        document.querySelectorAll(
+          'input#bunji2, input[name="bunji2"], input.bunji2-input, input#q_bunji2, input[name="q_bunji2"]'
+        ).forEach(function (b2) {
+          if (!isUsableInput(b2)) return;
+          bindHyphenOn(b2, function () { return findHosuNear(b2); });
+        });
       }
       bindBunjiClearAll();
       window.rebindBunjiClear = bindBunjiClearAll;
       window.__findBunji2For = findBunji2For;
+      window.__findBunji1For = findBunji1For;
       window.__findHosuNear = findHosuNear;
       window.__clearPairAfterB1 = clearPairAfterB1;
     })();
@@ -861,6 +998,107 @@
     setTimeout(function () {
       try { btn.focus(); } catch (e) {}
     }, 0);
+  };
+
+  window.appConfirm = function (message, onOk, onCancel) {
+    window.dismissAppAlert();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'app-alert-overlay';
+    overlay.className = 'app-alert-overlay';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    var box = document.createElement('div');
+    box.className = 'app-alert-box';
+
+    var msg = document.createElement('div');
+    msg.className = 'app-alert-msg';
+    msg.textContent = String(message == null ? '' : message);
+
+    var row = document.createElement('div');
+    row.className = 'app-alert-btns';
+
+    var ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'app-alert-btn';
+    ok.textContent = '확인';
+
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'app-alert-btn is-cancel';
+    cancel.textContent = '취소';
+
+    var hint = document.createElement('div');
+    hint.className = 'app-alert-hint';
+    hint.textContent = '확인 · Esc 취소 · 바깥 클릭 취소';
+
+    row.appendChild(cancel);
+    row.appendChild(ok);
+    box.appendChild(msg);
+    box.appendChild(row);
+    box.appendChild(hint);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    document.body.classList.add('app-alert-open');
+    window.__appAlertOpen = true;
+
+    var closed = false;
+    function finish(okHit, ev) {
+      if (closed) return;
+      closed = true;
+      if (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (e0) {}
+      }
+      document.removeEventListener('keydown', onKey, true);
+      window.dismissAppAlert();
+      window.__alertQuietUntil = Date.now() + 600;
+      setTimeout(function () {
+        if (okHit) {
+          if (typeof onOk === 'function') try { onOk(); } catch (e1) {}
+        } else if (typeof onCancel === 'function') {
+          try { onCancel(); } catch (e2) {}
+        }
+      }, 30);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        e.preventDefault();
+        e.stopPropagation();
+        finish(false, e);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        finish(true, e);
+      }
+    }
+    ok.addEventListener('click', function (e) { finish(true, e); });
+    cancel.addEventListener('click', function (e) { finish(false, e); });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) finish(false, e);
+    });
+    box.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('keydown', onKey, true);
+    setTimeout(function () {
+      try { ok.focus(); } catch (e) {}
+    }, 0);
+  };
+
+  window.appConfirmSubmit = function (form, message) {
+    if (form && form._appConfirmOk) {
+      form._appConfirmOk = false;
+      return true;
+    }
+    if (window.appConfirm) {
+      window.appConfirm(message, function () {
+        if (!form) return;
+        form._appConfirmOk = true;
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else HTMLFormElement.prototype.submit.call(form);
+      });
+      return false;
+    }
+    return window.confirm(message);
   };
 
   window.alert = function (message) {
@@ -1005,8 +1243,11 @@
   (function bindGlobalAddressGate() {
     function focusEl(el) {
       if (!el) return;
-      try { el.focus({ preventScroll: true }); if (el.select) el.select(); }
-      catch (e1) { try { el.focus(); if (el.select) el.select(); } catch (e2) {} }
+      try { el.focus({ preventScroll: true }); }
+      catch (e1) { try { el.focus(); } catch (e2) {} }
+      var t = (el.type || '').toLowerCase();
+      if (!el.select || t === 'checkbox' || t === 'radio' || t === 'button' || t === 'submit') return;
+      try { el.select(); } catch (e3) {}
     }
     function digits(el) {
       return String(el && el.value != null ? el.value : '').replace(/\D/g, '');
@@ -1152,7 +1393,19 @@
     window.checkAddrRoom = function (b1, b2, hosuEl, next, stayEl) {
       var a = digits(b1);
       var b = digits(b2);
-      var h = String(hosuEl && hosuEl.value || '').trim().toUpperCase();
+      var rooms = [];
+      try {
+        var a0 = digits(b1);
+        var b0 = digits(b2);
+        var p4 = window.pad4Hosu;
+        if (a0 && b0 && window.__hosuByBuilding && p4) {
+          rooms = window.__hosuByBuilding[p4(a0) + '-' + p4(b0)] || [];
+        }
+      } catch (eRooms) {}
+      var resolve = window.resolveHosuForBuilding;
+      var h = resolve
+        ? resolve(hosuEl && hosuEl.value, rooms)
+        : String(hosuEl && hosuEl.value || '').trim().toUpperCase();
       if (hosuEl) hosuEl.value = h;
       if (!a || !b) {
         alertMsg('주소·주소2를 입력하세요.', !a ? b1 : b2);
@@ -1186,8 +1439,12 @@
         });
     };
 
+    function isEnterKey(e) {
+      return e.key === 'Enter' || e.key === 'NumpadEnter' || e.keyCode === 13 || e.which === 13;
+    }
     function isAdvanceKey(e) {
-      return e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey);
+      if (isEnterKey(e)) return true;
+      return (e.key === 'Tab' || e.keyCode === 9) && !e.shiftKey;
     }
     function isArrowKey(e) {
       return e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight';
@@ -1243,9 +1500,26 @@
     function bindHosu(hosu) {
       if (!hosu || hosu._addrGateBound) return;
       hosu._addrGateBound = true;
+      hosu.addEventListener('input', function () {
+        var v = String(hosu.value || '');
+        var n = window.normalizeHosuTyped ? window.normalizeHosuTyped(v) : v.replace(/ㅠ/g, 'B');
+        if (n !== v) hosu.value = n;
+      });
+      function hosuEmptyNext(e) {
+        var h = String(hosu.value || '').trim();
+        if (h) return false;
+        var sel = hosu.getAttribute('data-empty-focus');
+        if (!sel) return false;
+        stopKey(e);
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        var next = document.querySelector(sel);
+        if (next) focusEl(next);
+        return true;
+      }
       hosu.addEventListener('keydown', function (e) {
         if (isArrowKey(e)) return;
         if (!isAdvanceKey(e) || skipped(hosu) || window.__suppressBunjiAutoJump) return;
+        if (hosuEmptyNext(e)) return;
         var h = String(hosu.value || '').trim();
         var required = hosu.required || hosu.getAttribute('data-require-hosu') === '1';
         if (!h && !required) return;
@@ -1273,6 +1547,10 @@
           }
           focusNextAfter(hosu);
         }, hosu);
+      }, true);
+      hosu.addEventListener('keypress', function (e) {
+        if (!isEnterKey(e)) return;
+        if (hosuEmptyNext(e)) return;
       }, true);
     }
 
@@ -1309,6 +1587,13 @@
         function allowSubmit() {
           form._addrSubmitOk = true;
           HTMLFormElement.prototype.submit.call(form);
+        }
+
+        var emptySel = hosu && hosu.getAttribute('data-empty-focus');
+        if (hosu && !h && emptySel) {
+          var emptyEl = document.querySelector(emptySel);
+          if (emptyEl) focusEl(emptyEl);
+          return;
         }
 
         if (hosu && (h || needH)) {
@@ -1350,6 +1635,29 @@
       document.querySelectorAll('form').forEach(bindFormSubmit);
     }
 
+    document.addEventListener('keydown', function (e) {
+      if (!isAdvanceKey(e) || e.shiftKey) return;
+      var el = e.target;
+      if (!el || !el.getAttribute) return;
+      var sel = el.getAttribute('data-empty-focus');
+      if (!sel) return;
+      if (String(el.value || '').trim()) return;
+      var next = document.querySelector(sel);
+      if (!next) return;
+      stopKey(e);
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      focusEl(next);
+    }, true);
+    document.addEventListener('keypress', function (e) {
+      if (!isEnterKey(e)) return;
+      var el = e.target;
+      if (!el || !el.getAttribute) return;
+      if (!el.getAttribute('data-empty-focus')) return;
+      if (String(el.value || '').trim()) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', scan);
     } else {
@@ -1381,11 +1689,11 @@
     </div>
     <div class="nav-item{% if nav_section == 'repair' %} is-active{% endif %}" data-nav="repair">
       <a class="nav-label" href="{{ url_for('repair_new') }}"
-         {% if nav_section == 'repair' %}aria-current="true"{% endif %}>수리</a>
+         {% if nav_section == 'repair' %}aria-current="true"{% endif %}>수리등록</a>
     </div>
     <div class="nav-item{% if nav_section == 'payment' %} is-active{% endif %}" data-nav="payment">
       <a class="nav-label" href="{{ url_for('payment_new') }}"
-         {% if nav_section == 'payment' %}aria-current="true"{% endif %}>수금관리</a>
+         {% if nav_section == 'payment' %}aria-current="true"{% endif %}>수금/중개/미수금</a>
     </div>
     <div class="nav-item{% if nav_section == 'help' %} is-active{% endif %}" data-nav="help">
       <a class="nav-label" href="{{ url_for('docs') }}"
@@ -1404,7 +1712,6 @@
 </header>
 <div class="app-shell">
   <aside class="side-nav"{% if nav_section not in ('base', 'tenant', 'month', 'checkout', 'repair', 'payment', 'help') %} hidden{% endif %} aria-label="세부 메뉴">
-    <div class="side-nav-head">{{ nav_section_label }}</div>
     {% if nav_section == 'base' %}
     <a href="{{ url_for('buildings') }}"
        class="{% if nav_endpoint == 'buildings' and request.args.get('next') != 'rooms' %}is-current{% endif %}">건물 조회</a>
@@ -1442,9 +1749,9 @@
     <a href="{{ url_for('payments_import') }}"
        class="{% if nav_endpoint == 'payments_import' %}is-current{% endif %}">파일등록</a>
     <a href="{{ url_for('payments', fresh=1) }}"
-       class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(입금) 현황</a>
+       class="{% if nav_endpoint == 'payments' %}is-current{% endif %}">기간별 수금(대체) 현황</a>
     <a href="{{ url_for('jungke', reset=1) }}"
-       class="{% if nav_endpoint == 'jungke' %}is-current{% endif %}">중개수수료등</a>
+       class="{% if nav_endpoint == 'jungke' %}is-current{% endif %}">중개보수</a>
     <a href="{{ url_for('misu') }}"
        class="{% if nav_endpoint == 'misu' %}is-current{% endif %}">미수금 현황 조회</a>
     {% elif nav_section == 'help' %}
@@ -1455,6 +1762,26 @@
 {% endif %}
 <main class="wrap" id="app-main">
   {% set flash_messages = get_flashed_messages(with_categories=true) %}
+  {% if flash_messages %}
+  <script>
+  (function () {
+    var msgs = {{ flash_messages|tojson }};
+    var text = [];
+    for (var i = 0; i < msgs.length; i++) {
+      var m = (msgs[i] && msgs[i][1]) ? String(msgs[i][1]) : '';
+      if (!m || m.indexOf('신규 입력 모드') === 0) continue;
+      text.push(m);
+    }
+    if (!text.length) return;
+    function show() {
+      if (window.appAlert) window.appAlert(text.join('\n'));
+      else window.alert(text.join('\n'));
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show);
+    else setTimeout(show, 30);
+  })();
+  </script>
+  {% endif %}
   {% block content %}{% endblock %}
   {% block flash %}{% endblock %}
 </main>

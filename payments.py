@@ -6,8 +6,12 @@
 """
 from calendar import monthrange
 from datetime import date, datetime
+import io
 
-from flask import render_template, request
+from flask import render_template, request, send_file
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 import db
 from app_instance import app
@@ -17,10 +21,13 @@ from utils import (
     clamp_date_str,
     first_date_for_tenant as _first_date_for_tenant,
     fmt_bunji_pair as _fmt_bunji_pair,
+    fmt_date as _fmt_date,
     iso_min_date as _iso_min_date,
     login_required,
     lookup_current_tenant as _lookup_current_tenant,
+    make_pager as _make_pager,
     pad_ipju_seq as _pad_ipju_seq,
+    to_int_amt as _to_int_amt,
     paginate as _paginate,
     parse_bunji_src as _parse_bunji_src,
     tenant_key as _tenant_key,
@@ -120,6 +127,7 @@ def _empty_payment_filters(today):
         "ym_year": str(today.year),
         "ym_month": f"{today.month:02d}",
         "all_hist": "",
+        "include_dache": True,
     }
 
 
@@ -148,6 +156,10 @@ def _read_payment_list_args(args):
         "ym_month": (args.get("ym_month") or "").strip(),
         "use_ym": args.get("use_ym") == "1",
         "all_hist": args.get("all_hist") in ("1", "true", "yes"),
+        "include_dache": (
+            (args.getlist("include_dache")[-1] if args.getlist("include_dache") else "1")
+            in ("1", "true", "yes", "on")
+        ),
         "name_list_mode": bool(name_raw)
         and name_mode
         and not (bunji1 and bunji2 and hosu),
@@ -232,7 +244,6 @@ def _search_tenants_by_name(name_q, tenant_status):
         WHERE TRIM(d.ipju_nm)=%s
           AND {status_sql}
         ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-        LIMIT 200
         """,
         (name_q,),
     )
@@ -247,7 +258,6 @@ def _search_tenants_by_name(name_q, tenant_status):
         WHERE d.ipju_nm LIKE %s
           AND {status_sql}
         ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-        LIMIT 200
         """,
         (f"{name_q}%",),
     )
@@ -262,7 +272,6 @@ def _search_tenants_by_name(name_q, tenant_status):
         WHERE d.ipju_nm LIKE %s
           AND {status_sql}
         ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-        LIMIT 200
         """,
         (f"%{name_q}%",),
     )
@@ -281,7 +290,6 @@ def _list_room_tenants(bunji1, bunji2, hosu, tenant_status):
           AND UPPER(TRIM(d.hosu))=UPPER(TRIM(%s))
           AND {status_sql}
         ORDER BY CAST(d.ipju_seq AS UNSIGNED) DESC
-        LIMIT 200
         """,
         (bunji1, bunji2, (hosu or "").strip().upper()),
     )
@@ -397,9 +405,10 @@ def _name_match_payment_groups(tenants, date_from, date_to):
     return groups
 
 
-def _query_payment_rows(
-    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist,
+def _payment_row_filters(
+    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to,
     tenant_status="all",
+    include_dache=False,
 ):
     where = ["1=1"]
     args = []
@@ -410,10 +419,10 @@ def _query_payment_rows(
         where.append("s.bunji2=%s")
         args.append(bunji2)
     if hosu:
-        where.append("UPPER(TRIM(s.hosu))=UPPER(TRIM(%s))")
+        where.append("s.hosu=%s")
         args.append(hosu)
     if ipju_seq_f:
-        where.append("LPAD(TRIM(s.ipju_seq), 2, '0')=LPAD(TRIM(%s), 2, '0')")
+        where.append("s.ipju_seq=%s")
         args.append(ipju_seq_f)
     elif tenant_status in ("current", "past"):
         # 순번 미지정: 현/과거 구분. 입주 이력 없는 수금은 제외
@@ -426,28 +435,74 @@ def _query_payment_rows(
         where.append("s.sukum_dt < %s + INTERVAL 1 DAY")
         args.append(date_to)
     where.append("(s.del_yn IS NULL OR s.del_yn='' OR s.del_yn='N')")
-    row_limit = 2000 if all_hist else 500
+    if not include_dache:
+        # 실입만. 대체전표(종류 02 또는 실입 0·대체>0)는 「대체 포함」일 때만
+        where.append(
+            "NOT (s.sukum_gb='02' OR (COALESCE(s.su_dache_amt,0)>0 AND COALESCE(s.su_sil_amt,0)=0))"
+        )
+    return where, args
+
+
+def _count_payment_rows(
+    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist,
+    tenant_status="all",
+    include_dache=False,
+):
+    where, args = _payment_row_filters(
+        bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to,
+        tenant_status, include_dache,
+    )
+    need_tenant = (not ipju_seq_f) and tenant_status in ("current", "past")
+    join_kw = "INNER JOIN" if need_tenant else "LEFT JOIN"
+    row = db.query_one(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM sukum01 s
+        {join_kw} bd03_det d
+          ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
+         AND d.hosu=s.hosu AND d.ipju_seq=s.ipju_seq
+        WHERE {' AND '.join(where)}
+        """,
+        tuple(args),
+    )
+    return int((row or {}).get("c") or 0)
+
+
+def _query_payment_rows(
+    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist,
+    tenant_status="all",
+    include_dache=False,
+    limit=None,
+    offset=0,
+):
+    where, args = _payment_row_filters(
+        bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to,
+        tenant_status, include_dache,
+    )
+    need_tenant = (not ipju_seq_f) and tenant_status in ("current", "past")
+    join_kw = "INNER JOIN" if need_tenant else "LEFT JOIN"
     sql = f"""
         SELECT s.sukum_dt, s.sukum_seq, s.bunji1, s.bunji2, s.hosu, s.ipju_seq,
                s.sukum_char, s.sukum_gb, s.manage_desc,
                s.su_sil_amt, s.su_dache_amt, s.s_method, s.del_yn,
                c1.g_cd_nm AS char_nm, c2.g_cd_nm AS gb_nm,
-               d.ipju_nm, d.ipju_dt, d.rent_amt, d.manage_amt, d.bojung_amt, b.juso
+               d.ipju_nm, d.ipju_dt, d.rent_amt, d.manage_amt, d.bojung_amt, d.yechi_amt, b.juso
         FROM sukum01 s
+        {join_kw} bd03_det d
+          ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
+         AND d.hosu=s.hosu AND d.ipju_seq=s.ipju_seq
         LEFT JOIN gicho_code c1
           ON c1.g_cd='01' AND c1.g_sub_cd=s.sukum_char
         LEFT JOIN gicho_code c2
           ON c2.g_cd='02' AND c2.g_sub_cd=s.sukum_gb
-        LEFT JOIN bd03_det d
-          ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
-         AND UPPER(TRIM(d.hosu))=UPPER(TRIM(s.hosu))
-         AND LPAD(TRIM(d.ipju_seq),2,'0')=LPAD(TRIM(s.ipju_seq),2,'0')
         LEFT JOIN bd01 b
           ON b.bunji1=s.bunji1 AND b.bunji2=s.bunji2
         WHERE {' AND '.join(where)}
-        ORDER BY s.sukum_dt ASC, CAST(s.sukum_seq AS UNSIGNED) ASC
-        LIMIT {int(row_limit)}
+        ORDER BY s.sukum_dt ASC, s.sukum_seq ASC
     """
+    if limit is not None:
+        sql += " LIMIT %s OFFSET %s"
+        args = list(args) + [int(limit), int(offset or 0)]
     return db.query(sql, tuple(args))
 
 
@@ -456,10 +511,14 @@ def _query_payment_rows(
 def payments():
     today = date.today()
     # 상단 메뉴 등: fresh=1 또는 쿼리 없음 → 이전 세입자/주소 조건 초기화
-    arg_keys = [k for k in request.args.keys() if k not in ("fresh",)]
+    arg_keys = [k for k in request.args.keys() if k not in ("fresh", "partial")]
     is_fresh = request.args.get("fresh") == "1" or len(arg_keys) == 0
-    buildings, rooms = _buildings_and_rooms()
-    years = _payment_year_options(today)
+    is_partial = (request.args.get("partial") or "").strip() in ("list", "result")
+    if is_partial:
+        buildings, rooms, years = [], [], []
+    else:
+        buildings, rooms = _buildings_and_rooms()
+        years = _payment_year_options(today)
 
     if is_fresh:
         fresh_ctx = dict(
@@ -489,6 +548,7 @@ def payments():
     name_display = q["name_display"]
     tenant_status = q["tenant_status"]
     all_hist = q["all_hist"]
+    include_dache = q["include_dache"]
     name_list_mode = q["name_list_mode"]
 
     date_from, date_to, ym_year, ym_month = _resolve_list_period(
@@ -577,8 +637,11 @@ def payments():
                 name_list_mode = True
                 picker_kind = "room"
 
-    if not name_list_mode and not empty_hint:
-        rows = _query_payment_rows(
+    pager = None
+    if name_list_mode:
+        payment_groups, pager = _paginate(payment_groups)
+    elif not empty_hint:
+        total = _count_payment_rows(
             bunji1,
             bunji2,
             hosu,
@@ -587,13 +650,23 @@ def payments():
             date_to,
             all_hist,
             tenant_status,
+            include_dache,
         )
-
-    pager = None
-    if name_list_mode:
-        payment_groups, pager = _paginate(payment_groups)
-    elif rows:
-        rows, pager = _paginate(rows)
+        pager = _make_pager(total)
+        if total:
+            rows = _query_payment_rows(
+                bunji1,
+                bunji2,
+                hosu,
+                ipju_seq_f,
+                date_from,
+                date_to,
+                all_hist,
+                tenant_status,
+                include_dache,
+                limit=pager["per_page"],
+                offset=pager["offset"],
+            )
 
     ctx = dict(
         payments=rows if not name_list_mode else [],
@@ -619,6 +692,7 @@ def payments():
             "ym_year": ym_year,
             "ym_month": ym_month,
             "all_hist": "1" if all_hist else "",
+            "include_dache": "1" if include_dache else "",
         },
     )
     if (request.args.get("partial") or "").strip() in ("list", "result"):
@@ -627,22 +701,22 @@ def payments():
     return render_template("payments.html", **ctx)
 
 
-@app.route("/payments/print")
-@login_required
-def payments_print():
-    """수금(대체) 내역 인쇄 — 별도 인쇄 전용 템플릿.
+def _resolve_payment_print_context(args):
+    """인쇄 미리보기·엑셀 다운로드가 공용으로 쓰는 조회 로직.
 
-    /payments 화면에서 지금 보고 있는 조건(주소·호실·이름·기간 등) 그대로
-    받아서 거래 내역을 인쇄용으로 다시 조회함(화면과 같은 필터 로직 재사용).
+    /payments 화면과 동일한 필터(주소·호실·이름·기간 등)를 그대로 받아
+    거래 내역과 합계를 계산해서 돌려준다. 이 함수 하나만 고치면
+    인쇄와 엑셀 양쪽 결과가 항상 같이 맞는다.
     """
     today = date.today()
-    q = _read_payment_list_args(request.args)
+    q = _read_payment_list_args(args)
     bunji1 = q["bunji1"]
     bunji2 = q["bunji2"]
     hosu = q["hosu"]
     ipju_seq_f = q["ipju_seq_f"]
     tenant_status = q["tenant_status"]
     all_hist = q["all_hist"]
+    include_dache = q["include_dache"]
 
     date_from, date_to, _ym_year, _ym_month = _resolve_list_period(
         today=today,
@@ -661,9 +735,51 @@ def payments_print():
     )
     rows = _query_payment_rows(
         bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist, tenant_status,
+        include_dache,
     )
+
     total_sil = sum(int(r.get("su_sil_amt") or 0) for r in rows)
     total_dache = sum(int(r.get("su_dache_amt") or 0) for r in rows)
+    total_deposit = 0
+    total_rent = 0
+    total_manage = 0
+    for r in rows:
+        char = str(r.get("sukum_char") or "").strip()
+        if char in ("02", "03"):
+            total_deposit += _to_int_amt(r.get("su_sil_amt")) + _to_int_amt(
+                r.get("su_dache_amt")
+            )
+        elif char == "01":
+            total_rent += _to_int_amt(r.get("rent_amt"))
+            total_manage += _to_int_amt(r.get("manage_amt"))
+
+    return {
+        "rows": rows,
+        "bunji1": bunji1,
+        "bunji2": bunji2,
+        "building_name": _building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
+        "addr_label": _fmt_bunji_pair(bunji1, bunji2) if bunji1 and bunji2 else "",
+        "name_display": q["name_raw"],
+        "date_from": date_from,
+        "date_to": date_to,
+        "total_sil": total_sil,
+        "total_dache": total_dache,
+        "total_deposit": total_deposit,
+        "total_rent": total_rent,
+        "total_manage": total_manage,
+    }
+
+
+@app.route("/payments/print")
+@login_required
+def payments_print():
+    """수금(대체) 내역 인쇄 — 별도 인쇄 전용 템플릿.
+
+    /payments 화면에서 지금 보고 있는 조건(주소·호실·이름·기간 등) 그대로
+    받아서 거래 내역을 인쇄용으로 다시 조회함(화면과 같은 필터 로직 재사용).
+    """
+    ctx = _resolve_payment_print_context(request.args)
+    rows = ctx["rows"]
     pages = [
         rows[i:i + _PRINT_ROWS_PER_PAGE]
         for i in range(0, len(rows), _PRINT_ROWS_PER_PAGE)
@@ -671,14 +787,124 @@ def payments_print():
 
     return render_template(
         "payments_print.html",
-        building_name=_building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
-        addr_label=_fmt_bunji_pair(bunji1, bunji2) if bunji1 and bunji2 else "",
-        name_display=q["name_raw"],
-        date_from=date_from,
-        date_to=date_to,
+        building_name=ctx["building_name"],
+        addr_label=ctx["addr_label"],
+        name_display=ctx["name_display"],
+        date_from=ctx["date_from"],
+        date_to=ctx["date_to"],
         pages=pages,
         total_pages=len(pages),
         total_count=len(rows),
-        total_sil=total_sil,
-        total_dache=total_dache,
+        total_sil=ctx["total_sil"],
+        total_dache=ctx["total_dache"],
+        total_deposit=ctx["total_deposit"],
+        total_rent=ctx["total_rent"],
+        total_manage=ctx["total_manage"],
+    )
+
+
+def _build_payments_excel(ctx):
+    """수금 목록 rows → openpyxl 워크북. 인쇄용 화면과 같은 컬럼 구성."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "수금현황"
+
+    thin_border = Border(
+        left=Side(style="thin", color="999999"),
+        right=Side(style="thin", color="999999"),
+        top=Side(style="thin", color="999999"),
+        bottom=Side(style="thin", color="999999"),
+    )
+
+    headers = [
+        "수금일자", "번지", "호수", "성명", "입주일자",
+        "실수금액", "대체금액", "보증/예치", "임대료", "관리비",
+    ]
+    ws.append(headers)
+
+    header_font = Font(bold=True)
+    header_fill = PatternFill("solid", fgColor="F3F4F6")
+    center = Alignment(horizontal="center")
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = thin_border
+
+    money_cols = (6, 7, 8, 9, 10)  # 실수금액~관리비
+    row_idx = 1
+    for r in ctx["rows"]:
+        row_idx += 1
+        char = str(r.get("sukum_char") or "").strip()
+        deposit = None
+        rent = None
+        manage = None
+        if char in ("02", "03"):
+            deposit = _to_int_amt(r.get("su_sil_amt")) + _to_int_amt(r.get("su_dache_amt"))
+        elif char == "01":
+            rent = _to_int_amt(r.get("rent_amt"))
+            manage = _to_int_amt(r.get("manage_amt"))
+
+        ws.append([
+            _fmt_date(r.get("sukum_dt")),
+            _fmt_bunji_pair(r.get("bunji1"), r.get("bunji2")),
+            (r.get("hosu") or "").strip(),
+            r.get("ipju_nm") or "",
+            _fmt_date(r.get("ipju_dt")) if r.get("ipju_dt") else "",
+            _to_int_amt(r.get("su_sil_amt")) or None,
+            _to_int_amt(r.get("su_dache_amt")) or None,
+            deposit,
+            rent,
+            manage,
+        ])
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=row_idx, column=col)
+            cell.border = thin_border
+            if col in money_cols:
+                cell.number_format = "#,##0"
+
+    # 합계 행 (엑셀 SUM 수식 — 원본 값이 바뀌어도 자동 재계산됨)
+    total_row = row_idx + 1
+    ws.cell(row=total_row, column=1, value=f"합 계 ({len(ctx['rows'])}건)").font = Font(bold=True)
+    ws.merge_cells(start_row=total_row, start_column=1, end_row=total_row, end_column=5)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=total_row, column=col)
+        cell.border = thin_border
+        if col in money_cols:
+            col_letter = ws.cell(row=1, column=col).column_letter
+            cell.value = f"=SUM({col_letter}2:{col_letter}{row_idx})" if row_idx >= 2 else 0
+            cell.number_format = "#,##0"
+        cell.font = Font(bold=True)
+
+    widths = [12, 10, 8, 10, 12, 12, 12, 12, 12, 12]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{ws.cell(row=1, column=len(headers)).column_letter}{row_idx}"
+
+    return wb
+
+
+@app.route("/payments/print/excel")
+@login_required
+def payments_print_excel():
+    """인쇄 미리보기와 동일한 조건의 수금 내역을 .xlsx로 다운로드."""
+    ctx = _resolve_payment_print_context(request.args)
+    wb = _build_payments_excel(ctx)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    label_bits = [b for b in (ctx["building_name"], ctx["name_display"]) if b]
+    label = "_".join(label_bits) if label_bits else "전체"
+    filename = f"수금현황_{label}_{ctx['date_from']}_{ctx['date_to']}.xlsx"
+
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )

@@ -4,8 +4,8 @@ app.py 전역에서 Jinja 필터·라우트 보호용으로 재사용되는, 특
 종속되지 않은 순수 헬퍼 함수들을 모아둔 모듈입니다.
 """
 from calendar import monthrange
-from datetime import datetime, date
-from decimal import Decimal, InvalidOperation
+from datetime import datetime, date, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from functools import wraps
 import re
 
@@ -219,12 +219,10 @@ def clamp_date_str(s):
 
 def pad_bunji(v, width=4):
     """번지(주소) 문자열을 DB 저장 형식인 4자리 숫자로 맞춤. 예: '88' -> '0088'"""
-    s = (v or "").strip()
+    s = re.sub(r"\D", "", (v or "").strip())
     if not s:
         return ""
-    if s.isdigit():
-        return s.zfill(width)
-    return s[:width]
+    return s.zfill(width)
 
 
 def parse_money(raw):
@@ -302,7 +300,11 @@ def to_int_amt(v):
 
 
 def months_elapsed(ipju_dt, as_of=None):
-    """입주일 ~ 기준일 경과연월 (같은 달이면 0)."""
+    """입주일 ~ 기준일의 납부기준일 경과 횟수.
+
+    입주일이 29~31일인데 대상 월에 그 날짜가 없으면 그 달 말일을 기준일로 본다.
+    예: 1/31 입주자는 2/28(윤년 2/29), 4/30에 각각 한 달이 경과한다.
+    """
     if not ipju_dt:
         return 0
     if as_of is None:
@@ -311,8 +313,161 @@ def months_elapsed(ipju_dt, as_of=None):
         ipju_dt = ipju_dt.date()
     if isinstance(as_of, datetime):
         as_of = as_of.date()
+    if as_of < ipju_dt:
+        return 0
     m = (as_of.year - ipju_dt.year) * 12 + (as_of.month - ipju_dt.month)
+    if m <= 0:
+        return 0
+    due_day = min(ipju_dt.day, monthrange(as_of.year, as_of.month)[1])
+    if as_of.day < due_day:
+        m -= 1
     return max(0, m)
+
+
+def ensure_contract_terms_history():
+    """계약금액 변경이력 테이블. 기존 입주 폼 배치를 바꾸지 않고 수정 저장 시 기록한다."""
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bd03_terms_hist (
+          hist_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          bunji1 CHAR(4) NOT NULL,
+          bunji2 CHAR(4) NOT NULL,
+          hosu CHAR(3) NOT NULL,
+          ipju_seq CHAR(2) NOT NULL,
+          effective_dt DATE NOT NULL,
+          bojung_amt DECIMAL(18,0) NOT NULL DEFAULT 0,
+          rent_amt DECIMAL(18,0) NOT NULL DEFAULT 0,
+          manage_amt DECIMAL(18,0) NOT NULL DEFAULT 0,
+          yechi_amt DECIMAL(18,0) NOT NULL DEFAULT 0,
+          napbu_gb CHAR(1) NOT NULL DEFAULT 'B',
+          change_desc VARCHAR(200) NOT NULL DEFAULT '',
+          uid CHAR(5) NOT NULL DEFAULT '',
+          sys_dt DATETIME NOT NULL,
+          PRIMARY KEY (hist_id),
+          KEY ix_terms_tenant_dt (bunji1,bunji2,hosu,ipju_seq,effective_dt,hist_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+
+def _terms_desc(old, new):
+    labels = (("bojung_amt", "보증금"), ("yechi_amt", "예치금"),
+              ("rent_amt", "월세"), ("manage_amt", "관리비"))
+    bits = []
+    for key, label in labels:
+        a, b = to_int_amt(old.get(key)), to_int_amt(new.get(key))
+        if a != b:
+            bits.append(f"{label} {a:,}→{b:,}")
+    a = str(old.get("napbu_gb") or "B").strip().upper()
+    b = str(new.get("napbu_gb") or "B").strip().upper()
+    if a != b:
+        bits.append(f"납부 {'선' if a == 'A' else '후'}→{'선' if b == 'A' else '후'}")
+    return ", ".join(bits)
+
+
+def record_contract_terms_change(bunji1, bunji2, hosu, ipju_seq, ipju_dt, old, new, uid=""):
+    """금액/선후불이 실제로 달라졌을 때 기존 조건과 새 조건을 보존한다."""
+    desc = _terms_desc(old, new)
+    if not desc:
+        return False
+    ensure_contract_terms_history()
+    key = (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2))
+    cnt = db.query_one(
+        "SELECT COUNT(*) AS c FROM bd03_terms_hist WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s",
+        key,
+    )
+    if to_int_amt((cnt or {}).get("c")) == 0:
+        start = ipju_dt.date() if isinstance(ipju_dt, datetime) else ipju_dt
+        db.execute(
+            """INSERT INTO bd03_terms_hist
+               (bunji1,bunji2,hosu,ipju_seq,effective_dt,bojung_amt,rent_amt,manage_amt,yechi_amt,napbu_gb,change_desc,uid,sys_dt)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'기존계약',%s,NOW())""",
+            key + (start, to_int_amt(old.get("bojung_amt")), to_int_amt(old.get("rent_amt")),
+                   to_int_amt(old.get("manage_amt")), to_int_amt(old.get("yechi_amt")),
+                   str(old.get("napbu_gb") or "B").strip().upper(), (uid or "")[:5]),
+        )
+    db.execute(
+        """INSERT INTO bd03_terms_hist
+           (bunji1,bunji2,hosu,ipju_seq,effective_dt,bojung_amt,rent_amt,manage_amt,yechi_amt,napbu_gb,change_desc,uid,sys_dt)
+           VALUES (%s,%s,%s,%s,CURDATE(),%s,%s,%s,%s,%s,%s,%s,NOW())""",
+        key + (to_int_amt(new.get("bojung_amt")), to_int_amt(new.get("rent_amt")),
+               to_int_amt(new.get("manage_amt")), to_int_amt(new.get("yechi_amt")),
+               str(new.get("napbu_gb") or "B").strip().upper(), desc, (uid or "")[:5]),
+    )
+    return True
+
+
+def record_initial_contract_terms(bunji1, bunji2, hosu, ipju_seq, ipju_dt, terms, uid=""):
+    ensure_contract_terms_history()
+    key = (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2))
+    cnt = db.query_one(
+        "SELECT COUNT(*) AS c FROM bd03_terms_hist WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s",
+        key,
+    )
+    if to_int_amt((cnt or {}).get("c")):
+        return False
+    start = ipju_dt.date() if isinstance(ipju_dt, datetime) else ipju_dt
+    db.execute(
+        """INSERT INTO bd03_terms_hist
+           (bunji1,bunji2,hosu,ipju_seq,effective_dt,bojung_amt,rent_amt,manage_amt,yechi_amt,napbu_gb,change_desc,uid,sys_dt)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'입주계약',%s,NOW())""",
+        key + (start, to_int_amt(terms.get("bojung_amt")), to_int_amt(terms.get("rent_amt")),
+               to_int_amt(terms.get("manage_amt")), to_int_amt(terms.get("yechi_amt")),
+               str(terms.get("napbu_gb") or "B").strip().upper(), (uid or "")[:5]),
+    )
+    return True
+
+
+def _add_months_clamped(d, months):
+    total = d.year * 12 + d.month - 1 + months
+    y, m0 = divmod(total, 12)
+    return date(y, m0 + 1, min(d.day, monthrange(y, m0 + 1)[1]))
+
+
+def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
+                                rent_amt=0, manage_amt=0):
+    """입주일 이상 퇴실일 미만의 임대료+관리비를 변경이력별 실제 주기로 계산한다."""
+    if isinstance(ipju_dt, datetime): ipju_dt = ipju_dt.date()
+    if isinstance(end_dt, datetime): end_dt = end_dt.date()
+    if not ipju_dt or not end_dt or end_dt <= ipju_dt:
+        return 0
+    try:
+        ensure_contract_terms_history()
+        rows = db.query(
+            """SELECT effective_dt,rent_amt,manage_amt FROM bd03_terms_hist
+               WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+                 AND effective_dt < %s
+               ORDER BY effective_dt,hist_id""",
+            (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
+        )
+    except Exception:
+        rows = []
+    terms = [(ipju_dt, to_int_amt(rent_amt), to_int_amt(manage_amt))]
+    for r in rows or []:
+        eff = r.get("effective_dt")
+        if isinstance(eff, datetime): eff = eff.date()
+        if eff and eff <= ipju_dt:
+            terms[0] = (ipju_dt, to_int_amt(r.get("rent_amt")), to_int_amt(r.get("manage_amt")))
+        elif eff:
+            terms.append((eff, to_int_amt(r.get("rent_amt")), to_int_amt(r.get("manage_amt"))))
+    terms.sort(key=lambda x: x[0])
+    total = Decimal(0)
+    idx = 0
+    day = ipju_dt
+    while day < end_dt:
+        while idx + 1 < len(terms) and terms[idx + 1][0] <= day:
+            idx += 1
+        mdiff = (day.year - ipju_dt.year) * 12 + day.month - ipju_dt.month
+        cycle_start = _add_months_clamped(ipju_dt, mdiff)
+        if cycle_start > day:
+            mdiff -= 1
+            cycle_start = _add_months_clamped(ipju_dt, mdiff)
+        cycle_end = _add_months_clamped(ipju_dt, mdiff + 1)
+        cycle_days = max(1, (cycle_end - cycle_start).days)
+        monthly = Decimal(terms[idx][1] + terms[idx][2])
+        total += monthly / Decimal(cycle_days)
+        day += timedelta(days=1)
+    return int((total / Decimal(100)).to_integral_value(rounding=ROUND_CEILING) * 100)
 
 
 def fmt_ipju_short(v):
@@ -487,9 +642,52 @@ def iso_min_date(v):
     return s if len(s) >= 10 else None
 
 
+def is_common_hosu(hosu):
+    """건물 공용 수리. 특정 호실이 아님."""
+    h = (hosu or "").replace(" ", "").strip()
+    return h in ("공용", "00", "000") or h.upper() == "COM"
+
+
+def resolve_hosu(bunji1, bunji2, hosu):
+    """호수 입력 보정. ㅠ→B, 01→B01(그 건물에 지하호가 있을 때)."""
+    raw = (hosu or "").replace("ㅠ", "B").replace(" ", "").strip()
+    if is_common_hosu(raw):
+        return "공용"
+    h = raw.upper()
+    b1, b2 = pad_bunji(bunji1), pad_bunji(bunji2)
+    if not (b1 and b2 and h):
+        return h
+
+    def _find(x):
+        return db.query_one(
+            """
+            SELECT hosu FROM bd03_m
+            WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
+            """,
+            (b1, b2, x),
+        )
+
+    row = _find(h)
+    if row:
+        return (row.get("hosu") or h).strip().upper()
+    if not h.startswith("B"):
+        cands = ["B" + h]
+        digits = h.lstrip("0") or "0"
+        cands.append("B" + digits.zfill(2))
+        seen = set()
+        for cand in cands:
+            if cand in seen:
+                continue
+            seen.add(cand)
+            row = _find(cand)
+            if row:
+                return (row.get("hosu") or cand).strip().upper()
+    return h
+
+
 def lookup_current_tenant(bunji1, bunji2, hosu):
     """호실의 현재 입주자(거주 우선). 없으면 최신 이력 1건."""
-    hosu = (hosu or "").strip().upper()
+    hosu = resolve_hosu(bunji1, bunji2, hosu)
     if not (bunji1 and bunji2 and hosu):
         return None
     cols = """
@@ -618,15 +816,26 @@ def parse_page(value=None):
 
 
 def build_pager(page, total_pages, *, page_block_size=PAGE_BLOCK_SIZE):
-    """페이지 번호: N개 단위 블록 (예: 1–6, 7–12). 이전/다음은 블록 점프."""
+    """페이지 번호: N개 단위 블록 (예: 1–6, 7–12). 이전/다음은 블록 점프.
+
+    전체가 두 블록 이하면 번호를 숨기지 않는다. (11페이지가 6에서 끊기던 문제)
+    그때 이전/다음은 한 페이지씩 이동.
+    """
     page = max(1, int(page or 1))
     total_pages = max(1, int(total_pages or 1))
+    page_block_size = max(1, int(page_block_size or PAGE_BLOCK_SIZE))
     page_window = []
     prev_block_page = 1
     next_block_page = 1
     has_prev_block = False
     has_next_block = False
-    if total_pages > 0:
+    if total_pages <= page_block_size * 2:
+        page_window = list(range(1, total_pages + 1))
+        has_prev_block = page > 1
+        has_next_block = page < total_pages
+        prev_block_page = max(1, page - 1)
+        next_block_page = min(total_pages, page + 1)
+    elif total_pages > 0:
         block = (page - 1) // page_block_size
         start_p = block * page_block_size + 1
         end_p = min(total_pages, start_p + page_block_size - 1)

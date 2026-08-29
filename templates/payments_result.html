@@ -35,7 +35,8 @@
     'ipju_seq': filters.ipju_seq or none,
     'date_from': filters.date_from or none,
     'date_to': filters.date_to or none,
-    'all_hist': filters.all_hist or none
+    'all_hist': filters.all_hist or none,
+    'include_dache': filters.include_dache or none
   } %}
   {% include '_pager.html' %}
   {% if payment_groups %}
@@ -57,7 +58,7 @@
         {% for g in payment_groups %}
         <tr class="click-row name-summary-row"
             title="클릭: 해당 세입자 전체 수금(대체) 현황"
-            data-href="{{ url_for('payments', name=g.ipju_nm, bunji1=g.bunji1, bunji2=g.bunji2, hosu=g.hosu, ipju_seq=g.ipju_seq, all_hist=1, tenant_status=filters.tenant_status) }}">
+            data-href="{{ url_for('payments', name=g.ipju_nm, bunji1=g.bunji1, bunji2=g.bunji2, hosu=g.hosu, ipju_seq=g.ipju_seq, all_hist=1, tenant_status=filters.tenant_status, include_dache=filters.include_dache or none) }}">
           <td>{{ g.ipju_nm or '(이름 없음)' }}</td>
           <td class="tc col-nowrap">
             <span class="bunji-link">{{ g.bunji1|bunji_pair(g.bunji2) }}</span>

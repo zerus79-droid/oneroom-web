@@ -57,7 +57,7 @@
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
       {% if ran and results %}
-      <a class="btn secondary" target="_blank" rel="noopener"
+      <a class="btn btn-accent" target="_blank" rel="noopener"
          href="{{ url_for('misu_print', bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, hosu=filters.hosu, name=filters.name, as_of=filters.as_of, only_misu=('1' if filters.only_misu else '0')) }}">인쇄</a>
       {% endif %}
     </div>
@@ -67,8 +67,7 @@
     미수 목록
     {% if ran and results %}
     <span class="muted">
-      {{ pager.total if pager else results|length }}건 ·
-      기준 {{ filters.as_of }} · {{ total_count }}건 · 미수 합계 {{ total_misu|money }}원 · 대체잔액 합계 {{ total_dache|money }}원
+      {{ total_count }}건 · 기준 {{ filters.as_of }} · 미수 합계 {{ total_misu|money }}원 · 대체잔액 합계 {{ total_dache|money }}원
     </span>
     {% endif %}
   </div>
@@ -108,7 +107,7 @@
           <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
           <td class="tc">{{ r.hosu }}</td>
           <td class="tc">—</td>
-          <td><span class="st-badge wait">공실</span></td>
+          <td class="tc"><span class="st-badge wait">공 실</span></td>
           <td class="tc col-nowrap">—</td>
           <td class="num">—</td>
           <td class="tc">—</td>
@@ -123,7 +122,7 @@
           <td class="tc col-nowrap">{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
           <td class="tc">{{ r.hosu }}</td>
           <td class="tc">{{ r.ipju_seq }}</td>
-          <td>{{ r.ipju_nm or '' }}</td>
+          <td class="tc">{{ r.ipju_nm or '' }}</td>
           <td class="tc col-nowrap">{{ r.ipju_dt|fmt_date }}</td>
           <td class="num">
             {% if r.misu_amt > 0 %}

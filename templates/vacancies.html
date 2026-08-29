@@ -14,54 +14,68 @@
 
     {# KPI 요약 #}
     <div class="vacancy-stats">
-      <a href="{{ url_for('buildings') }}" class="vacancy-stat vacancy-stat-clickable">
-        <div class="vacancy-stat-label">전체 건물</div>
-        <div class="vacancy-stat-value">{{ stats.building_total }}</div>
+      <a href="{{ url_for('buildings') }}" class="dash-kpi kpi-building">
+        <div class="dash-kpi-lab">전체 건물</div>
+        <div class="dash-kpi-circle st-navy">{{ stats.building_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies', only_empty=0) }}" class="vacancy-stat vacancy-stat-clickable">
-        <div class="vacancy-stat-label">전체 호수</div>
-        <div class="vacancy-stat-value">{{ stats.room_total }}</div>
+      <a href="{{ url_for('vacancies', only_empty=0) }}" class="dash-kpi kpi-rooms">
+        <div class="dash-kpi-lab">전체 호수</div>
+        <div class="dash-kpi-circle st-info">{{ stats.room_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies', only_empty=0, show_occupied=1) }}" class="vacancy-stat vacancy-stat-clickable">
-        <div class="vacancy-stat-label">현재 입주</div>
-        <div class="vacancy-stat-value ok">{{ stats.occupied_total }}</div>
+      <a href="{{ url_for('vacancies', only_empty=0, show_occupied=1) }}" class="dash-kpi kpi-occupied">
+        <div class="dash-kpi-lab">현재 입주</div>
+        <div class="dash-kpi-circle st-paid">{{ stats.occupied_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies') }}" class="vacancy-stat vacancy-stat-clickable highlight">
-        <div class="vacancy-stat-label">공실</div>
-        <div class="vacancy-stat-value warn">{{ stats.vacant_total }}</div>
+      <a href="{{ url_for('vacancies') }}" class="dash-kpi kpi-vacant">
+        <div class="dash-kpi-lab">공실</div>
+        <div class="dash-kpi-circle st-empty">{{ stats.vacant_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies', only_empty=1) }}" class="vacancy-stat vacancy-stat-clickable">
-        <div class="vacancy-stat-label">공실 있는 건물</div>
-        <div class="vacancy-stat-value">{{ stats.buildings_with_vacancy }}</div>
+      <a href="{{ url_for('vacancies', only_empty=1) }}" class="dash-kpi kpi-vacancy-buildings">
+        <div class="dash-kpi-lab">공실 있는 건물</div>
+        <div class="dash-kpi-circle st-wait">{{ stats.buildings_with_vacancy }}</div>
       </a>
     </div>
 
-    {# 필터 #}
-    <form class="filter-form vacancy-filter" method="get" action="{{ url_for('vacancies') }}" autocomplete="off">
-      <label>
-        <span>주소</span>
-        <div class="bunji-pair-input">
-          <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
-                 inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소" class="input-sm">
-          <span class="bunji-sep">-</span>
-          <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
-                 inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" class="input-sm">
+    <form class="filter-bar" method="get" action="{{ url_for('vacancies') }}" autocomplete="off">
+      <div class="filter-bar-fields">
+        <div class="ls-row">
+          <label class="ls-lab" for="bunji1">주소</label>
+          <div class="ls-val">
+            <div class="bunji-pair-input">
+              <input type="text" name="bunji1" id="bunji1" value="{{ filters.bunji1|bunji if filters.bunji1 else '' }}"
+                     inputmode="numeric" maxlength="4" placeholder="508" autocomplete="off" title="주소" class="ls-box">
+              <span class="bunji-sep">-</span>
+              <input type="text" name="bunji2" id="bunji2" value="{{ filters.bunji2|bunji if filters.bunji2 else '' }}"
+                     inputmode="numeric" maxlength="4" placeholder="88" autocomplete="off" title="주소2" aria-label="주소2" class="ls-box">
+            </div>
+          </div>
         </div>
-      </label>
-      <label>
-        <span>검색</span>
-        <input type="text" name="q" value="{{ filters.q }}"
-               placeholder="건물명 · 건물주 · 호수" autocomplete="off" class="input-sm">
-      </label>
-      <label class="chk">
-        <input type="hidden" name="only_empty" value="0">
-        <input type="checkbox" name="only_empty" value="1"
-               {% if filters.only_empty %}checked{% endif %}>
-        <span>공실 있는 건물만</span>
-      </label>
+        <div class="ls-row">
+          <label class="ls-lab" for="vacancy_q">검색</label>
+          <div class="ls-val">
+            <input type="text" name="q" id="vacancy_q" value="{{ filters.q }}"
+                   placeholder="건물명 · 건물주 · 호수" autocomplete="off" class="ls-box">
+          </div>
+        </div>
+        <div class="ls-row">
+          <label class="ls-lab">구분</label>
+          <div class="ls-val">
+            <div class="tenant-status-row">
+              <label class="tenant-status-opt">
+                <input type="hidden" name="only_empty" value="0">
+                <input type="checkbox" name="only_empty" value="1"
+                       {% if filters.only_empty %}checked{% endif %}>
+                <span>공실 있는 건물만</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
       <input type="hidden" name="show_occupied" value="{% if stats.show_occupied %}1{% else %}0{% endif %}">
-      <button type="submit" class="btn">조회</button>
-      <a class="btn secondary" href="{{ url_for('vacancies') }}">초기화</a>
+      <div class="filter-bar-btns">
+        <button type="submit" class="btn">조회</button>
+        <a class="btn" href="{{ url_for('vacancies') }}">초기화</a>
+      </div>
     </form>
 
     {# 공실 호수 목록 #}
@@ -119,7 +133,7 @@
               {% elif v.room_status == 'never' %}
               <span class="st-badge info">미입주</span>
               {% else %}
-              <span class="st-badge wait">공실</span>
+              <span class="st-badge wait">공 실</span>
               {% endif %}
             </td>
             <td class="tc col-nowrap">
@@ -139,10 +153,9 @@
             <td class="num col-nowrap">
               {% if v.last_ipju_nm %}{{ v.last_manage_amt|money }}{% endif %}
             </td>
-            <td class="tc" onclick="event.stopPropagation()">
-              <a href="{{ url_for('building_rooms', bunji1=v.bunji1, bunji2=v.bunji2) }}">호수</a>
-              ·
-              <a href="{{ url_for('payments', bunji1=v.bunji1, bunji2=v.bunji2, hosu=v.hosu, nav_from='base') }}">수금</a>
+            <td class="tc menu-badges" onclick="event.stopPropagation()">
+              <a class="st-badge info" href="{{ url_for('building_rooms', bunji1=v.bunji1, bunji2=v.bunji2) }}">호수</a>
+              <a class="st-badge paid" href="{{ url_for('payments', bunji1=v.bunji1, bunji2=v.bunji2, hosu=v.hosu, nav_from='base') }}">수금</a>
             </td>
           </tr>
           {% endfor %}
@@ -189,7 +202,7 @@
               {% if b.vacant_cnt > 0 %}
               <strong class="text-warn">{{ b.vacant_cnt }}</strong>
               {% elif b.room_cnt == 0 %}
-              <span class="badge empty">미등록</span>
+              <span class="st-badge empty">미등록</span>
               {% else %}
               0
               {% endif %}
@@ -201,10 +214,9 @@
               —
               {% endif %}
             </td>
-            <td class="tc" onclick="event.stopPropagation()">
-              <a href="{{ url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) }}">호수</a>
-              ·
-              <a href="{{ url_for('vacancies', bunji1=b.bunji1|bunji, bunji2=b.bunji2|bunji) }}">공실만</a>
+            <td class="tc menu-badges" onclick="event.stopPropagation()">
+              <a class="st-badge info" href="{{ url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) }}">호수</a>
+              <a class="st-badge wait" href="{{ url_for('vacancies', bunji1=b.bunji1|bunji, bunji2=b.bunji2|bunji) }}">공실만</a>
             </td>
           </tr>
           {% endfor %}

@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>수금(대체)현황{% if building_name %} · {{ building_name }}{% endif %}</title>
+  <title>수리내역조회{% if building_name %} · {{ building_name }}{% endif %}</title>
   <style>
     @page {
-      size: A4 portrait;
-      margin: 12mm 12mm 16mm;
+      size: A4 landscape;
+      margin: 10mm 10mm 14mm;
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
+      padding-top: 56px;
       background: #e8e8e8;
       color: #000;
       font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
@@ -20,10 +21,10 @@
       line-height: 1.35;
     }
     .sheet {
-      width: 210mm;
-      min-height: 297mm;
+      width: 297mm;
+      min-height: 210mm;
       margin: 12px auto;
-      padding: 14mm 12mm;
+      padding: 12mm 12mm;
       background: #fff;
       box-shadow: 0 2px 12px rgba(0,0,0,.12);
     }
@@ -83,9 +84,7 @@
       width: 100%;
       border-collapse: collapse;
     }
-    table.grid thead {
-      display: table-header-group;
-    }
+    table.grid thead { display: table-header-group; }
     table.grid th,
     table.grid td {
       border-bottom: 1px solid #ddd;
@@ -99,7 +98,7 @@
       font-weight: 700;
       background: #f3f4f6;
     }
-    table.grid td.left { text-align: left; }
+    table.grid td.left { text-align: left; white-space: normal; }
     table.grid td.num {
       text-align: right;
       font-variant-numeric: tabular-nums;
@@ -113,77 +112,88 @@
       border-bottom: none;
       font-weight: 700;
     }
-    /* 표 border-collapse 렌더링과 무관하게 확실히 보이는 마감선 */
     .table-end-line {
       height: 0;
       border-top: 1px solid #333;
     }
     @media print {
       .toolbar { display: none !important; }
-      html, body { background: #fff; }
-      .sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+      html, body { background: #fff; padding-top: 0; }
+      .sheet {
+        width: auto;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
       .sheet.page-break { page-break-after: always; break-after: page; }
+      table.grid tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
     }
   </style>
 </head>
 <body>
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
-    <a class="secondary" href="{{ url_for('payments_print_excel') }}?{{ request.query_string.decode() }}">엑셀 다운로드</a>
-    <a class="secondary" href="{{ url_for('payments', fresh=1) }}">이전</a>
-    <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
+    <a class="secondary" href="{{ url_for('repairs') }}">이전</a>
+    <span class="hint">Ctrl+P · 용지 A4 가로 · 머리글/바닥글 끄면 더 깔끔함</span>
   </div>
 
   {% for page_rows in pages %}
   <div class="sheet{% if not loop.last %} page-break{% endif %}">
-    <h1 class="title">수금(대체)현황</h1>
+    <h1 class="title">수리내역조회</h1>
     <div class="head-row">
       <span class="head-left">구 분 :
         {% if building_name %}{{ building_name }}{% if addr_label %} [{{ addr_label }}]{% endif %}{% endif %}
-        {% if name_display %}{{ name_display }}{% endif %}
+        {% if filters.hosu == '공용' %} 공용{% elif filters.hosu %} {{ filters.hosu }}호{% endif %}
+        {% if filters.suri_desc %} · {{ filters.suri_desc }}{% endif %}
       </span>
-      <span class="head-center">기간 : {{ date_from|fmt_ipju_short }} ~ {{ date_to|fmt_ipju_short }}</span>
+      <span class="head-center">기간 : {{ filters.date_from|fmt_ipju_short }} ~ {{ filters.date_to|fmt_ipju_short }}</span>
       <span class="head-right">Page : {{ loop.index }}/{{ total_pages }}</span>
     </div>
     <table class="grid">
       <thead>
         <tr>
-          <th>수금일자</th>
-          <th>번지</th>
+          <th>수리일자</th>
+          <th>주소</th>
           <th>호수</th>
           <th>성명</th>
-          <th>입주일자</th>
-          <th>실수금액</th>
-          <th>대체금액</th>
-          <th>보증/예치</th>
-          <th>임대료</th>
-          <th>관리비</th>
+          <th>입주일</th>
+          <th>수리내역</th>
+          <th>수리총액</th>
+          <th>입주자</th>
+          <th>건물주</th>
+          <th>관리실</th>
         </tr>
       </thead>
       <tbody>
         {% for r in page_rows %}
         <tr>
-          <td>{{ r.sukum_dt|fmt_ipju_short }}</td>
+          <td>{{ r.suri_dt|fmt_ipju_short }}</td>
           <td>{{ r.bunji1|bunji_pair(r.bunji2) }}</td>
-          <td>{{ r.hosu }}</td>
-          <td class="left">{{ r.ipju_nm or '' }}</td>
-          <td>{{ r.ipju_dt|fmt_ipju_short if r.ipju_dt else '' }}</td>
-          <td class="num">{{ r.su_sil_amt|money if r.su_sil_amt else '' }}</td>
-          <td class="num">{{ r.su_dache_amt|money if r.su_dache_amt else '' }}</td>
-          <td class="num">{% if (r.sukum_char or '')|trim in ('02', '03') %}{% set dep = (r.su_sil_amt or 0) + (r.su_dache_amt or 0) %}{{ dep|money if dep else '' }}{% endif %}</td>
-          <td class="num">{% if (r.sukum_char or '')|trim == '01' %}{{ r.rent_amt|money if r.rent_amt else '' }}{% endif %}</td>
-          <td class="num">{% if (r.sukum_char or '')|trim == '01' %}{{ r.manage_amt|money if r.manage_amt else '' }}{% endif %}</td>
+          <td>{% if r.hosu == '공용' %}공용{% else %}{{ r.hosu }}{% endif %}</td>
+          <td class="left">{% if r.hosu == '공용' %}공용{% elif r.ipju_nm %}{{ r.ipju_nm }}{% else %}공실{% endif %}</td>
+          <td>{% if r.hosu == '공용' %}{% elif r.ipju_dt %}{{ r.ipju_dt|fmt_ipju_short }}{% else %}공실{% endif %}</td>
+          <td class="left">{{ r.suri_desc or '' }}</td>
+          <td class="num">{{ r.suri_won_amt|money }}</td>
+          <td class="num">{{ r.ipjuja_budam|money }}</td>
+          <td class="num">{{ r.owner_budam|money }}</td>
+          <td class="num">{{ r.manage_budam|money }}</td>
         </tr>
         {% endfor %}
       </tbody>
       {% if loop.last %}
       <tfoot>
         <tr>
-          <td colspan="5">합 계 ({{ total_count }}건)</td>
-          <td class="num">{{ total_sil|money }}</td>
-          <td class="num">{{ total_dache|money }}</td>
-          <td class="num">{{ total_deposit|money }}</td>
-          <td class="num" colspan="2">{{ (total_rent + total_manage)|money }}</td>
+          <td colspan="6">합 계 ({{ total_count }}건)</td>
+          <td class="num">{{ tot_won|money }}</td>
+          <td class="num">{{ tot_ipjuja|money }}</td>
+          <td class="num">{{ tot_owner|money }}</td>
+          <td class="num">{{ tot_manage|money }}</td>
         </tr>
       </tfoot>
       {% endif %}

@@ -53,6 +53,13 @@
                    onchange="onTenantStatusChange(this)">
             <span>전체</span>
           </label>
+          <label class="tenant-status-opt tenant-dache-opt">
+            <input type="hidden" name="include_dache" value="0">
+            <input type="checkbox" name="include_dache" id="include_dache" value="1"
+                   {% if filters.include_dache %}checked{% endif %}
+                   onchange="onIncludeDacheChange(this)">
+            <span>대체 포함</span>
+          </label>
         </div>
       </div>
     </div>
@@ -133,7 +140,8 @@
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn" id="btn-search">조회</button>
-      <a class="btn secondary" id="btn-payments-print" target="_blank" rel="noopener" href="{{ url_for('payments_print') }}">인쇄</a>
+      <a class="btn" href="{{ url_for('payments', fresh=1) }}">초기화</a>
+      <a class="btn btn-accent" id="btn-payments-print" target="_blank" rel="noopener" href="{{ url_for('payments_print') }}">인쇄</a>
     </div>
   </form>
 
@@ -275,6 +283,12 @@ function clearIpjuLock(form) {
 }
 /** 세입자 구분(현/과거/전체) 변경 시 이전 순번 잠금 해제 후 조회 */
 var _tenantQueryAt = 0;
+function onIncludeDacheChange(el) {
+  var form = (el && el.form) || getPaymentsForm();
+  if (!form) return;
+  if (typeof form.requestSubmit === 'function') form.requestSubmit(el);
+  else form.submit();
+}
 function onTenantStatusChange(el) {
   var form = (el && el.form) || getPaymentsForm();
   if (!form) return;
@@ -391,12 +405,16 @@ function applyToday() {
     if (b2) fd.set('bunji2', onlyDigits(b2, 4));
     if (hosu) fd.set('hosu', normHosuVal(hosu.value));
     // 라디오/조회는 그 호의 현·과거를 다시 고름. 예전 입주 순번·이름은 제외
-    fd.delete('ipju_seq');
+    // 「대체 포함」만 바꿀 때는 지금 보고 있는 세입자를 유지
+    var keepTenant = submitter && submitter.name === 'include_dache';
+    if (!keepTenant) {
+      fd.delete('ipju_seq');
+    }
     if (nameMode && nameMode.value === '1' && nameEl && String(nameEl.value || '').trim()
         && !onlyDigits(b1, 4) && !onlyDigits(b2, 4)) {
       fd.set('name', String(nameEl.value || '').trim());
       fd.set('name_mode', '1');
-    } else {
+    } else if (!keepTenant) {
       fd.delete('name');
       fd.delete('name_mode');
     }
@@ -934,7 +952,8 @@ function applyToday() {
         syncBtn();
       });
     }
-    if (btn) {
+    if (btn && !btn._payDelBound) {
+      btn._payDelBound = true;
       btn.addEventListener('click', function () {
         var items = checks().filter(function (c) { return c.checked; }).map(function (c) {
           return {
@@ -946,33 +965,37 @@ function applyToday() {
           };
         });
         if (!items.length) return;
-        if (!window.confirm(items.length + '건의 수금 내역을 삭제할까요?')) return;
-        btn.disabled = true;
-        if (typeof showSearching === 'function') showSearching('삭제 중…');
-        fetch('/api/payments/delete', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: items })
-        })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (typeof hideSearching === 'function') hideSearching();
-            if (data && data.ok) {
-              window.alert(data.message || (data.deleted + '건 삭제했습니다.'));
-              loadPaymentsResult(location.href, { push: false, msg: '조회 중…' });
-            } else {
-              window.alert((data && data.message) || '삭제에 실패했습니다.');
+        var q = items.length + '건의 수금 내역을 삭제할까요?';
+        function doDelete() {
+          btn.disabled = true;
+          if (typeof showSearching === 'function') showSearching('삭제 중…');
+          fetch('/api/payments/delete', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: items })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (typeof hideSearching === 'function') hideSearching();
+              if (data && data.ok) {
+                window.alert(data.message || (data.deleted + '건 삭제했습니다.'));
+                loadPaymentsResult(location.href, { push: false, msg: '조회 중…' });
+              } else {
+                window.alert((data && data.message) || '삭제에 실패했습니다.');
+                btn.disabled = false;
+                syncBtn();
+              }
+            })
+            .catch(function () {
+              if (typeof hideSearching === 'function') hideSearching();
+              window.alert('삭제 요청 중 오류가 발생했습니다.');
               btn.disabled = false;
               syncBtn();
-            }
-          })
-          .catch(function () {
-            if (typeof hideSearching === 'function') hideSearching();
-            window.alert('삭제 요청 중 오류가 발생했습니다.');
-            btn.disabled = false;
-            syncBtn();
-          });
+            });
+        }
+        if (window.appConfirm) window.appConfirm(q, doDelete);
+        else if (window.confirm(q)) doDelete();
       });
     }
     syncBtn();
