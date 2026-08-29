@@ -49,6 +49,53 @@ def _prorate_amt(amt, days, month_days):
     return _ceil_100(amt * days / float(month_days))
 
 
+def _dache_flag(sil_amt, dache_amt, rent_calc=None):
+    sil, dache, rent = _to_int_amt(sil_amt), _to_int_amt(dache_amt), _to_int_amt(rent_calc)
+    if dache <= 0 or (rent > 0 and sil >= rent):
+        return ""
+    return "대체"
+
+
+def _dache_rent_remain(rent_calc, sil_amt, dache_amt):
+    rent, sil, dache = _to_int_amt(rent_calc), _to_int_amt(sil_amt), _to_int_amt(dache_amt)
+    if rent <= 0 or sil >= rent:
+        return 0
+    return max(0, rent - sil - dache)
+
+
+def _rent_ipkum_for_pay(sil_amt, dache_amt, rent_calc):
+    paid, rent = _to_int_amt(sil_amt) + _to_int_amt(dache_amt), _to_int_amt(rent_calc)
+    if paid <= 0 or rent <= 0:
+        return 0
+    return min(paid, rent)
+
+
+def _jungsan_month_rent_split(napbu, rent, ipju_dt, out_dt, month_start, month_end):
+    rent = _to_int_amt(rent)
+    out_d = _valid_out_dt(out_dt)
+    month_days = (month_end - month_start).days + 1
+    if not out_d or not (month_start <= out_d <= month_end) or rent <= 0 or month_days <= 0:
+        return rent, 0
+    if str(napbu or "B").strip().upper() == "A":
+        return rent, _prorate_amt(rent, (month_end - out_d).days, month_days)
+    ipju = _as_date(ipju_dt) or month_start
+    occ = max(0, (min(out_d, month_end) - max(ipju, month_start)).days + 1)
+    return _prorate_amt(rent, occ, month_days), 0
+
+
+def _jungsan_out_settle_amt(napbu, rent, ipju_dt, out_dt, month_start, month_end):
+    out_d, rent = _valid_out_dt(out_dt), _to_int_amt(rent)
+    if not out_d or not (month_start <= out_d <= month_end) or rent <= 0:
+        return None
+    days = (month_end - month_start).days + 1
+    prorate = lambda n: int(rent * max(0, n) / float(days))
+    if str(napbu or "B").strip().upper() == "A":
+        return -prorate((month_end - out_d).days)
+    ipju = _as_date(ipju_dt) or month_start
+    occ = max(0, (out_d - max(ipju, month_start)).days + 1)
+    return (rent if ipju < month_start else 0) + prorate(occ)
+
+
 def _fmt_man_int(v):
     n = _to_int_amt(v)
     return "" if n <= 0 else str(int(round(n / 10000)))

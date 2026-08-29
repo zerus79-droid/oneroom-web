@@ -228,80 +228,6 @@ def _apply_month_adjustments(rows, b1, b2, month_start):
     return rows
 
 
-def _dache_flag(sil_amt, dache_amt, rent_calc=None):
-    """실입이 임대료 이상이면 대체 표시 없음. 미납·부족(임대료 미달)만 대체."""
-    sil = _to_int_amt(sil_amt)
-    dache = _to_int_amt(dache_amt)
-    rent = _to_int_amt(rent_calc)
-    if dache <= 0:
-        return ""
-    if rent > 0 and sil >= rent:
-        return ""
-    return "대체"
-
-
-def _dache_rent_remain(rent_calc, sil_amt, dache_amt):
-    """대체 잔액 = 당월 임대료 − 실입 − 이미 넣은 대체. 관리비는 넣지 않음."""
-    rent = _to_int_amt(rent_calc)
-    sil = _to_int_amt(sil_amt)
-    dache = _to_int_amt(dache_amt)
-    if rent <= 0 or sil >= rent:
-        return 0
-    return max(0, rent - sil - dache)
-
-
-def _rent_ipkum_for_pay(sil_amt, dache_amt, rent_calc):
-    """책임관리 당월지급에 넣는 월세분.
-    실입(월세+관리·미수초과)과 대체를 합치지 않고, 당월 임대료를 한도로 잡음.
-    """
-    paid = _to_int_amt(sil_amt) + _to_int_amt(dache_amt)
-    rent = _to_int_amt(rent_calc)
-    if paid <= 0 or rent <= 0:
-        return 0
-    return min(paid, rent)
-
-
-def _jungsan_month_rent_split(napbu, rent, ipju_dt, out_dt, month_start, month_end):
-    """당월 임대료 계산분·선불 청구(미적용)분.
-    후불+당월퇴실: 퇴실일까지 일할.
-    선불+당월퇴실: 퇴실 다음날~월말 일할(대체금이 있을 때만 청구로 씀).
-    그 외: 전액, 청구 0.
-    """
-    rent = _to_int_amt(rent)
-    out_d = _valid_out_dt(out_dt)
-    month_days = (month_end - month_start).days + 1
-    left_this_month = bool(out_d and month_start <= out_d <= month_end)
-    if not left_this_month or rent <= 0 or month_days <= 0:
-        return rent, 0
-    nap = str(napbu or "B").strip().upper()
-    if nap == "A":
-        unused = (month_end - out_d).days
-        return rent, _prorate_amt(rent, unused, month_days)
-    ipju = _as_date(ipju_dt) or month_start
-    start = max(ipju, month_start)
-    end = min(out_d, month_end)
-    occ = (end - start).days + 1 if end >= start else 0
-    return _prorate_amt(rent, occ, month_days), 0
-
-
-def _jungsan_out_settle_amt(napbu, rent, ipju_dt, out_dt, month_start, month_end):
-    """XP 퇴실정산 입금액. 후불은 전월분+퇴실일까지(+), 선불은 미사용분 환급(-)."""
-    out_d = _valid_out_dt(out_dt)
-    rent = _to_int_amt(rent)
-    if not out_d or not (month_start <= out_d <= month_end) or rent <= 0:
-        return None
-    month_days = (month_end - month_start).days + 1
-    prorate = lambda days: int(rent * max(0, days) / float(month_days))
-    if str(napbu or "B").strip().upper() == "A":
-        unused = (month_end - out_d).days
-        return -prorate(unused)
-    ipju = _as_date(ipju_dt) or month_start
-    start = max(ipju, month_start)
-    occ = (out_d - start).days + 1 if out_d >= start else 0
-    previous_month = rent if ipju < month_start else 0
-    return previous_month + prorate(occ)
-
-
 def _jungsan_month_tenants(b1, b2, month_start, month_end):
     """당월에 거주한 호실·입주 (현재 입주 + 당월 퇴실)."""
     return db.query(
@@ -1005,8 +931,10 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
 
 
 from jungsan_engine import (
-    _as_date, _ceil_100, _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell,
-    _month_bounds, _prorate_amt, _valid_out_dt,
+    _as_date, _ceil_100, _dache_flag, _dache_rent_remain,
+    _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell, _jungsan_month_rent_split,
+    _jungsan_out_settle_amt, _month_bounds, _prorate_amt,
+    _rent_ipkum_for_pay, _valid_out_dt,
 )
 
 
