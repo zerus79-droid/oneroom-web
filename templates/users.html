@@ -56,7 +56,7 @@
         <div class="tenant-status-row" style="display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px 12px;min-height:28px">
           {% for b in buildings %}
           {% set key = (b.bunji1|string) ~ '|' ~ (b.bunji2|string) %}
-          <label class="tenant-status-opt building-option" data-building-text="{{ (b.juso or (b.bunji1 ~ '-' ~ b.bunji2))|lower }}"><input type="checkbox" name="buildings" value="{{ key }}" {% if key in form.buildings %}checked{% endif %}><span>{{ b.juso or (b.bunji1 ~ '-' ~ b.bunji2) }}</span></label>
+          <label class="tenant-status-opt building-option" data-building-text="{{ ((b.juso or '') ~ ' ' ~ b.bunji1 ~ '-' ~ b.bunji2)|lower }}"><input type="checkbox" name="buildings" value="{{ key }}" {% if key in form.buildings %}checked{% endif %}><span>{{ b.juso or (b.bunji1 ~ '-' ~ b.bunji2) }}</span></label>
           {% endfor %}
         </div>
         {% else %}<span class="muted">등록된 건물이 없습니다.</span>{% endif %}
