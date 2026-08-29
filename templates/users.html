@@ -15,7 +15,7 @@
 
     <div class="ls-row">
       <label class="ls-lab star">사용자 ID</label>
-      <div class="ls-val">
+      <div class="ls-val" style="align-items:flex-start;flex-direction:column;width:100%">
         <input type="text" name="sabun" id="sabun" class="ls-box" required
                value="{{ form.sabun }}" maxlength="5" placeholder="예: 10004"
                autocomplete="off" {% if form.mode == 'edit' %}{% endif %}>
