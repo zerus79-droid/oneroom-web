@@ -164,7 +164,7 @@
 <body>
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
-    <a class="sec" href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}" onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">이전</a>
+    <a class="sec" href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}" onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
     <span style="opacity:.75;font-size:.85rem">Ctrl+P · PDF로 저장</span>
   </div>
 
