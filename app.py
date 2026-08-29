@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+from collections import defaultdict
 from datetime import date, datetime
 from flask import (
     flash,
@@ -25,6 +27,10 @@ from utils import (
     mask_phone,
     money,
 )
+
+_LOGIN_MAX_FAILURES = 5
+_LOGIN_LOCK_SECONDS = 600
+_login_attempts = defaultdict(lambda: {"failures": 0, "locked_until": 0.0})
 
 # 화면 모듈 import (라우트 자동 등록)
 import building_access as building_access_routes  # noqa: F401
@@ -209,6 +215,11 @@ def login():
     if request.method == "POST":
         sabun = (request.form.get("sabun") or "").strip()
         password = (request.form.get("password") or "").strip()
+        attempt_key = (request.remote_addr or "unknown", sabun.lower())
+        attempt = _login_attempts[attempt_key]
+        if attempt["locked_until"] > time.monotonic():
+            flash("로그인 시도 횟수를 초과했습니다. 잠시 후 다시 시도하세요.", "err")
+            return render_template("login.html")
 
         if not sabun or not password:
             flash("사번과 비밀번호를 모두 입력해주세요.", "err")
@@ -221,13 +232,19 @@ def login():
             )
 
             if row and (row.get("pass_wd") or "").strip() == password:
+                _login_attempts.pop(attempt_key, None)
                 session.clear()
                 session["sabun"] = row["sabun"]
                 session["s_name"] = row["s_name"]
                 session["grade"] = row["grade"]
                 return redirect(url_for("home"))
 
-            flash("사번 또는 비밀번호가 올바르지 않습니다.", "err")
+            attempt["failures"] += 1
+            if attempt["failures"] >= _LOGIN_MAX_FAILURES:
+                attempt["locked_until"] = time.monotonic() + _LOGIN_LOCK_SECONDS
+                flash("로그인 5회 실패로 10분간 로그인이 차단됩니다.", "err")
+            else:
+                flash("사번 또는 비밀번호가 올바르지 않습니다.", "err")
         except Exception as e:
             app.logger.error(f"[Login DB Error] {e}")
             flash("로그인 처리 중 오류가 발생했습니다. 다시 시도해주세요.", "err")
