@@ -45,12 +45,19 @@ def get_conn():
     return _pool.connection()
 
 
-def query(sql, args=None):
+def query(sql, args=None, *, apply_building_access=True):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(sql, args or ())
-            return cur.fetchall()
+            rows = cur.fetchall()
+            if apply_building_access:
+                try:
+                    from building_access import filter_query_rows
+                    rows = filter_query_rows(rows)
+                except ImportError:
+                    pass
+            return rows
     finally:
         conn.close()
 

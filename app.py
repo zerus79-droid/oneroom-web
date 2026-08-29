@@ -19,6 +19,7 @@ from utils import (
     fmt_bunji,
     fmt_bunji_pair,
     fmt_date,
+    fmt_ipju_short,
     login_required,
     mask_jumin,
     mask_phone,
@@ -26,6 +27,7 @@ from utils import (
 )
 
 # 화면 모듈 import (라우트 자동 등록)
+import building_access as building_access_routes  # noqa: F401
 import building as building_routes  # noqa: F401
 import checkout as checkout_routes  # noqa: F401
 import docs as docs_routes  # noqa: F401
@@ -47,6 +49,7 @@ logging.basicConfig(level=logging.INFO)
 # Jinja2 템플릿 필터 등록
 app.jinja_env.filters["money"] = money
 app.jinja_env.filters["fmt_date"] = fmt_date
+app.jinja_env.filters["fmt_ipju_short"] = fmt_ipju_short
 app.jinja_env.filters["bunji"] = fmt_bunji
 app.jinja_env.filters["bunji_pair"] = fmt_bunji_pair
 app.jinja_env.filters["mask_phone"] = mask_phone
@@ -165,7 +168,6 @@ def home():
             WHERE {_CURRENT_TENANT_SQL}
               AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
             ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-            LIMIT 2000
             """,
             [as_of_s, as_of_s]
         )

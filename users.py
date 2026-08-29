@@ -39,6 +39,7 @@ def _empty_user_form():
         "grade": "B",
         "password": "",
         "orig_sabun": "",
+        "buildings": [],
     }
 
 
@@ -58,7 +59,23 @@ def _extract_user_form(form):
         "password2": (form.get("password2") or "").strip(),
         "mode": (form.get("mode") or "new").strip(),
         "orig_sabun": (form.get("orig_sabun") or "").strip(),
+        "buildings": form.getlist("buildings"),
     }
+
+
+def _save_user_buildings(old_sabun, sabun, building_values):
+    old_sabun = (old_sabun or sabun).strip()
+    db.execute("DELETE FROM sawon_building WHERE sabun=%s", (old_sabun,))
+    if old_sabun != sabun:
+        db.execute("DELETE FROM sawon_building WHERE sabun=%s", (sabun,))
+    for value in building_values:
+        if "|" not in value:
+            continue
+        b1, b2 = value.split("|", 1)
+        db.execute(
+            "INSERT IGNORE INTO sawon_building (sabun, bunji1, bunji2) VALUES (%s,%s,%s)",
+            (sabun, b1[:4], b2[:4]),
+        )
 
 
 def _validate_user_form(data, *, require_password):
@@ -90,7 +107,9 @@ def users():
     if request.method == "POST":
         action = (request.form.get("action") or "save").strip()
         if action == "new":
-            return redirect(url_for("users"))
+            # 신규 버튼은 현재 로그인 사용자를 기본 선택하는 GET 동작을
+            # 피하도록 명시적으로 신규 모드를 전달한다.
+            return redirect(url_for("users", new=1))
 
         form = _extract_user_form(request.form)
         if action == "delete":
@@ -102,6 +121,7 @@ def users():
                 flash("현재 로그인 중인 계정은 삭제할 수 없습니다.", "err")
                 return _render_users_page(form)
             try:
+                db.execute("DELETE FROM sawon_building WHERE sabun=%s", (target,))
                 n = db.execute("DELETE FROM sawon_m WHERE sabun=%s", (target,))
                 if n:
                     flash(f"삭제했습니다. ({target})", "ok")
@@ -145,6 +165,7 @@ def users():
                     session["sabun"] = form["sabun"]
                     session["s_name"] = form["s_name"][:50]
                     session["grade"] = form["grade"]
+                _save_user_buildings(form["orig_sabun"], form["sabun"], form["buildings"])
                 flash("수정 저장했습니다.", "ok")
             else:
                 exists = db.query_one(
@@ -160,6 +181,7 @@ def users():
                     """,
                     (form["sabun"], form["s_name"][:50], form["grade"], form["password"][:10]),
                 )
+                _save_user_buildings("", form["sabun"], form["buildings"])
                 flash(f"등록했습니다. ({form['sabun']})", "ok")
         except Exception as e:
             flash(f"저장 실패: {e}", "err")
@@ -168,8 +190,9 @@ def users():
     # GET
     form = _empty_user_form()
     edit_sabun = (request.args.get("sabun") or "").strip()
+    is_new = (request.args.get("new") or "").strip() == "1"
     # sabun 파라미터가 없으면 현재 로그인한 사용자를 기본으로 선택
-    if not edit_sabun:
+    if not edit_sabun and not is_new:
         edit_sabun = (session.get("sabun") or "").strip()
     if edit_sabun:
         row = db.query_one(
@@ -188,6 +211,14 @@ def users():
                 "password": "",
                 "password2": "",
                 "orig_sabun": row.get("sabun") or "",
+                "buildings": [
+                    f"{r['bunji1']}|{r['bunji2']}"
+                    for r in db.query(
+                        "SELECT bunji1, bunji2 FROM sawon_building WHERE sabun=%s",
+                        (row.get("sabun") or "",),
+                        apply_building_access=False,
+                    )
+                ],
             }
 
     return _render_users_page(form)
@@ -207,11 +238,16 @@ def _user_rows():
 
 
 def _render_users_page(form):
+    buildings = db.query(
+        "SELECT bunji1, bunji2, juso FROM bd01 ORDER BY bunji1, bunji2",
+        apply_building_access=False,
+    )
     return render_template(
         "users.html",
         form=form,
         users=_user_rows(),
         grade_options=GRADE_OPTIONS,
+        buildings=buildings,
     )
 
 

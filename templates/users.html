@@ -66,6 +66,20 @@
       </div>
     </div>
 
+    <div class="ls-row">
+      <label class="ls-lab">담당 건물</label>
+      <div class="ls-val">
+        {% if buildings %}
+        <div class="tenant-status-row" style="display:flex;flex-wrap:wrap;gap:6px 12px">
+          {% for b in buildings %}
+          {% set key = (b.bunji1|string) ~ '|' ~ (b.bunji2|string) %}
+          <label class="tenant-status-opt"><input type="checkbox" name="buildings" value="{{ key }}" {% if key in form.buildings %}checked{% endif %}><span>{{ b.juso or (b.bunji1 ~ '-' ~ b.bunji2) }}</span></label>
+          {% endfor %}
+        </div>
+        {% else %}<span class="muted">등록된 건물이 없습니다.</span>{% endif %}
+      </div>
+    </div>
+
     <div class="ls-actions">
       <button type="submit" class="btn" id="btn-user-save" name="action" value="save">저장</button>
       <button type="button" class="btn secondary" id="btn-user-delete"
@@ -136,7 +150,15 @@
         return;
       }
       var who = nm ? (nm + ' (' + sid + ')') : sid;
-      if (!window.confirm(who + ' 사용자를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.')) return;
+      var q = who + ' 사용자를 삭제할까요?\n삭제하면 되돌릴 수 없습니다.';
+      if (window.appConfirm) {
+        window.appConfirm(q, function () {
+          if (act) act.value = 'delete';
+          HTMLFormElement.prototype.submit.call(form);
+        });
+        return;
+      }
+      if (!window.confirm(q)) return;
       if (act) act.value = 'delete';
       HTMLFormElement.prototype.submit.call(form);
     });
