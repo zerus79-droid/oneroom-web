@@ -76,62 +76,6 @@ def _g_extra_costs(building, is_resp):
     )
 
 
-def _month_sukum_sil_dache(b1, b2, hosu, seq, month_start, month_end_s):
-    """당월 월세수금 실입·대체. 실입이 있으면 대체 대상이 아님."""
-    row = db.query_one(
-        """
-        SELECT
-          COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
-          COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
-        FROM sukum01
-        WHERE bunji1=%s AND bunji2=%s
-          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-          AND sukum_char='01'
-          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-          AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-        """,
-        (
-            b1,
-            b2,
-            (hosu or "").strip().upper(),
-            str(seq or "").zfill(2) if seq else "",
-            month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start),
-            month_end_s,
-        ),
-    )
-    return _to_int_amt((row or {}).get("sil")), _to_int_amt((row or {}).get("dache"))
-
-
-def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s):
-    """XP가 퇴실확정 때 저장한 월말정산용 종류06 조정액.
-
-    양수·음수·0 모두 의미가 있으므로 행 존재 여부를 금액과 분리해 반환한다.
-    """
-    row = db.query_one(
-        """
-        SELECT COUNT(*) AS cnt,
-               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS amt,
-               MAX(COALESCE(manage_desc,'')) AS manage_desc
-        FROM sukum01
-        WHERE bunji1=%s AND bunji2=%s
-          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-          AND sukum_char='06'
-          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-          AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-        """,
-        (
-            b1,
-            b2,
-            (hosu or "").strip().upper(),
-            str(seq or "").zfill(2) if seq else "",
-            month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start),
-            month_end_s,
-        ),
-    )
-    exists = _to_int_amt((row or {}).get("cnt")) > 0
-    return exists, _to_int_amt((row or {}).get("amt")), ((row or {}).get("manage_desc") or "").strip()
-
-
 def _ensure_month_adjustment_table():
     db.execute(
         """
@@ -226,31 +170,6 @@ def _apply_month_adjustments(rows, b1, b2, month_start):
             _to_int_amt(a.get("adj_amt")) for a in adjs if (a.get("burden_gb") or "O") == "C"
         )
     return rows
-
-
-def _jungsan_month_tenants(b1, b2, month_start, month_end):
-    """당월에 거주한 호실·입주 (현재 입주 + 당월 퇴실)."""
-    return db.query(
-        """
-        SELECT m.hosu,
-               d.ipju_seq, d.ipju_nm, d.ipju_dt, d.out_dt,
-               d.bojung_amt, d.yechi_amt, d.rent_amt, d.manage_amt, d.napbu_gb
-        FROM bd03_m m
-        LEFT JOIN bd03_det d
-          ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-         AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
-         AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='')
-         AND d.ipju_dt IS NOT NULL
-         AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-         AND (
-            d.out_dt IS NULL OR d.out_dt < '1000-01-01'
-            OR d.out_dt >= %s
-         )
-        WHERE m.bunji1=%s AND m.bunji2=%s
-        ORDER BY m.hosu, d.ipju_dt
-        """,
-        (month_end.isoformat(), month_start.isoformat(), b1, b2),
-    )
 
 
 def _bojung_disp_amt(bojung_amt, yechi_amt, is_resp):
@@ -470,8 +389,9 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
             r["sil_amt"] = sil_amt
             r["dache_amt"] = dache_amt
             r["out_dt"] = out_d
-            r["out_settle_amt"] = out_adj_amt if out_adj_exists else None
-            r["ipkum_amt"] = out_adj_amt if out_adj_exists else sil_amt + dache_amt
+            owner_out_amt = int((out_adj_amt + 50) // 100 * 100) if out_adj_exists and out_adj_amt > 0 else out_adj_amt
+            r["out_settle_amt"] = owner_out_amt if out_adj_exists else None
+            r["ipkum_amt"] = owner_out_amt if out_adj_exists else sil_amt + dache_amt
             if out_d:
                 r["manage_desc"] = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
             r["dache_gb"] = _dache_flag(
@@ -550,6 +470,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
                     month_start, month_end,
                 )
             )
+            if out_settle_amt is not None and out_settle_amt > 0:
+                out_settle_amt = int((out_settle_amt + 50) // 100 * 100)
             ipkum = out_settle_amt if out_settle_amt is not None else sil_amt + dache_amt
             misu = _calc_misu_amt(
                 b1, b2, hosu, seq, rent, manage, m.get("ipju_dt"), as_of=as_of
@@ -934,7 +856,8 @@ from jungsan_engine import (
     _as_date, _ceil_100, _dache_flag, _dache_rent_remain,
     _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell, _jungsan_month_rent_split,
     _jungsan_out_settle_amt, _month_bounds, _prorate_amt,
-    _rent_ipkum_for_pay, _valid_out_dt,
+    _rent_ipkum_for_pay, _valid_out_dt, _month_sukum_sil_dache,
+    _month_out_adjustment, _jungsan_month_tenants,
 )
 
 
