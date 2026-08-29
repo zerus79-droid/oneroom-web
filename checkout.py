@@ -234,17 +234,12 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
                 (b1, b2, hosu),
             )
             if past:
-                pnm = (past.get("ipju_nm") or "").strip() or "(이름없음)"
-                pseq = str(past.get("ipju_seq") or "").zfill(2)
-                pout = fmt_date(past.get("out_dt")) or ""
-                extra_msg = f" 최근 퇴실: {pnm} (순번 {pseq}"
-                if pout:
-                    extra_msg += f", 퇴실 {pout}"
-                extra_msg += ")."
-                return {
-                    "error": "현재 입주자가 없습니다." + extra_msg
-                    + " 과거 정산은 퇴실(예정)자 조회에서 열어 주세요."
-                }
+                # 현재 입주자가 없으면 가장 최근 과거 이력을 퇴실정산 대상으로 표시
+                tenant = db.query_one(
+                    """SELECT * FROM bd03_det WHERE bunji1=%s AND bunji2=%s
+                       AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s""",
+                    (b1, b2, hosu, str(past.get("ipju_seq") or "").zfill(2)),
+                )
             return {"error": "해당 호수의 입주 이력이 없습니다."}
 
     seq = str(tenant.get("ipju_seq") or "").zfill(2)
