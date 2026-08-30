@@ -340,7 +340,8 @@
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary"
-       href="{{ url_for('checkout', bunji1=form.bunji1, bunji2=form.bunji2, hosu=form.hosu, ipju_seq=form.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}">이전</a>
+       href="{{ url_for('checkout', bunji1=form.bunji1, bunji2=form.bunji2, hosu=form.hosu, ipju_seq=form.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}"
+       onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
     <span class="hint">Ctrl+P · 용지 A4 · <strong>머리글 및 바닥글 끄기</strong> (날짜·제목 안 나오게)</span>
   </div>
 
