@@ -685,6 +685,7 @@ def _checkout_form_from(src, today=None):
         "bunji2": _pad_bunji(src.get("bunji2")),
         "hosu": (src.get("hosu") or "").strip().upper(),
         "ipju_seq": (src.get("ipju_seq") or "").strip(),
+        "edit": "1" if (src.get("edit") or "").strip() == "1" else "",
         "suri": (src.get("suri") or "0").strip(),
         "elec": (src.get("elec") or "0").strip(),
         "water": (src.get("water") or "0").strip(),
@@ -940,6 +941,7 @@ def checkout():
                         restore=f["restore"],
                         gas=f["gas"],
                         etc=f["etc"],
+                        edit=f["edit"] or None,
                     )
                 )
             err = _save_checkout(data, session.get("sabun") or "")
@@ -958,6 +960,7 @@ def checkout():
                     hosu=data["hosu"],
                     ipju_seq=data["ipju_seq"],
                     out_dt=data["out_dt"],
+                    edit=f["edit"] or None,
                 )
             )
 
@@ -976,6 +979,7 @@ def checkout():
                 restore=f["restore"],
                 gas=f["gas"],
                 etc=f["etc"],
+                edit=f["edit"] or None,
             )
         )
 
@@ -986,6 +990,10 @@ def checkout():
     data = None
     if f["bunji1"] and f["bunji2"] and f["hosu"]:
         if f["ipju_seq"]:
+            has_extra_args = any(
+                name in request.args
+                for name in ("suri", "elec", "water", "restore", "gas", "etc")
+            )
             saved = db.query_one(
                 """SELECT out_dt,elec_amt,sudo_amt,sisul_amt,gas_amt,gita_amt,g_suri_tot
                    FROM bd07_out WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
@@ -993,20 +1001,28 @@ def checkout():
                 (f["bunji1"], f["bunji2"], f["hosu"], f["ipju_seq"]),
             )
             if saved:
-                f["out_dt"] = fmt_date(saved.get("out_dt")) or f["out_dt"]
-                f["suri"] = str(_to_int_amt(saved.get("g_suri_tot")))
-                f["elec"] = str(_to_int_amt(saved.get("elec_amt")))
-                f["water"] = str(_to_int_amt(saved.get("sudo_amt")))
-                f["restore"] = str(_to_int_amt(saved.get("sisul_amt")))
-                f["gas"] = str(_to_int_amt(saved.get("gas_amt")))
-                f["etc"] = str(_to_int_amt(saved.get("gita_amt")))
+                # URL에 명시된 날짜/공과금은 다시 계산 결과이므로 유지한다.
+                # 값이 없는 최초 진입에서만 저장된 정산 자료를 불러온다.
+                if not request.args.get("out_dt"):
+                    f["out_dt"] = fmt_date(saved.get("out_dt")) or f["out_dt"]
+                if not has_extra_args:
+                    f["suri"] = str(_to_int_amt(saved.get("g_suri_tot")))
+                    f["elec"] = str(_to_int_amt(saved.get("elec_amt")))
+                    f["water"] = str(_to_int_amt(saved.get("sudo_amt")))
+                    f["restore"] = str(_to_int_amt(saved.get("sisul_amt")))
+                    f["gas"] = str(_to_int_amt(saved.get("gas_amt")))
+                    f["etc"] = str(_to_int_amt(saved.get("gita_amt")))
             else:
                 tenant_date = db.query_one(
                     """SELECT out_dt FROM bd03_det WHERE bunji1=%s AND bunji2=%s
                        AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s""",
                     (f["bunji1"], f["bunji2"], f["hosu"], f["ipju_seq"]),
                 )
-                if tenant_date and tenant_date.get("out_dt"):
+                if (
+                    not request.args.get("out_dt")
+                    and tenant_date
+                    and tenant_date.get("out_dt")
+                ):
                     f["out_dt"] = fmt_date(tenant_date["out_dt"])
         extra = _checkout_extra(f)
         data = _checkout_build(
@@ -1302,6 +1318,7 @@ def checkout_print():
     doc, fac, rent, payments, util, settle = _checkout_to_print(data)
     return render_template(
         "contract_cancel_print.html",
+        data=data,
         doc=doc,
         fac=fac,
         rent=rent,

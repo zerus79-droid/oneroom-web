@@ -87,6 +87,7 @@
     {% include '_pager.html' %}
     {% if ran and results %}
     <form method="post" id="restore-form" class="ls-actions" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="restore">
       <input type="hidden" name="bunji1" id="rf_b1" value="">
       <input type="hidden" name="bunji2" id="rf_b2" value="">
@@ -159,8 +160,8 @@
           <td class="tc">{{ r.bojung_amt|money }}</td>
           <td class="num">{{ r.rent_amt|money }}</td>
           <td class="tc">
-            <a class="st-badge checkout-action-badge {{ 'wait' if r.kind == '퇴실예정' else 'info' }}"
-               href="{{ url_for('checkout', bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, ipju_seq=r.ipju_seq, out_dt=r.kind_dt|fmt_date) }}">{{ '예정' if r.kind == '퇴실예정' else '정산' }}</a>
+            <a class="st-badge checkout-action-badge {{ 'wait' if r.kind == '퇴실예정' else 'edit' }}"
+               href="{{ url_for('checkout', bunji1=r.bunji1|bunji, bunji2=r.bunji2|bunji, hosu=r.hosu, ipju_seq=r.ipju_seq, out_dt=r.kind_dt|fmt_date, edit=('1' if r.kind == '퇴실' else none)) }}">{{ '예정' if r.kind == '퇴실예정' else '수정' }}</a>
           </td>
         </tr>
         {% endfor %}

@@ -175,7 +175,7 @@
     <h1>{{ data.bunji_label }} 결산현황</h1>
     <div class="meta">
       <span>최초보증금 : {{ data.summary.first_amt|money }}</span>
-      <span>{{ '관리주체 통장' if data.manager_account else '건물주 통장' }} · 기준일자:{{ filters.as_of|fmt_ipju_short }}</span>
+      <span>기준일자:{{ filters.as_of|fmt_ipju_short }}</span>
     </div>
 
     <table class="main">

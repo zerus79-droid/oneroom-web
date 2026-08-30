@@ -52,7 +52,9 @@ def search():
             where.append("bunji2=%s")
             args.append(bunji2)
         if hosu:
-            where.append("UPPER(TRIM(hosu))=%s")
+            # UPPER(TRIM(hosu))=%s 대신 인덱스가 걸린 hosu_norm 컬럼으로 비교
+            # (migrations/001_search_speed_indexes.sql 적용 필요)
+            where.append("hosu_norm=%s")
             args.append(hosu)
         if ipju_seq:
             where.append("ipju_seq=%s")

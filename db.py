@@ -11,6 +11,12 @@ retry_delay = 2
 
 def _init_pool():
     global _pool
+    # MariaDB is normally local for this application.  PyMySQL 2.x prefers
+    # SSL by default and rebuilds the Windows certificate context whenever a
+    # pooled connection is created, which adds noticeable latency to screens
+    # that issue many short-lived queries.  Keep SSL for non-local databases.
+    local_db_hosts = {"127.0.0.1", "localhost", "::1"}
+    ssl_disabled = str(config.DB_HOST).strip().lower() in local_db_hosts
     for attempt in range(max_retries):
         try:
             _pool = PooledDB(
@@ -28,6 +34,7 @@ def _init_pool():
                 charset="utf8mb4",
                 cursorclass=DictCursor,
                 autocommit=True,
+                ssl_disabled=ssl_disabled,
             )
             print("Database connection pool initialized successfully")
             return

@@ -873,6 +873,7 @@
       bindMoneyInputs();
       if (window.rebindBunjiClear) window.rebindBunjiClear();
       if (window.rebindAddressGate) window.rebindAddressGate();
+      if (window.ensureCsrfTokens) window.ensureCsrfTokens();
     };
   });
 
@@ -1483,6 +1484,12 @@
         stopKey(e);
         var b1 = findB1Near(b2);
         var hosu = findHosu(b2);
+        // 주소 2가 아직 비어 있으면 검증/폼 제출을 시도하지 않고
+        // 입력칸에 그대로 둔다. (주소 1에서 넘어온 직후의 Enter 포함)
+        if (!digits(b2)) {
+          focusEl(b2);
+          return;
+        }
         window.checkAddrBuilding(b1, b2, function () {
           if (hosu) {
             focusEl(hosu);
@@ -1578,6 +1585,20 @@
         var h = hosu ? String(hosu.value || '').trim() : '';
         var needB = !!(b1.required || (b2 && b2.required));
         var needH = !!(hosu && (hosu.required || hosu.getAttribute('data-require-hosu') === '1'));
+
+        // 주소 입력 중 발생한 암묵적 제출은 검색으로 처리하지 않고
+        // 다음 입력칸으로만 이동시킨다. (폼별 opt-in)
+        if (form.getAttribute('data-address-submit-safe') === '1') {
+          var active = document.activeElement;
+          if (active === b1 || active === b2) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            var next = active === b1 ? b2 : hosu;
+            if (next) focusEl(next);
+            return;
+          }
+        }
 
         if (!a && !b && !h && !needB && !needH) return;
 
@@ -2022,15 +2043,22 @@
 {% endif %}
 <script>
 (function () {
-  var meta = document.querySelector('meta[name="csrf-token"]');
-  if (!meta) return;
-  var token = meta.getAttribute('content');
-  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
-    if (form.querySelector('input[name="csrf_token"]')) return;
-    var input = document.createElement('input');
-    input.type = 'hidden'; input.name = 'csrf_token'; input.value = token;
-    form.appendChild(input);
-  });
+  window.ensureCsrfTokens = function () {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if (!meta) return;
+    var token = meta.getAttribute('content');
+    if (!token) return;
+    document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (form) {
+      var input = form.querySelector('input[name="csrf_token"]');
+      if (!input) {
+        input = document.createElement('input');
+        input.type = 'hidden'; input.name = 'csrf_token';
+        form.appendChild(input);
+      }
+      input.value = token;
+    });
+  };
+  window.ensureCsrfTokens();
 })();
 </script>
 </body>

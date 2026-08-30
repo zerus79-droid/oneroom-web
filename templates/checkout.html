@@ -16,7 +16,8 @@
       {% endif %}
     </span>
   </div>
-  <form method="get" class="legacy-sukum-body xp-form filter-bar" id="checkout-form" data-enter-submit="1" autocomplete="off">
+  <form method="get" class="legacy-sukum-body xp-form filter-bar" id="checkout-form"
+        data-enter-submit="1" data-address-submit-safe="1" autocomplete="off">
     <div class="filter-bar-fields">
       {# 1행: 퇴실일자 / 2행: 주소 · 호수. 조회·인쇄는 오른쪽 2칸 버튼 #}
       <div class="xp-key-row">
@@ -122,6 +123,8 @@
       <input type="hidden" name="bunji2" value="{{ form.bunji2 }}">
       <input type="hidden" name="hosu" value="{{ form.hosu }}">
       <input type="hidden" name="ipju_seq" value="{{ data.ipju_seq }}">
+      <input type="hidden" name="edit" value="{{ form.edit }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" id="co_action" value="save">
 
       <h2 style="font-size:1rem;margin:0 0 8px">⑦ 공과 · 공제 (원)</h2>
@@ -165,8 +168,16 @@
           </div>
         </div>
         <div class="checkout-utility-actions">
+          {% if data.is_current %}
           <button type="submit" class="btn" data-action="save"
                   onclick="document.getElementById('co_action').value='save'">저장<br>(퇴실확정)</button>
+          {% elif form.edit == '1' %}
+          <button type="submit" class="btn" data-action="save"
+                  onclick="document.getElementById('co_action').value='save'">수정<br>(정산업데이트)</button>
+          {% else %}
+          <button type="button" class="btn" disabled
+                  title="퇴실(예정)자 조회의 정산 버튼으로 열어야 수정할 수 있습니다.">저장<br>(퇴실확정)</button>
+          {% endif %}
           <button type="submit" class="btn secondary" data-action="calc"
                   onclick="document.getElementById('co_action').value='calc'">다시<br>계산</button>
           <a class="btn btn-accent" id="co-print-btn" target="_blank" rel="noopener"
@@ -215,6 +226,16 @@
   var utilityForm = document.querySelector('form input[name="suri"]');
   utilityForm = utilityForm ? utilityForm.form : null;
   if (utilityForm) {
+    // 날짜/주소 입력은 상단 조회 폼에 있고, 계산·저장 폼에는 hidden 값이
+    // 별도로 있으므로 POST 직전에 최신 화면 값을 복사한다.
+    utilityForm.addEventListener("submit", function () {
+      ["out_dt", "bunji1", "bunji2", "hosu"].forEach(function (name) {
+        var source = document.getElementById(name);
+        var target = utilityForm.querySelector('input[name="' + name + '"]');
+        if (source && target && source !== target) target.value = source.value || "";
+      });
+    }, true);
+
     var utilityNames = ["suri", "elec", "gas", "water", "restore", "etc"];
     var utilityInputs = utilityNames.map(function (name) {
       return utilityForm.querySelector('input[name="' + name + '"]');
@@ -385,6 +406,15 @@
     if (!document.getElementById("checkout-pays")) return;
     loadPays(location.href, false);
   });
+})();
+</script>
+{% endif %}
+{% if data and data.tenant_out_dt and data.out_dt and data.out_dt != data.tenant_out_dt %}
+<script>
+(function () {
+  var status = document.querySelector('.caption-status[data-status="past"]');
+  if (!status) return;
+  status.textContent = '미리보기 기준일 {{ data.out_dt|fmt_date }} (확정 퇴실일 {{ data.tenant_out_dt }})';
 })();
 </script>
 {% endif %}

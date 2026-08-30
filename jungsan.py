@@ -29,6 +29,11 @@ from utils import (
 )
 
 
+_G_COST_COLS_READY = False
+_MONTH_ADJUSTMENT_TABLE_READY = False
+_SJUNGKE_HOSU_READY = False
+
+
 def _is_resp_building(building):
     if not building:
         return False
@@ -48,6 +53,9 @@ def _is_manager_account(building):
 
 
 def _ensure_g_cost_cols():
+    global _G_COST_COLS_READY
+    if _G_COST_COLS_READY:
+        return
     for col in ("stair_cost", "inet_cost", "option_cost"):
         try:
             db.execute(
@@ -63,6 +71,7 @@ def _ensure_g_cost_cols():
         """UPDATE bd01 SET sukum_acct_gb=CASE WHEN COALESCE(mgmt_gb,'R')='G' THEN 'O' ELSE 'M' END
            WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
     )
+    _G_COST_COLS_READY = True
 
 
 def _g_extra_costs(building, is_resp):
@@ -77,6 +86,9 @@ def _g_extra_costs(building, is_resp):
 
 
 def _ensure_month_adjustment_table():
+    global _MONTH_ADJUSTMENT_TABLE_READY
+    if _MONTH_ADJUSTMENT_TABLE_READY:
+        return
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS jungsan_adjustment (
@@ -105,6 +117,7 @@ def _ensure_month_adjustment_table():
         )
     except Exception:
         pass
+    _MONTH_ADJUSTMENT_TABLE_READY = True
 
 
 _ADJ_LABELS = {
@@ -263,7 +276,7 @@ def _jungsan_decorate_rows(rows):
     return rows
 
 
-def _jungsan_build_preview(bunji1, bunji2, as_of):
+def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
     """
     주소별 정산서 조회 미리보기 (화면 표시용).
     저장된 jungsan 이 있으면 그 데이터, 없으면 현재 호·입주·수금으로 계산.
@@ -591,21 +604,26 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
         return total, f"{money(total)} [{','.join(bits)}]"
 
     # 수리 내역 줄 (인쇄 하단) — 건물주 부담 있거나 「정산서에 출력」인 건
-    try:
-        from repair import _ensure_js_print_col
-        _ensure_js_print_col()
-    except Exception:
-        pass
-    suri_lines = db.query(
-        """
-        SELECT suri_dt, suri_won_amt, owner_budam, manage_budam, ipjuja_budam,
-               suri_desc, hosu, js_print_yn
-        FROM bd05_suri
-        WHERE bunji1=%s AND bunji2=%s
-          AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-        ORDER BY suri_dt, suri_seq
-        """,
-        (b1, b2, month_start.isoformat(), month_end_s),
+    if not list_mode:
+        try:
+            from repair import _ensure_js_print_col
+            _ensure_js_print_col()
+        except Exception:
+            pass
+    suri_lines = (
+        []
+        if list_mode
+        else db.query(
+            """
+            SELECT suri_dt, suri_won_amt, owner_budam, manage_budam, ipjuja_budam,
+                   suri_desc, hosu, js_print_yn
+            FROM bd05_suri
+            WHERE bunji1=%s AND bunji2=%s
+              AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+            ORDER BY suri_dt, suri_seq
+            """,
+            (b1, b2, month_start.isoformat(), month_end_s),
+        )
     )
     suri_detail = []
     for s in suri_lines or []:
@@ -633,21 +651,29 @@ def _jungsan_build_preview(bunji1, bunji2, as_of):
         )
 
     # 중개보수 내역 줄 (인쇄 하단, 수리 다음)
-    try:
-        db.execute(
-            "ALTER TABLE sjungke01 ADD COLUMN hosu char(3) NOT NULL DEFAULT ''"
+    if not list_mode:
+        global _SJUNGKE_HOSU_READY
+        if not _SJUNGKE_HOSU_READY:
+            try:
+                db.execute(
+                    "ALTER TABLE sjungke01 ADD COLUMN hosu char(3) NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass
+            _SJUNGKE_HOSU_READY = True
+    jungke_lines = (
+        []
+        if list_mode
+        else db.query(
+            """
+            SELECT jungke_dt, jungke_desc, jungke_amt, hosu
+            FROM sjungke01
+            WHERE bunji1=%s AND bunji2=%s
+              AND jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+            ORDER BY jungke_dt, jungke_seq
+            """,
+            (b1, b2, month_start.isoformat(), month_end_s),
         )
-    except Exception:
-        pass
-    jungke_lines = db.query(
-        """
-        SELECT jungke_dt, jungke_desc, jungke_amt, hosu
-        FROM sjungke01
-        WHERE bunji1=%s AND bunji2=%s
-          AND jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-        ORDER BY jungke_dt, jungke_seq
-        """,
-        (b1, b2, month_start.isoformat(), month_end_s),
     )
     jungke_detail = []
     for j in jungke_lines or []:
@@ -1382,7 +1408,7 @@ def jungsan_list():
                 )
                 continue
             live = _jungsan_build_preview(
-                b.get("bunji1"), b.get("bunji2"), month_end.isoformat()
+                b.get("bunji1"), b.get("bunji2"), month_end.isoformat(), list_mode=True
             )
             s = (live or {}).get("summary") or {}
             pay = _to_int_amt(s.get("pay_amt"))

@@ -4212,6 +4212,11 @@ a.dash-kpi:hover .dash-kpi-circle {
   color: #0d47a1;
   border-color: #90caf9;
 }
+.st-badge.edit {
+  background: var(--st-wait-bg);
+  color: #8a5a00;
+  border-color: var(--st-wait);
+}
 /* 표 상태: 2글자(공실)·3글자(입주중)도 4글자(퇴실예정) 폭에 맞춤 */
 .legacy-grid td .st-badge {
   min-width: 4.6em;
