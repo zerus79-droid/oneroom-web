@@ -112,7 +112,10 @@ def _cycle_bounds(ipju_dt, pay_dt, napbu="B"):
                 break
             n += 1
         start = _add_months(ipju, n)
-    end = _add_months(start, 1) if start else None
+    # Keep both boundaries anchored to the original move-in date. Adding a
+    # month to a clamped boundary (e.g. 2/28 -> 3/28 for a 1/31 move-in)
+    # would make the payment period drift over time.
+    end = _add_months(ipju, n + 1) if start else None
     if not start or not end:
         return None, None
     return start, end - timedelta(days=1)
@@ -144,19 +147,19 @@ def _period_mm_dd(ipju_dt, out_dt):
     """입주~퇴실 개월·일 (XP 입주기간)."""
     start = _to_date(ipju_dt)
     end = _to_date(out_dt)
-    if not start or not end or end < start:
+    if not start or not end or end <= start:
         return 0, 0
-    months = (end.year - start.year) * 12 + (end.month - start.month)
-    if end.day < start.day:
+    # Keep the period decomposition aligned with calc_contract_period_charge:
+    # every anniversary is anchored to the original move-in date.  This makes
+    # 1/31 -> 2/28 one complete cycle instead of 28 residual days.
+    months = max(0, (end.year - start.year) * 12 + (end.month - start.month))
+    while months > 0 and _add_months(start, months) > end:
         months -= 1
-        # 이전달 말일. 입주일이 31일처럼 그 달에 없는 날짜면(예: 1/31→2월 차입)
-        # 그 달의 말일로 맞춰서 계산해야 날짜 수가 음수/0으로 잘못 나오지 않음.
-        first = end.replace(day=1)
-        prev_last = first - timedelta(days=1)
-        days = prev_last.day - min(start.day, prev_last.day) + end.day
-    else:
-        days = end.day - start.day
-    return max(0, months), max(0, days)
+    while _add_months(start, months + 1) <= end:
+        months += 1
+    cycle_start = _add_months(start, months)
+    days = (end - cycle_start).days if cycle_start else 0
+    return months, max(0, days)
 
 
 def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
