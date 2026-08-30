@@ -348,7 +348,10 @@
     {% if data.is_current %}
     <form method="post" action="{{ url_for('checkout') }}" style="display: contents;"
           onsubmit="return confirm('이 퇴실 정산을 저장하고 퇴실을 확정하시겠습니까?');">
+<<<<<<< HEAD
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+=======
+>>>>>>> d453fc5ef91f6d64aca3e9e3fbf2edba1eeaf371
       <input type="hidden" name="action" value="save">
       <input type="hidden" name="out_dt" value="{{ form.out_dt }}">
       <input type="hidden" name="bunji1" value="{{ form.bunji1 }}">
