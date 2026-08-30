@@ -227,23 +227,23 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
             miss = _missing_addr_or_room()
             if miss:
                 return {"error": miss}
-            past = db.query_one(
+            past_rows = db.query(
                 """
-                SELECT ipju_nm, ipju_seq, out_dt FROM bd03_det
+                SELECT ipju_nm, ipju_seq, ipju_dt, out_dt, rent_amt, manage_amt FROM bd03_det
                 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
-                ORDER BY CAST(ipju_seq AS UNSIGNED) DESC
-                LIMIT 1
+                  AND out_dt IS NOT NULL AND out_dt >= '1000-01-01'
+                ORDER BY out_dt DESC, CAST(ipju_seq AS UNSIGNED) DESC
                 """,
                 (b1, b2, hosu),
             )
-            if past:
-                # 현재 입주자가 없으면 가장 최근 과거 이력을 퇴실정산 대상으로 표시
-                tenant = db.query_one(
-                    """SELECT * FROM bd03_det WHERE bunji1=%s AND bunji2=%s
-                       AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s""",
-                    (b1, b2, hosu, str(past.get("ipju_seq") or "").zfill(2)),
-                )
-            if not tenant:
+            if past_rows:
+                return {
+                    "select_required": True,
+                    "past_tenants": past_rows,
+                    "addr": f"{fmt_bunji(b1)}-{fmt_bunji(b2)}",
+                    "hosu": hosu,
+                }
+            else:
                 return {"error": "해당 호수의 입주 이력이 없습니다."}
 
     seq = str(tenant.get("ipju_seq") or "").zfill(2)
@@ -985,6 +985,29 @@ def checkout():
         f["out_dt"] = today
     data = None
     if f["bunji1"] and f["bunji2"] and f["hosu"]:
+        if f["ipju_seq"]:
+            saved = db.query_one(
+                """SELECT out_dt,elec_amt,sudo_amt,sisul_amt,gas_amt,gita_amt,g_suri_tot
+                   FROM bd07_out WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
+                     AND ipju_seq=%s ORDER BY out_dt DESC,out_seq DESC LIMIT 1""",
+                (f["bunji1"], f["bunji2"], f["hosu"], f["ipju_seq"]),
+            )
+            if saved:
+                f["out_dt"] = fmt_date(saved.get("out_dt")) or f["out_dt"]
+                f["suri"] = str(_to_int_amt(saved.get("g_suri_tot")))
+                f["elec"] = str(_to_int_amt(saved.get("elec_amt")))
+                f["water"] = str(_to_int_amt(saved.get("sudo_amt")))
+                f["restore"] = str(_to_int_amt(saved.get("sisul_amt")))
+                f["gas"] = str(_to_int_amt(saved.get("gas_amt")))
+                f["etc"] = str(_to_int_amt(saved.get("gita_amt")))
+            else:
+                tenant_date = db.query_one(
+                    """SELECT out_dt FROM bd03_det WHERE bunji1=%s AND bunji2=%s
+                       AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s""",
+                    (f["bunji1"], f["bunji2"], f["hosu"], f["ipju_seq"]),
+                )
+                if tenant_date and tenant_date.get("out_dt"):
+                    f["out_dt"] = fmt_date(tenant_date["out_dt"])
         extra = _checkout_extra(f)
         data = _checkout_build(
             f["bunji1"], f["bunji2"], f["hosu"], f["ipju_seq"], f["out_dt"], extra
@@ -1088,7 +1111,7 @@ def checkout_list():
     bunji2 = _pad_bunji(request.args.get("bunji2"))
     hosu = (request.args.get("hosu") or "").strip().upper()
     name = (request.args.get("name") or "").strip()
-    mode = (request.args.get("mode") or "all").strip().lower()
+    mode = (request.args.get("mode") or "out").strip().lower()
     if mode not in ("all", "out", "plan"):
         mode = "all"
     # 호수만으로는 건물을 특정할 수 없으므로 주소 또는 이름이 필요하다.

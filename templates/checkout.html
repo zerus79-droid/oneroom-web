@@ -67,7 +67,21 @@
   </form>
 </div>
 
-{% if data %}
+{% if data and data.select_required %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">과거 입주자 선택 · {{ data.addr }} {{ data.hosu }}호</div>
+  <div class="legacy-sukum-body panel-table-wrap">
+    <table class="legacy-grid">
+      <thead><tr><th>순번</th><th>입주자</th><th>입주일</th><th>퇴실일</th><th>월세</th><th>관리비</th><th>선택</th></tr></thead>
+      <tbody>{% for t in data.past_tenants %}<tr>
+        <td>{{ t.ipju_seq }}</td><td>{{ t.ipju_nm }}</td><td>{{ t.ipju_dt|fmt_date }}</td><td>{{ t.out_dt|fmt_date }}</td>
+        <td>{{ t.rent_amt|money }}</td><td>{{ t.manage_amt|money }}</td>
+        <td><a class="btn" href="{{ url_for('checkout', out_dt=form.out_dt, bunji1=form.bunji1|bunji, bunji2=form.bunji2|bunji, hosu=form.hosu, ipju_seq=t.ipju_seq) }}">정산 불러오기</a></td>
+      </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+{% elif data %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     계약 · {{ data.ipju_nm }} · {{ data.addr }} {{ data.hosu }}호
