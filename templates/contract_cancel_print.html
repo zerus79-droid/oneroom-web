@@ -339,6 +339,26 @@
 <body>
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
+    {% if data.is_current %}
+    <form method="post" action="{{ url_for('checkout') }}" style="display: contents;"
+          onsubmit="return confirm('이 퇴실 정산을 저장하고 퇴실을 확정하시겠습니까?');">
+      <input type="hidden" name="action" value="save">
+      <input type="hidden" name="out_dt" value="{{ form.out_dt }}">
+      <input type="hidden" name="bunji1" value="{{ form.bunji1 }}">
+      <input type="hidden" name="bunji2" value="{{ form.bunji2 }}">
+      <input type="hidden" name="hosu" value="{{ form.hosu }}">
+      <input type="hidden" name="ipju_seq" value="{{ form.ipju_seq }}">
+      <input type="hidden" name="suri" value="{{ form.suri }}">
+      <input type="hidden" name="elec" value="{{ form.elec }}">
+      <input type="hidden" name="water" value="{{ form.water }}">
+      <input type="hidden" name="restore" value="{{ form.restore }}">
+      <input type="hidden" name="gas" value="{{ form.gas }}">
+      <input type="hidden" name="etc" value="{{ form.etc }}">
+      <button type="submit">퇴실확정/저장</button>
+    </form>
+    {% else %}
+    <button type="button" disabled title="이미 퇴실 확정 저장된 건입니다.">퇴실확정/저장</button>
+    {% endif %}
     <a class="secondary"
        href="{{ url_for('checkout', bunji1=form.bunji1, bunji2=form.bunji2, hosu=form.hosu, ipju_seq=form.ipju_seq, out_dt=form.out_dt, suri=form.suri, elec=form.elec, water=form.water, restore=form.restore, gas=form.gas, etc=form.etc) }}"
        onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
