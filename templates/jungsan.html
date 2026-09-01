@@ -90,9 +90,6 @@
     <div class="js-item"><span class="js-lab">최초보증금</span><span class="js-val">{{ data.summary.first_amt|money }}</span></div>
     <div class="js-item"><span class="js-lab">관리수수료</span><span class="js-val">{{ data.summary.man_cost|money }}</span></div>
     {% if not data.is_resp %}
-    <div class="js-item"><span class="js-lab">계단청소</span><span class="js-val">{{ data.summary.stair_cost|money }}</span></div>
-    <div class="js-item"><span class="js-lab">인터넷+유선</span><span class="js-val">{{ data.summary.inet_cost|money }}</span></div>
-    <div class="js-item"><span class="js-lab">옵션비</span><span class="js-val">{{ data.summary.option_cost|money }}</span></div>
     {% endif %}
     <div class="js-item"><span class="js-lab">수리비</span><span class="js-val">{{ data.summary.owner_suri|money }}</span></div>
     <div class="js-item"><span class="js-lab">중개보수</span><span class="js-val">{{ data.summary.jungke_cost|money }}</span></div>
@@ -145,9 +142,9 @@
           <td class="tc col-nowrap"><strong>{{ r.hosu }}</strong></td>
           <td>{% if r.is_empty %}<span class="muted">공실</span>{% else %}{{ r.ipju_nm }}{% endif %}</td>
           <td class="tc col-nowrap">{% if not r.is_empty %}{{ r.ipju_dt|fmt_date }}{% endif %}</td>
-          <td class="tc">{% if not r.is_empty %}{{ r.bojung_amt|money }}{% endif %}</td>
-          <td class="tc">{% if not r.is_empty %}{{ r.rent_amt|money }}{% endif %}</td>
-          <td class="num">{% if not r.is_empty %}{{ r.manage_amt|money }}{% endif %}</td>
+           <td class="tc">{% if not r.is_empty and not r.is_exit %}{{ r.bojung_amt|money }}{% endif %}</td>
+           <td class="tc">{% if not r.is_empty and not r.is_exit %}{% if r.rent_amt %}{{ r.rent_amt|money }}{% else %}-{% endif %}{% endif %}</td>
+           <td class="num">{% if not r.is_empty and not r.is_exit %}{{ r.manage_amt|money }}{% endif %}</td>
           <td class="tc">{% if not r.is_empty and r.ipkum_amt %}{{ r.ipkum_amt|money }}{% endif %}</td>
           <td class="left">
             {% if not r.is_empty %}{% if r.manage_desc == '미납' %}<span class="st-badge overdue">미납</span>{% elif r.manage_desc in ('대체', '(대체)') %}<span class="st-badge info">대체</span>{% else %}{{ r.manage_desc or '' }}{% endif %}{% endif %}

@@ -155,6 +155,15 @@
                  value="{{ form.yechi_amt|money }}" inputmode="numeric" autocomplete="off"
                  placeholder="예: 30 → 300,000" title="만원 단위 입력">
         </div>
+        <div class="tr-field">
+          <label class="ls-lab tri">계약구분</label>
+          <select name="lease_gb" id="lease_gb" class="ls-select">
+            <option value="W" {% if form.lease_gb == 'W' %}selected{% endif %}>월세</option>
+            <option value="B" {% if form.lease_gb == 'B' %}selected{% endif %}>반전세</option>
+            <option value="J" {% if form.lease_gb == 'J' %}selected{% endif %}>전세</option>
+          </select>
+        </div>
+        <div class="tr-field tr-spacer"></div>
       </div>
     </fieldset>
 

@@ -110,7 +110,7 @@ def docs():
     pager = _make_pager(total)
     rows = db.query(
         """
-        SELECT id, title, url, writer, created_at, updated_at
+        SELECT id, title, url, content, writer, created_at, updated_at
         FROM doc_board
         ORDER BY id DESC
         LIMIT %s OFFSET %s

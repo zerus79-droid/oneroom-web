@@ -31,7 +31,7 @@
     <div class="ls-row">
       <label class="ls-lab">내용</label>
       <div class="ls-val">
-        <textarea name="content" id="content" class="ls-box" rows="4"
+        <textarea name="content" id="content" class="ls-box doc-content-textarea" rows="20"
                   placeholder="링크 없이 메모만 남길 수도 있습니다">{{ form.content }}</textarea>
       </div>
     </div>
@@ -59,17 +59,27 @@
       </thead>
       <tbody>
         {% for r in rows %}
-        <tr class="{% if can_write %}click-row{% endif %}"
-            {% if can_write %}onclick="location.href='{{ url_for('docs', edit_id=r.id) }}'"{% endif %}>
-          <td>
-            {{ r.title }}
+        <tr class="doc-row">
+          <td class="doc-title-cell">
+            <span class="doc-toggle">▶</span>
+            <span class="doc-title-text">{{ r.title }}</span>
             {% if r.url %}
             <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer"
                onclick="event.stopPropagation()" class="doc-link">열기 ↗</a>
             {% endif %}
+            {% if can_write %}
+            <a href="{{ url_for('docs', edit_id=r.id) }}" onclick="event.stopPropagation()" class="doc-edit">수정</a>
+            {% endif %}
           </td>
           <td class="tc">{{ r.writer or '' }}</td>
           <td class="tc col-nowrap">{{ r.created_disp }}</td>
+        </tr>
+        <tr class="doc-content-row" style="display: none;">
+          <td colspan="3" class="doc-content-cell">
+            <div class="doc-content-inner">
+              <pre>{{ r.content }}</pre>
+            </div>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -117,5 +127,27 @@
 })();
 </script>
 {% endif %}
+
+<script>
+(function () {
+  // 아코디언 기능
+  var docRows = document.querySelectorAll('.doc-row');
+  docRows.forEach(function(row) {
+    row.addEventListener('click', function() {
+      var contentRow = this.nextElementSibling;
+      if (contentRow && contentRow.classList.contains('doc-content-row')) {
+        var toggle = this.querySelector('.doc-toggle');
+        if (contentRow.style.display === 'none') {
+          contentRow.style.display = 'table-row';
+          if (toggle) toggle.textContent = '▼';
+        } else {
+          contentRow.style.display = 'none';
+          if (toggle) toggle.textContent = '▶';
+        }
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}
 {% block flash %}{% endblock %}

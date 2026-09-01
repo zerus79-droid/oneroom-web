@@ -102,6 +102,40 @@ def _month_sukum_sil_dache(b1, b2, hosu, seq, month_start, month_end_s):
     return _to_int_amt((row or {}).get('sil')), _to_int_amt((row or {}).get('dache'))
 
 
+def _month_sukum_breakdown(b1, b2, hosu, seq, month_start, month_end_s):
+    """월별 수금 성격별 실입금·대체금 집계.
+
+    sukum_char는 수금 방식(sukum_gb)이 아니라 수금 성격이다.
+    01=월세+관리비, 02=보증금, 03=예치금, 04=수리비,
+    05=중개보수, 06=퇴실정산 임대료, 07=퇴실정산 관리비.
+    기존 호환을 위해 값이 없는 성격도 0으로 반환한다.
+    """
+    rowset = db.query(
+        """SELECT sukum_char,
+                  COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
+                  COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
+             FROM sukum01
+            WHERE bunji1=%s AND bunji2=%s
+              AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+              AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+            GROUP BY sukum_char""",
+        (
+            b1, b2, (hosu or "").strip().upper(), str(seq or "").zfill(2),
+            month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start),
+            month_end_s,
+        ),
+    ) or []
+    result = {}
+    for row in rowset:
+        key = str(row.get("sukum_char") or "").strip().zfill(2)
+        result[key] = {
+            "sil": _to_int_amt(row.get("sil")),
+            "dache": _to_int_amt(row.get("dache")),
+        }
+    return result
+
+
 def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s):
     row = db.query_one("""SELECT COUNT(*) AS cnt, COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS amt, MAX(COALESCE(manage_desc,'')) AS manage_desc FROM sukum01 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s AND sukum_char='06' AND (del_yn IS NULL OR del_yn='N' OR del_yn='') AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""", (b1,b2,(hosu or '').strip().upper(),str(seq or '').zfill(2) if seq else '',month_start.isoformat() if hasattr(month_start,'isoformat') else str(month_start),month_end_s))
     return _to_int_amt((row or {}).get('cnt')) > 0, _to_int_amt((row or {}).get('amt')), ((row or {}).get('manage_desc') or '').strip()

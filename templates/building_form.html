@@ -109,6 +109,36 @@
     </div>
 
     <div class="ls-row">
+      <label class="ls-lab">보증금 수금통장</label>
+      <div class="ls-val">
+        <select name="sukum_bojung_acct_gb" class="ls-select">
+          {% for code, name in sukum_acct_options %}
+          <option value="{{ code }}" {% if form.sukum_bojung_acct_gb==code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <label class="ls-lab">월세 수금통장</label>
+      <div class="ls-val">
+        <select name="sukum_rent_acct_gb" class="ls-select">
+          {% for code, name in sukum_acct_options %}
+          <option value="{{ code }}" {% if form.sukum_rent_acct_gb==code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab">관리비 수금통장</label>
+      <div class="ls-val">
+        <select name="sukum_manage_acct_gb" class="ls-select">
+          {% for code, name in sukum_acct_options %}
+          <option value="{{ code }}" {% if form.sukum_manage_acct_gb==code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ls-val"></div>
+    </div>
+
+    <div class="ls-row">
       <label class="ls-lab">최초보증금</label>
       <div class="ls-val">
         <input type="text" name="first_amt" value="{{ form.first_amt|money }}" inputmode="numeric" placeholder="예: 39,000,000" class="money-input ls-money-in">
@@ -118,7 +148,7 @@
         <input type="text" name="man_cost" value="{{ form.man_cost|money }}" inputmode="numeric" placeholder="예: 250,000" class="money-input ls-money-in">
       </div>
     </div>
-    <div class="ls-row js-g-cost"{% if form.mgmt_gb != 'G' %} hidden{% endif %}>
+    <div class="ls-row js-g-cost" hidden>
       <label class="ls-lab">계단청소</label>
       <div class="ls-val">
         <input type="text" name="stair_cost" value="{{ form.stair_cost|money }}" inputmode="numeric" placeholder="예: 50,000" class="money-input ls-money-in">
@@ -128,7 +158,7 @@
         <input type="text" name="inet_cost" value="{{ form.inet_cost|money }}" inputmode="numeric" placeholder="예: 30,000" class="money-input ls-money-in">
       </div>
     </div>
-    <div class="ls-row ls-row-span js-g-cost"{% if form.mgmt_gb != 'G' %} hidden{% endif %}>
+    <div class="ls-row ls-row-span js-g-cost" hidden>
       <label class="ls-lab">옵션비</label>
       <div class="ls-val">
         <input type="text" name="option_cost" value="{{ form.option_cost|money }}" inputmode="numeric" placeholder="예: 20,000" class="money-input ls-money-in">

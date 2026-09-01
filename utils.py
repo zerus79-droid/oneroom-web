@@ -7,6 +7,7 @@ from calendar import monthrange
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from functools import wraps
+from fractions import Fraction
 import re
 
 from flask import redirect, session, url_for
@@ -16,6 +17,40 @@ import db
 
 # 현재 입주 중: out_dt 없음 또는 레거시 무효 날짜 (여러 화면에서 공통 사용)
 CURRENT_TENANT_SQL = "(d.out_dt IS NULL OR d.out_dt < '1000-01-01')"
+
+# bd03_det에 계약구분(월세/반전세/전세)을 추가할 때 한 번만 스키마를 보정한다.
+_TENANT_LEASE_GB_READY = False
+
+
+def ensure_tenant_lease_gb():
+    """입주 이력에 계약구분 컬럼을 준비한다.
+
+    기존 자료는 새 컬럼의 기본값(월세)을 유지한다. 임대료가 0원이라고 해서
+    전세로 단정할 수 없는 레거시 자료가 있으므로 기존 계약을 자동 분류하지
+    않는다. 이후 등록 화면에서 명시적으로 월세(W)·반전세(B)·전세(J)를
+    선택할 수 있다.
+    """
+    global _TENANT_LEASE_GB_READY
+    if _TENANT_LEASE_GB_READY:
+        return
+    try:
+        db.execute(
+            "ALTER TABLE bd03_det ADD COLUMN lease_gb CHAR(1) NOT NULL DEFAULT 'W'"
+        )
+    except Exception:
+        # 이미 컬럼이 있거나 레거시 DB에서 ALTER 권한이 없는 경우에도 조회는 계속한다.
+        pass
+    try:
+        # ALTER TABLE의 기본값으로 들어간 W는 보존하고, 외부 입력으로 생긴
+        # NULL/잘못된 코드만 안전한 기본값으로 정리한다.
+        db.execute(
+            """UPDATE bd03_det
+               SET lease_gb='W'
+             WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','B','J')"""
+        )
+    except Exception:
+        pass
+    _TENANT_LEASE_GB_READY = True
 
 
 def login_required(fn):
@@ -426,17 +461,17 @@ def _add_months_clamped(d, months):
 
 def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
                                 rent_amt=0, manage_amt=0):
-    """입주일 이상 퇴실일 미만의 임대료+관리비를 변경이력별 실제 주기로 계산한다."""
+    """입주일~퇴실일(양끝 포함)의 임대료+관리비를 계약월+30일 일할로 계산한다."""
     if isinstance(ipju_dt, datetime): ipju_dt = ipju_dt.date()
     if isinstance(end_dt, datetime): end_dt = end_dt.date()
-    if not ipju_dt or not end_dt or end_dt <= ipju_dt:
+    if not ipju_dt or not end_dt or end_dt < ipju_dt:
         return 0
     try:
         ensure_contract_terms_history()
         rows = db.query(
             """SELECT effective_dt,rent_amt,manage_amt FROM bd03_terms_hist
                WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-                 AND effective_dt < %s
+                 AND effective_dt <= %s
                ORDER BY effective_dt,hist_id""",
             (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
         )
@@ -451,10 +486,12 @@ def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
         elif eff:
             terms.append((eff, to_int_amt(r.get("rent_amt")), to_int_amt(r.get("manage_amt"))))
     terms.sort(key=lambda x: x[0])
-    total = Decimal(0)
+    total = Fraction(0, 1)
     idx = 0
     day = ipju_dt
-    while day < end_dt:
+    end_exclusive = end_dt + timedelta(days=1)
+    # 퇴실일 당일도 거주·청구 기간에 포함한다.
+    while day <= end_dt:
         while idx + 1 < len(terms) and terms[idx + 1][0] <= day:
             idx += 1
         mdiff = (day.year - ipju_dt.year) * 12 + day.month - ipju_dt.month
@@ -465,9 +502,15 @@ def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
         cycle_end = _add_months_clamped(ipju_dt, mdiff + 1)
         cycle_days = max(1, (cycle_end - cycle_start).days)
         monthly = Decimal(terms[idx][1] + terms[idx][2])
-        total += monthly / Decimal(cycle_days)
+        # 완전한 계약 주기는 달력 일수와 무관하게 월액 1회분이다.
+        # 마지막 불완전 주기만 XP와 기존 장부의 30일 일할 규칙을 적용한다.
+        divisor = cycle_days if cycle_end <= end_exclusive else 30
+        total += Fraction(int(monthly), divisor)
         day += timedelta(days=1)
-    return int((total / Decimal(100)).to_integral_value(rounding=ROUND_CEILING) * 100)
+    # 분수로 누적해 28·31일 주기에서 부동소수점 오차로 월액이 100원
+    # 초과되는 일을 막고, 기존 표시 단위(100원 올림)는 유지한다.
+    return ((total.numerator + total.denominator * 100 - 1)
+            // (total.denominator * 100)) * 100
 
 
 def fmt_ipju_short(v):

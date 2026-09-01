@@ -42,12 +42,23 @@
       <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.sukum_acct_label or '' }}"></div>
     </div>
     <div class="ls-row">
+      <label class="ls-lab">보증금 수금통장</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.sukum_bojung_acct_label or building.sukum_bojung_acct_gb or '' }}"></div>
+      <label class="ls-lab">월세 수금통장</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.sukum_rent_acct_label or building.sukum_rent_acct_gb or '' }}"></div>
+    </div>
+    <div class="ls-row">
+      <label class="ls-lab">관리비 수금통장</label>
+      <div class="ls-val"><input type="text" class="ls-box ls-ro" readonly tabindex="-1" value="{{ building.sukum_manage_acct_label or building.sukum_manage_acct_gb or '' }}"></div>
+      <div class="ls-val"></div>
+    </div>
+    <div class="ls-row">
       <label class="ls-lab">최초보증금</label>
       <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.first_amt|money }}"></div>
       <label class="ls-lab">관리수수료</label>
       <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.man_cost|money }}"></div>
     </div>
-    {% if building.mgmt_gb == 'G' %}
+    {% if false %}
     <div class="ls-row">
       <label class="ls-lab">계단청소</label>
       <div class="ls-val"><input type="text" class="ls-box ls-ro ls-money-in" readonly tabindex="-1" value="{{ building.stair_cost|money }}"></div>

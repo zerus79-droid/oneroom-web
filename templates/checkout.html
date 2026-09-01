@@ -5,6 +5,7 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">퇴실 정산 관리</span>
+    {% if form.edit == '1' %}<span class="st-badge edit checkout-edit-badge">수정</span>{% endif %}
     <span class="caption-actions">
       {% if data %}
       <a class="btn secondary" target="_blank"
@@ -106,7 +107,7 @@
       <div class="js-item"><span class="js-lab">임대/관리</span><span class="js-val">{{ data.rent_manage_label }}</span></div>
     </div>
 
-    <h2 style="font-size:1rem;margin:12px 0 8px">①~⑥ 정산 요약</h2>
+    <h2 style="font-size:1rem;margin:12px 0 8px">①~⑦ 정산 요약</h2>
     <div class="jungsan-summary">
       <div class="js-item"><span class="js-lab">① 입주기간</span><span class="js-val">{{ data.period_label }}</span></div>
       <div class="js-item"><span class="js-lab">② 수리비(입주자)</span><span class="js-val">{{ data.suri_amt|money }}</span></div>
@@ -114,6 +115,7 @@
       <div class="js-item"><span class="js-lab">④ 수금총액</span><span class="js-val">{{ data.sukum_tot|money }}</span></div>
       <div class="js-item"><span class="js-lab">⑤ 보증/예치</span><span class="js-val">{{ data.h_amt|money }}</span></div>
       <div class="js-item warn"><span class="js-lab">⑥ 미수총액</span><span class="js-val">{{ data.misu_amt|money }}</span></div>
+      <div class="js-item"><span class="js-lab">⑦ 공과 · 공제 (원)</span><span class="js-val">{{ data.util_tot|money }}</span></div>
       <div class="js-item highlight"><span class="js-lab">♧ 정산금액 (⑤−⑥−⑦)</span><span class="js-val">{{ data.jungsan_amt|money }}</span></div>
     </div>
 

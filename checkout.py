@@ -144,21 +144,26 @@ def _pay_label(char):
 
 
 def _period_mm_dd(ipju_dt, out_dt):
-    """입주~퇴실 개월·일 (XP 입주기간)."""
+    """입주~퇴실 개월·일 (시작일·퇴실일 양끝 포함)."""
     start = _to_date(ipju_dt)
     end = _to_date(out_dt)
-    if not start or not end or end <= start:
+    if not start or not end or end < start:
         return 0, 0
-    # Keep the period decomposition aligned with calc_contract_period_charge:
-    # every anniversary is anchored to the original move-in date.  This makes
-    # 1/31 -> 2/28 one complete cycle instead of 28 residual days.
-    months = max(0, (end.year - start.year) * 12 + (end.month - start.month))
-    while months > 0 and _add_months(start, months) > end:
+    # The checkout date is billable too.  Use the day after checkout as the
+    # exclusive boundary so full anniversary cycles and the residual day count
+    # stay aligned with calc_contract_period_charge (e.g. 8/17~8/31 = 15일).
+    end_exclusive = end + timedelta(days=1)
+    # Every anniversary is anchored to the original move-in date.  This makes
+    # 1/31 -> 2/28 one complete cycle plus the included 2/28 day.
+    months = max(
+        0, (end_exclusive.year - start.year) * 12 + (end_exclusive.month - start.month)
+    )
+    while months > 0 and _add_months(start, months) > end_exclusive:
         months -= 1
-    while _add_months(start, months + 1) <= end:
+    while _add_months(start, months + 1) <= end_exclusive:
         months += 1
     cycle_start = _add_months(start, months)
-    days = (end - cycle_start).days if cycle_start else 0
+    days = (end_exclusive - cycle_start).days if cycle_start else 0
     return months, max(0, days)
 
 
@@ -275,19 +280,11 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         )
         suri = _to_int_amt((suri_row or {}).get("a"))
 
-    # 잔여 일수: 그 주기 실제 일수로 나눔. 365일 일할이면 31일이 월세보다 커짐.
+    # XP/기존 장부 기준: 전체 계약월은 월액 그대로, 마지막 잔여일만 30일로 일할한다.
+    # 따라서 2월·31일 달도 완전한 계약 주기는 1개월분이고, 15일은 월액의 절반이다.
     day_amt = 0
-    if dd and monthly and ipju_d:
-        cyc_s = _add_months(ipju_d, mm)
-        cyc_e = _add_months(ipju_d, mm + 1)
-        cyc_len = (cyc_e - cyc_s).days if cyc_s and cyc_e else 0
-        if cyc_len > 0:
-            if dd >= cyc_len:
-                day_amt = monthly
-            else:
-                day_amt = _ceil_100(monthly * dd / float(cyc_len))
-                if day_amt > monthly:
-                    day_amt = monthly
+    if dd and monthly:
+        day_amt = min(monthly, _ceil_100(monthly * dd / 30.0))
     # ③거주기간(총액) = (임+관)×개월 + 일할. 보증/예치·수리는 넣지 않음.
     stay_amt_gross = calc_contract_period_charge(
         b1, b2, hosu, seq, ipju_d, out_d, rent, manage

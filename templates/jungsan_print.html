@@ -228,11 +228,6 @@
     <div class="foot">
       <div class="blk costs">
         <div><span class="lab">관리수수료</span> <span class="amt">{{ data.summary.man_cost|money }}</span></div>
-        {% if not data.is_resp %}
-        <div><span class="lab">계단청소</span> <span class="amt">{{ data.summary.stair_cost|money }}</span></div>
-        <div><span class="lab">인터넷+유선</span> <span class="amt">{{ data.summary.inet_cost|money }}</span></div>
-        <div><span class="lab">옵션비</span> <span class="amt">{{ data.summary.option_cost|money }}</span></div>
-        {% endif %}
         <div><span class="lab">수　리　비</span> <span class="amt">{{ data.summary.owner_suri|money }}</span></div>
         <div><span class="lab">중개　보수</span> <span class="amt">{{ data.summary.jungke_cost|money }}</span></div>
         <div class="sum-line"><span class="lab">계</span> <span class="amt">{{ data.summary.cost_sum|money }}</span></div>

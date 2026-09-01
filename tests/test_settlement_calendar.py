@@ -5,7 +5,7 @@ from unittest.mock import patch
 from utils import calc_contract_period_charge, months_elapsed
 from jungsan import _apply_month_adjustments, _is_manager_account, _jungsan_decorate_rows
 from building import _normalize_sukum_acct_gb
-from checkout import _checkout_tenant_adjustment_total
+from checkout import _checkout_tenant_adjustment_total, _period_mm_dd
 
 
 class SettlementCalendarTests(unittest.TestCase):
@@ -42,6 +42,31 @@ class SettlementCalendarTests(unittest.TestCase):
     def test_normal_due_day_still_uses_anniversary(self):
         self.assertEqual(months_elapsed(date(2025, 1, 15), date(2025, 2, 14)), 0)
         self.assertEqual(months_elapsed(date(2025, 1, 15), date(2025, 2, 15)), 1)
+
+    def test_checkout_period_includes_start_and_checkout_dates(self):
+        self.assertEqual(
+            _period_mm_dd(date(2025, 8, 17), date(2026, 8, 31)),
+            (12, 15),
+        )
+        self.assertEqual(
+            _period_mm_dd(date(2026, 8, 31), date(2026, 8, 31)),
+            (0, 1),
+        )
+
+    @patch("utils.db.execute")
+    @patch("utils.db.query")
+    def test_contract_charge_uses_30_day_basis_only_for_residual_days(self, query, _execute):
+        query.return_value = []
+        half_month = calc_contract_period_charge(
+            "1139", "0004", "304", "15",
+            date(2026, 8, 17), date(2026, 8, 31), 300000, 100000,
+        )
+        full_february_cycle = calc_contract_period_charge(
+            "1139", "0004", "304", "15",
+            date(2025, 1, 31), date(2025, 2, 27), 300000, 100000,
+        )
+        self.assertEqual(half_month, 200000)
+        self.assertEqual(full_february_cycle, 400000)
 
     def test_negative_checkout_adjustment_is_printed(self):
         row = {
@@ -129,7 +154,7 @@ class SettlementCalendarTests(unittest.TestCase):
 
     @patch("utils.db.execute")
     @patch("utils.db.query")
-    def test_contract_charge_splits_at_rate_change(self, query, _execute):
+    def test_contract_charge_splits_at_rate_change_including_checkout_day(self, query, _execute):
         query.return_value = [
             {"effective_dt": date(2025, 1, 31), "rent_amt": 300000, "manage_amt": 0},
             {"effective_dt": date(2025, 2, 28), "rent_amt": 200000, "manage_amt": 0},
@@ -138,7 +163,7 @@ class SettlementCalendarTests(unittest.TestCase):
             "1139", "0004", "308", "07",
             date(2025, 1, 31), date(2025, 4, 30), 200000, 0,
         )
-        self.assertEqual(amt, 700000)
+        self.assertEqual(amt, 706700)
 
 
 if __name__ == "__main__":

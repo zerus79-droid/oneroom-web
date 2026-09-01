@@ -173,10 +173,20 @@ def _ensure_g_cost_cols():
         db.execute("ALTER TABLE bd01 ADD COLUMN sukum_acct_gb char(1) NULL DEFAULT NULL")
     except Exception:
         pass
+    for col in ("sukum_bojung_acct_gb", "sukum_rent_acct_gb", "sukum_manage_acct_gb"):
+        try:
+            db.execute(f"ALTER TABLE bd01 ADD COLUMN {col} char(1) NULL DEFAULT NULL")
+        except Exception:
+            pass
     db.execute(
         """UPDATE bd01 SET sukum_acct_gb=CASE WHEN COALESCE(mgmt_gb,'R')='G' THEN 'O' ELSE 'M' END
            WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
     )
+    for col in ("sukum_bojung_acct_gb", "sukum_rent_acct_gb", "sukum_manage_acct_gb"):
+        db.execute(
+            f"UPDATE bd01 SET {col}=COALESCE(NULLIF(TRIM({col}),''), sukum_acct_gb) "
+            f"WHERE {col} IS NULL OR TRIM({col})=''"
+        )
 
 
 def _extract_building_form_values(form):
@@ -191,6 +201,9 @@ def _extract_building_form_values(form):
         "elec_gb": _normalize_elec_gb(form.get("elec_gb")),
         "mgmt_gb": _normalize_mgmt_gb(form.get("mgmt_gb")),
         "sukum_acct_gb": _normalize_sukum_acct_gb(form.get("sukum_acct_gb"), form.get("mgmt_gb")),
+        "sukum_bojung_acct_gb": _normalize_sukum_acct_gb(form.get("sukum_bojung_acct_gb"), form.get("mgmt_gb")),
+        "sukum_rent_acct_gb": _normalize_sukum_acct_gb(form.get("sukum_rent_acct_gb"), form.get("mgmt_gb")),
+        "sukum_manage_acct_gb": _normalize_sukum_acct_gb(form.get("sukum_manage_acct_gb"), form.get("mgmt_gb")),
         "floor_no": _coerce_building_floor_no(form.get("floor_no")),
         "man_cost": _parse_money(form.get("man_cost")),
         "first_amt": _parse_money(form.get("first_amt")),
@@ -262,6 +275,8 @@ def _decorate_building_card(r):
     r["elec_label"] = _elec_label(r.get("elec_gb"))
     r["mgmt_label"] = _mgmt_label(r.get("mgmt_gb"))
     r["sukum_acct_label"] = _sukum_acct_label(r.get("sukum_acct_gb"))
+    for key in ("sukum_bojung_acct_gb", "sukum_rent_acct_gb", "sukum_manage_acct_gb"):
+        r[key + "_label"] = _sukum_acct_label(r.get(key))
     for col in ("stair_cost", "inet_cost", "option_cost"):
         r.setdefault(col, 0)
     _apply_bank_fields(r)
@@ -325,7 +340,7 @@ def buildings():
             h = str(room.get("hosu") or "").strip()
             d = "".join(c for c in h if c.isdigit())
             f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
-            floor_map.setdefault(f, []).append((h, bool(room.get("ipju_seq") or room.get("ipju_nm"))))
+            floor_map.setdefault(f, []).append((h, room.get("room_state") or "vacant"))
         r["floor_map"] = [(f, ([rooms] if len(rooms) <= 5 else [rooms[i:i + ((len(rooms) + 1) // 2)] for i in range(0, len(rooms), (len(rooms) + 1) // 2)])) for f, rooms in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]
     return render_template(
         "buildings.html",
@@ -579,6 +594,9 @@ def building_new():
         "elec_gb": "B",
         "mgmt_gb": "R",
         "sukum_acct_gb": "M",
+        "sukum_bojung_acct_gb": "M",
+        "sukum_rent_acct_gb": "M",
+        "sukum_manage_acct_gb": "M",
     }
     if request.method == "POST":
         data = _building_from_form(request.form, for_insert=True)
@@ -608,12 +626,13 @@ def building_new():
                 INSERT INTO bd01 (
                     bunji1, bunji2, juso, building_dt, floor_no, bank_cd,
                     owner_nm, owner_tel, man_cost, first_amt, elec_gb, mgmt_gb, sukum_acct_gb,
+                    sukum_bojung_acct_gb, sukum_rent_acct_gb, sukum_manage_acct_gb,
                     stair_cost, inet_cost, option_cost,
                     del_yn, uid, sys_dt
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     'N', %s, NOW()
                 )
                 """,
@@ -631,6 +650,9 @@ def building_new():
                     data["elec_gb"] or None,
                     data["mgmt_gb"],
                     data["sukum_acct_gb"],
+                    data["sukum_bojung_acct_gb"],
+                    data["sukum_rent_acct_gb"],
+                    data["sukum_manage_acct_gb"],
                     data.get("stair_cost") or 0,
                     data.get("inet_cost") or 0,
                     data.get("option_cost") or 0,
@@ -676,21 +698,76 @@ def _get_building_or_redirect(bunji1, bunji2):
 
 
 def _get_rooms(bunji1, bunji2):
-    return db.query(
-        f"""
-        SELECT m.hosu, m.rent_gb, m.r_type, m.b_type, m.o_type, m.r_no, m.gas_no,
-               d.ipju_seq, d.ipju_nm, d.ipju_tel1, d.ipju_dt, d.out_dt,
-               d.bojung_amt, d.rent_amt, d.manage_amt, d.yechi_amt
-        FROM bd03_m m
-        LEFT JOIN bd03_det d
-          ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-         AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
-         AND {_CURRENT_TENANT_SQL}
-        WHERE m.bunji1=%s AND m.bunji2=%s
-        ORDER BY m.hosu
-        """,
+    room_rows = db.query(
+        """SELECT hosu, rent_gb, r_type, b_type, o_type, r_no, gas_no
+             FROM bd03_m
+            WHERE bunji1=%s AND bunji2=%s
+            ORDER BY hosu""",
         (bunji1, bunji2),
-    )
+    ) or []
+    detail_rows = db.query(
+        """SELECT hosu, ipju_seq, ipju_gb, ipju_nm, ipju_tel1, ipju_dt, out_dt,
+                      plan_out_dt, bojung_amt, rent_amt, manage_amt, yechi_amt
+                 FROM bd03_det
+                WHERE bunji1=%s AND bunji2=%s
+                  AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
+                ORDER BY UPPER(TRIM(hosu)), ipju_dt, CAST(ipju_seq AS UNSIGNED)""",
+        (bunji1, bunji2),
+    ) or []
+    by_hosu = {}
+    for detail in detail_rows:
+        key = (detail.get("hosu") or "").strip().upper()
+        by_hosu.setdefault(key, []).append(detail)
+
+    today = date.today()
+
+    def as_date(value):
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        try:
+            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return None
+
+    def is_current(detail):
+        ipju = as_date(detail.get("ipju_dt"))
+        out = as_date(detail.get("out_dt"))
+        return bool(ipju and ipju <= today and (out is None or out.year < 1000 or out > today))
+
+    result = []
+    for room in room_rows:
+        key = (room.get("hosu") or "").strip().upper()
+        history = by_hosu.get(key, [])
+        current = [d for d in history if is_current(d)]
+        current.sort(
+            key=lambda d: (as_date(d.get("ipju_dt")) or date.min, int(str(d.get("ipju_seq") or "0") or 0)),
+            reverse=True,
+        )
+        planned = [
+            d for d in history
+            if (as_date(d.get("ipju_dt")) or date.min) > today
+        ]
+        planned.sort(
+            key=lambda d: (as_date(d.get("ipju_dt")) or date.max, int(str(d.get("ipju_seq") or "0") or 0))
+        )
+        chosen = current[0] if current else None
+        row = dict(room)
+        if chosen:
+            row.update(chosen)
+            plan_out = as_date(chosen.get("plan_out_dt"))
+            row["room_state"] = "checkout-pending" if plan_out and plan_out >= today else "occupied"
+        elif planned:
+            # 입주예정자는 호실 색상에만 반영하고, 현재입주자 칸은 비워 둔다.
+            row["planned_ipju_nm"] = planned[0].get("ipju_nm") or ""
+            row["planned_ipju_dt"] = planned[0].get("ipju_dt")
+            row["planned_ipju_seq"] = planned[0].get("ipju_seq")
+            row["room_state"] = "movein-pending"
+        else:
+            row["room_state"] = "vacant"
+        result.append(row)
+    return result
 
 
 @app.route("/building/<bunji1>/<bunji2>")
@@ -710,7 +787,7 @@ def building_detail(bunji1, bunji2):
         floor = int(digits[:-2] or 0) if len(digits) >= 3 else 0
         floor_map.setdefault(floor, []).append({
             "hosu": hosu,
-            "occupied": bool(room.get("ipju_seq") or room.get("ipju_nm")),
+            "state": room.get("room_state") or "vacant",
         })
     floors = sorted(floor_map.items(), key=lambda item: item[0], reverse=True)
     return render_template("building_detail.html", building=b, floors=floors, **_building_selects())
@@ -729,7 +806,7 @@ def building_rooms(bunji1, bunji2):
     for room in rooms:
         h = str(room.get("hosu") or "").strip(); d = "".join(c for c in h if c.isdigit())
         f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
-        floor_map.setdefault(f, []).append((h, bool(room.get("ipju_seq") or room.get("ipju_nm"))))
+        floor_map.setdefault(f, []).append((h, room.get("room_state") or "vacant"))
     floor_map = [(f, [rs] if len(rs) <= 5 else [rs[i:i + ((len(rs)+1)//2)] for i in range(0, len(rs), (len(rs)+1)//2)]) for f, rs in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]
     rooms, pager = _paginate(rooms)
     return render_template("building_rooms.html", building=b, rooms=rooms, pager=pager, floor_map=floor_map)
@@ -894,6 +971,9 @@ def _building_form_from_row(b):
         "elec_gb": (b.get("elec_gb") or "").strip().upper(),
         "mgmt_gb": _normalize_mgmt_gb(b.get("mgmt_gb")),
         "sukum_acct_gb": _normalize_sukum_acct_gb(b.get("sukum_acct_gb"), b.get("mgmt_gb")),
+        "sukum_bojung_acct_gb": _normalize_sukum_acct_gb(b.get("sukum_bojung_acct_gb"), b.get("sukum_acct_gb") or b.get("mgmt_gb")),
+        "sukum_rent_acct_gb": _normalize_sukum_acct_gb(b.get("sukum_rent_acct_gb"), b.get("sukum_acct_gb") or b.get("mgmt_gb")),
+        "sukum_manage_acct_gb": _normalize_sukum_acct_gb(b.get("sukum_manage_acct_gb"), b.get("sukum_acct_gb") or b.get("mgmt_gb")),
     }
     return _apply_bank_fields(form)
 
@@ -912,6 +992,9 @@ def _building_orig_for_js(form):
         "elec_gb": form.get("elec_gb") or "",
         "mgmt_gb": form.get("mgmt_gb") or "",
         "sukum_acct_gb": form.get("sukum_acct_gb") or "",
+        "sukum_bojung_acct_gb": form.get("sukum_bojung_acct_gb") or "",
+        "sukum_rent_acct_gb": form.get("sukum_rent_acct_gb") or "",
+        "sukum_manage_acct_gb": form.get("sukum_manage_acct_gb") or "",
         "first_amt": money(form.get("first_amt")),
         "man_cost": money(form.get("man_cost")),
         "stair_cost": money(form.get("stair_cost")),
@@ -930,6 +1013,9 @@ _BUILDING_CHANGE_FIELDS = (
     ("elec_gb", "전기료납부"),
     ("mgmt_gb", "관리형태"),
     ("sukum_acct_gb", "입금통장 주체"),
+    ("sukum_bojung_acct_gb", "보증금 수금통장"),
+    ("sukum_rent_acct_gb", "월세 수금통장"),
+    ("sukum_manage_acct_gb", "관리비 수금통장"),
     ("first_amt", "최초보증금"),
     ("man_cost", "관리수수료"),
     ("stair_cost", "계단청소"),
@@ -949,7 +1035,7 @@ def _norm_building_val(key, v):
         return int(v)
     if key == "building_dt":
         return (str(v)[:10] if v else "")
-    if key in ("elec_gb", "mgmt_gb", "sukum_acct_gb"):
+    if key in ("elec_gb", "mgmt_gb", "sukum_acct_gb", "sukum_bojung_acct_gb", "sukum_rent_acct_gb", "sukum_manage_acct_gb"):
         return (str(v).strip().upper() if v else "")
     return ("" if v is None else str(v)).strip()
 
@@ -962,6 +1048,8 @@ def _disp_building_val(key, v):
     if key == "mgmt_gb":
         return _mgmt_label(v)
     if key == "sukum_acct_gb":
+        return _sukum_acct_label(v)
+    if key in ("sukum_bojung_acct_gb", "sukum_rent_acct_gb", "sukum_manage_acct_gb"):
         return _sukum_acct_label(v)
     if v is None or v == "":
         return "빈값"
@@ -1049,6 +1137,9 @@ def building_edit(bunji1, bunji2):
                     elec_gb=%s,
                     mgmt_gb=%s,
                     sukum_acct_gb=%s,
+                    sukum_bojung_acct_gb=%s,
+                    sukum_rent_acct_gb=%s,
+                    sukum_manage_acct_gb=%s,
                     stair_cost=%s,
                     inet_cost=%s,
                     option_cost=%s,
@@ -1068,6 +1159,9 @@ def building_edit(bunji1, bunji2):
                     data["elec_gb"] or None,
                     data["mgmt_gb"],
                     data["sukum_acct_gb"],
+                    data["sukum_bojung_acct_gb"],
+                    data["sukum_rent_acct_gb"],
+                    data["sukum_manage_acct_gb"],
                     data.get("stair_cost") or 0,
                     data.get("inet_cost") or 0,
                     data.get("option_cost") or 0,

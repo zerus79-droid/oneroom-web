@@ -24,6 +24,7 @@ from utils import (
     parse_bunji_input as _parse_bunji_input,
     record_contract_terms_change,
     record_initial_contract_terms,
+    ensure_tenant_lease_gb,
     tenant_is_past_out as _tenant_is_past_out,
 )
 
@@ -46,6 +47,7 @@ def _empty_tenant_form():
         "rent_amt": "0",
         "manage_amt": "0",
         "yechi_amt": "0",
+        "lease_gb": "W",  # W=월세, B=반전세, J=전세
         "napbu_gb": "B",  # B=후납 (레거시 기본)
         "ipju_gb": "A",
         "mode": "new",  # new | edit
@@ -129,6 +131,9 @@ def _tenant_form_from_row(row):
             "rent_amt": _coerce_amount_to_str(row.get("rent_amt")),
             "manage_amt": _coerce_amount_to_str(row.get("manage_amt")),
             "yechi_amt": _coerce_amount_to_str(row.get("yechi_amt")),
+            # 컬럼이 없던 레거시/조회 테스트 행은 기존 계약을 임의로
+            # 전세로 단정하지 않고 월세 기본값으로 표시한다.
+            "lease_gb": (row.get("lease_gb") or "W").strip().upper(),
             "napbu_gb": (row.get("napbu_gb") or "B").strip() or "B",
             "ipju_gb": (row.get("ipju_gb") or "A").strip() or "A",
             "mode": "edit",
@@ -220,6 +225,8 @@ def _form_from_tenant_request(src):
     form["rent_amt"] = (src.get("rent_amt") or "0").replace(",", "").strip() or "0"
     form["manage_amt"] = (src.get("manage_amt") or "0").replace(",", "").strip() or "0"
     form["yechi_amt"] = (src.get("yechi_amt") or "0").replace(",", "").strip() or "0"
+    lease = (src.get("lease_gb") or "W").strip().upper()
+    form["lease_gb"] = lease if lease in ("W", "B", "J") else "W"
     nap = (src.get("napbu_gb") or "B").strip().upper()
     form["napbu_gb"] = nap if nap in ("A", "B") else "B"
     form["mode"] = (src.get("mode") or "new").strip() or "new"
@@ -360,6 +367,12 @@ def _parse_tenant_amounts(form):
         }
     except ValueError:
         return "금액은 숫자로 입력하세요.", {}, None
+    lease_gb = (form.get("lease_gb") or "W").strip().upper()
+    if lease_gb not in ("W", "B", "J"):
+        lease_gb = "W"
+    # 전세는 임대료가 없는 계약으로 저장한다. 관리비가 있으면 manage에 입력한다.
+    if lease_gb == "J":
+        amounts["rent"] = 0
     if amounts["bojung"] > 0 and amounts["yechi"] > 0:
         return (
             "보증금과 예치금은 함께 입력할 수 없습니다. 하나만 입력하세요.",
@@ -369,6 +382,7 @@ def _parse_tenant_amounts(form):
             },
             None,
         )
+    amounts["lease_gb"] = lease_gb
     return None, {}, amounts
 
 
@@ -395,6 +409,7 @@ def _saved_snapshot(form, was_insert, amounts):
         "rent_amt": amounts["rent"],
         "manage_amt": amounts["manage"],
         "yechi_amt": amounts["yechi"],
+        "lease_gb": amounts.get("lease_gb") or form.get("lease_gb") or "W",
         "napbu_gb": form.get("napbu_gb") or "B",
         "napbu_label": "선납" if (form.get("napbu_gb") or "") == "A" else "후납",
     }
@@ -405,6 +420,7 @@ def _saved_snapshot(form, was_insert, amounts):
 @require_write_access
 def tenant_manage():
     """입주자관리 · 입주 이력 등록/수정 (레거시 「입주 이력 등록」 창)"""
+    ensure_tenant_lease_gb()
     buildings, rooms = _buildings_and_rooms()
 
     if request.method == "GET":
@@ -475,7 +491,7 @@ def tenant_manage():
     exists = db.query_one(
         """
         SELECT ipju_seq, ipju_nm, ipju_jumin_no, ipju_dt, out_dt,
-               bojung_amt, rent_amt, manage_amt, yechi_amt, napbu_gb
+               bojung_amt, rent_amt, manage_amt, yechi_amt, lease_gb, napbu_gb
         FROM bd03_det
         WHERE bunji1=%s AND bunji2=%s
           AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
@@ -501,7 +517,7 @@ def tenant_manage():
                   ipju_nm=%s, ipju_jumin_no=%s,
                   ipju_tel1=%s, ipju_tel2=%s, ipju_tel3=%s,
                   ipju_dt=%s, bojung_amt=%s, rent_amt=%s,
-                  manage_amt=%s, yechi_amt=%s, napbu_gb=%s,
+                  manage_amt=%s, yechi_amt=%s, lease_gb=%s, napbu_gb=%s,
                   sys_dt=NOW(), uid=%s
                 WHERE bunji1=%s AND bunji2=%s
                   AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
@@ -517,6 +533,7 @@ def tenant_manage():
                     rent,
                     manage,
                     yechi,
+                    amounts.get("lease_gb") or form.get("lease_gb") or "W",
                     form["napbu_gb"],
                     uid,
                     form["bunji1"],
@@ -529,7 +546,8 @@ def tenant_manage():
                 form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"],
                 exists.get("ipju_dt"), exists,
                 {"bojung_amt": bojung, "rent_amt": rent, "manage_amt": manage,
-                 "yechi_amt": yechi, "napbu_gb": form["napbu_gb"]}, uid,
+                 "yechi_amt": yechi, "lease_gb": amounts.get("lease_gb") or form.get("lease_gb") or "W",
+                 "napbu_gb": form["napbu_gb"]}, uid,
             )
             # 성공 안내는 popup_msg 한 번만 (flash 중복 방지)
         else:
@@ -539,13 +557,13 @@ def tenant_manage():
                   bunji1, bunji2, hosu, ipju_seq, ipju_gb, ipju_dt, ipju_nm,
                   ipju_jumin_no, ipju_tel1, ipju_tel2, ipju_tel3,
                   plan_out_dt, out_dt, out_seq,
-                  bojung_amt, rent_amt, manage_amt, yechi_amt, napbu_gb,
+                  bojung_amt, rent_amt, manage_amt, yechi_amt, lease_gb, napbu_gb,
                   misu_tot, suri_tot, out_jungsan_end, del_yn, sys_dt, uid
                 ) VALUES (
                   %s, %s, %s, %s, 'A', %s, %s,
                   %s, %s, %s, %s,
                   NULL, NULL, '',
-                  %s, %s, %s, %s, %s,
+                  %s, %s, %s, %s, %s, %s,
                   NULL, 0, '', 'N', NOW(), %s
                 )
                 """,
@@ -564,6 +582,7 @@ def tenant_manage():
                     rent,
                     manage,
                     yechi,
+                    amounts.get("lease_gb") or form.get("lease_gb") or "W",
                     form["napbu_gb"],
                     uid,
                 ),
@@ -572,7 +591,8 @@ def tenant_manage():
                 form["bunji1"], form["bunji2"], form["hosu"], form["ipju_seq"],
                 date.fromisoformat(form["ipju_dt"]),
                 {"bojung_amt": bojung, "rent_amt": rent, "manage_amt": manage,
-                 "yechi_amt": yechi, "napbu_gb": form["napbu_gb"]}, uid,
+                 "yechi_amt": yechi, "lease_gb": amounts.get("lease_gb") or form.get("lease_gb") or "W",
+                 "napbu_gb": form["napbu_gb"]}, uid,
             )
     except Exception as e:
         flash(f"저장 실패: {e}", "err")
@@ -669,6 +689,7 @@ def _lookup_tenant_row(bunji1, bunji2, hosu, ipju_seq=""):
 @app.route("/api/next_ipju_seq")
 @login_required
 def api_next_ipju_seq():
+    ensure_tenant_lease_gb()
     bunji1 = _pad_bunji((request.args.get("bunji1") or "").strip())
     bunji2 = _pad_bunji((request.args.get("bunji2") or "").strip())
     if request.args.get("bunji"):
@@ -704,6 +725,7 @@ def api_tenant_load():
     """주소·호수(·순번)로 입주 이력 1건 로드.
     순번 생략 시: 현재 거주자 → 없으면 최신 순번 이력.
     """
+    ensure_tenant_lease_gb()
     bunji1 = _pad_bunji((request.args.get("bunji1") or "").strip())
     bunji2 = _pad_bunji((request.args.get("bunji2") or "").strip())
     if request.args.get("bunji"):

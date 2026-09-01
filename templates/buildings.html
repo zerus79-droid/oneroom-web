@@ -54,9 +54,9 @@
         </div>
         <div class="bldg-card-mid">
           {% if next_mode=='rooms' %}
-          <div class="card-floor-map floor-map">
-            <div class="floor-map-title">층별 호실 현황 <span class="floor-map-legend"><i class="room-dot occupied"></i> 입주 <i class="room-dot vacant"></i> 공실</span></div>
-            {% for floor, rows in b.floor_map %}{% for rooms in rows %}<div class="floor-row"><a class="floor-label" href="{{ url_for('room_new', bunji1=b.bunji1, bunji2=b.bunji2) }}">{% if floor is number %}{{ floor }}층{% else %}{{ floor }}{% endif %}</a><div class="floor-rooms">{% for h, occ in rooms %}<span class="room-cell {% if occ %}occupied{% else %}vacant{% endif %}"><i class="room-dot"></i>{{ h }}</span>{% endfor %}</div></div>{% endfor %}{% endfor %}
+            <div class="card-floor-map floor-map">
+            <div class="floor-map-title">층별 호실 현황</div>
+            {% for floor, rows in b.floor_map %}{% for rooms in rows %}<div class="floor-row"><a class="floor-label" href="{{ url_for('room_new', bunji1=b.bunji1, bunji2=b.bunji2) }}">{% if floor is number %}{{ floor }}층{% else %}{{ floor }}{% endif %}</a><div class="floor-rooms">{% for h, occ in rooms %}<span class="room-cell {% if occ %}occupied{% else %}vacant{% endif %}">{{ h }}</span>{% endfor %}</div></div>{% endfor %}{% endfor %}
           </div>
           {% else %}
           <table class="bldg-card-table">

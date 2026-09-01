@@ -2604,6 +2604,71 @@ input.money-in:disabled {
   margin: 0;
   padding: 16px;
 }
+
+/* 서식 및 자료 아코디언 */
+.doc-row {
+  cursor: pointer;
+}
+.doc-row:hover td {
+  background: var(--select-bg) !important;
+  color: var(--select-fg) !important;
+  -webkit-text-fill-color: var(--select-fg) !important;
+}
+.doc-title-cell {
+  padding: 8px 10px !important;
+}
+.doc-toggle {
+  margin-right: 6px;
+  font-size: 0.8rem;
+  color: var(--navy);
+}
+.doc-title-text {
+  font-weight: 700;
+}
+.doc-link {
+  margin-left: 8px;
+  font-size: 0.85rem;
+  color: var(--primary) !important;
+  -webkit-text-fill-color: var(--primary) !important;
+}
+.doc-edit {
+  margin-left: 8px;
+  font-size: 0.85rem;
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+.doc-content-row {
+  background: #f8fafc;
+}
+.doc-content-cell {
+  padding: 12px 10px !important;
+  border-top: 1px solid var(--line);
+}
+.doc-content-inner {
+  background: #fff;
+  border: 1px solid var(--box-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 600px;
+  min-height: 300px;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #1f2933;
+}
+.doc-content-inner pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+}
+
+/* 서식 및 자료 내용 입력창 크기 증가 */
+.doc-content-textarea {
+  min-height: 400px !important;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
 @media (max-width: 760px) {
   .legacy-sukum-caption,
   .legacy-form-caption,
@@ -3209,7 +3274,45 @@ a.bldg-card-title:hover { color: var(--navy); }
 }
 .card-floor-map { margin: 0; border: 0; border-right: 1px solid #e5e7eb; border-radius: 0; min-width: 0; height: 100%; box-sizing: border-box; padding: 14px 12px; }
 .card-floor-map .floor-map-title { font-size: .95rem; }
-.card-floor-map .room-cell { padding: 4px 7px; font-size: .82rem; }
+.card-floor-map .room-cell {
+  padding: 4px 7px;
+  font-size: .82rem;
+  font-weight: 700;
+}
+.card-floor-map .floor-rooms { margin-left: 7px; gap: 1px; }
+.card-floor-map .room-cell.occupied {
+  background: #287dcc;
+  border-color: #1f65a8;
+  color: #fff;
+}
+.card-floor-map .room-cell.vacant {
+  background: #f6d365;
+  border-color: #d3a92f;
+  color: #4a3b08;
+}
+.card-floor-map .room-cell.occupied .room-dot { background: #fff; }
+.card-floor-map .room-cell.vacant .room-dot { background: #b18400; }
+/* 건물 카드의 층별 호수 미니 도식 */
+.floor-map { margin: 0 0 18px; padding: 14px 16px; border: 1px solid #cbd7e2; background: #f4f8fb; }
+.floor-map-title { font-weight: 700; color: #23405a; margin-bottom: 10px; }
+.floor-map-legend { float: right; font-size: .82rem; font-weight: 400; color: #526476; }
+.floor-row { display: flex; align-items: center; border-top: 1px solid #dbe4ec; min-height: 48px; }
+.floor-label { display: block; width: 58px; color: #fff; font-weight: 700; text-align: center; background: linear-gradient(180deg, #6f9ac0 0%, #4f7fa7 100%); border: 1px solid #3f6687; border-radius: 4px; padding: 4px 3px; font-size: .82rem; box-sizing: border-box; text-decoration: none; cursor: pointer; box-shadow: 0 1px 2px rgba(30,60,90,.2); }
+.floor-label:hover { background: #3f6f96; color: #fff; text-decoration: none; }
+.floor-rooms { display: flex; flex-wrap: wrap; gap: 7px; padding: 7px 0; }
+.room-cell { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid #b8c8d6; border-radius: 4px; background: #fff; color: #263b4c; text-decoration: none; font-size: .88rem; }
+.room-cell:hover { border-color: #477da8; }
+.room-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e43d3d; }
+.room-dot.occupied, .room-cell.occupied .room-dot { background: #287dcc; }
+.floor-map-legend .room-dot { margin: 0 3px 0 8px; vertical-align: -1px; }
+.mini-building { width: 100%; max-height: 155px; padding: 0 5px; font-size: 9px; }
+.mini-roof { width: 72%; height: 8px; margin: 0 auto; background: #6f98ba; border-radius: 3px 3px 0 0; }
+.mini-facade { position: relative; padding: 4px 3px 14px; background: #8fb4d4; border: 2px solid #6b8eab; border-radius: 2px; overflow: hidden; }
+.mini-floor-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px; margin: 2px 0; }
+.mini-floor-row b { display: none; }
+.mini-room { display: inline-block; min-width: 18px; padding: 2px 1px; border-radius: 2px; background: #f6d365; color: #4a3b08; line-height: 1.1; text-align: center; }
+.mini-room.occupied { background: #287dcc; color: #fff; }
+.mini-door { position: absolute; bottom: 0; left: 50%; width: 14px; height: 12px; transform: translateX(-50%); background: #587d9c; }
 .bldg-card-table {
   min-width: 0;
   table-layout: fixed;
@@ -3612,7 +3715,7 @@ input.dache-off {
 /* 네이티브 date: 달력 버튼 위치에만 투명 레이어 */
 .date-with-cal .cal-native {
   position: absolute;
-  /* JS/레이아웃: 버튼 바로 위에 오도록 left는 쓰지 않고 버튼 영역만 클릭 */
+  /* 투명한 네이티브 입력을 달력 버튼 위에 겹쳐 브라우저별 showPicker 차이를 없앰 */
   width: 36px;
   height: 34px;
   opacity: 0;
@@ -3620,8 +3723,9 @@ input.dache-off {
   padding: 0;
   margin: 0;
   cursor: pointer;
-  /* 문서 흐름에서 빼되 버튼 클릭은 showPicker로 처리 */
-  left: -9999px;
+  right: 0;
+  top: 4px;
+  z-index: 2;
 }
 /* 달력(수금일) 다음 줄: 실수금액 · 대체금액 · 종류 · 성격 */
 .form-grid .field-after-date {
@@ -4176,6 +4280,21 @@ a.dash-kpi:hover .dash-kpi-circle {
 }
 
 /* 상태 뱃지 — 표/목록 공용 */
+.st-badge.edit {
+  background: var(--st-wait-bg);
+  color: #8a5a00;
+  border-color: var(--st-wait);
+}
+.legacy-sukum-caption .checkout-edit-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  align-self: center;
+  background: #fff3e0;
+  border-color: #ffb74d;
+  color: #8a5a00 !important;
+  -webkit-text-fill-color: #8a5a00 !important;
+}
 .st-badge {
   display: inline-block;
   padding: 2px 8px;
