@@ -5,10 +5,18 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">서식 및 자료{% if form.mode == 'edit' %} (수정){% endif %}</span>
-    <span class="muted">{{ pager.total }}건</span>
+    {% if can_write %}
+    <span class="caption-actions">
+      {% if show_form %}
+      <a class="btn secondary" href="{{ url_for('docs') }}">목록</a>
+      {% else %}
+      <a class="btn secondary" href="{{ url_for('docs', new=1) }}">신규 등록</a>
+      {% endif %}
+    </span>
+    {% endif %}
   </div>
   <div class="legacy-sukum-body">
-  {% if can_write %}
+  {% if show_form %}
   <form method="post" id="doc-form" class="xp-form" autocomplete="off">
     <input type="hidden" name="action" id="form_action" value="save">
     <input type="hidden" name="mode" value="{{ form.mode }}">
@@ -21,6 +29,7 @@
                value="{{ form.title }}" maxlength="200" autocomplete="off">
       </div>
     </div>
+    {% if form.mode == 'edit' %}
     <div class="ls-row">
       <label class="ls-lab">링크</label>
       <div class="ls-val">
@@ -28,11 +37,12 @@
                value="{{ form.url }}" maxlength="500" placeholder="https://..." autocomplete="off">
       </div>
     </div>
+    {% endif %}
     <div class="ls-row">
       <label class="ls-lab">내용</label>
       <div class="ls-val">
-        <textarea name="content" id="content" class="ls-box doc-content-textarea" rows="20"
-                  placeholder="링크 없이 메모만 남길 수도 있습니다">{{ form.content }}</textarea>
+        <textarea name="content" id="content" class="ls-box doc-content-textarea" rows="8"
+                  placeholder="내용을 입력하세요">{{ form.content }}</textarea>
       </div>
     </div>
 
@@ -41,18 +51,26 @@
       <button type="button" class="btn secondary" id="btn-doc-delete"
               data-id="{{ form.id }}" data-title="{{ form.title }}"
               {% if form.mode != 'edit' or not form.id %}disabled title="목록에서 자료를 선택한 뒤 삭제하세요"{% endif %}>삭제</button>
-      <button type="button" class="btn secondary" id="btn-doc-new">신규</button>
+      <a class="btn secondary" href="{{ url_for('docs') }}">취소</a>
     </div>
   </form>
   {% endif %}
 
-  <div class="panel-section-lab">자료 목록 <span class="muted">{{ pager.total }}건</span></div>
+  <div class="panel-section-lab">
+    자료 목록
+    <span class="muted">
+      {{ pager.total }}건
+      {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+    </span>
+    {% set pager_endpoint = 'docs' %}
+    {% include "_pager.html" %}
+  </div>
   <div class="panel-table-wrap table-scroll">
     {% if rows %}
     <table class="legacy-grid">
       <thead>
         <tr>
-          <th class="tc">제목</th>
+          <th>제목</th>
           <th class="tc">작성자</th>
           <th class="tc">등록일</th>
         </tr>
@@ -68,17 +86,22 @@
                onclick="event.stopPropagation()" class="doc-link">열기 ↗</a>
             {% endif %}
             {% if can_write %}
-            <a href="{{ url_for('docs', edit_id=r.id) }}" onclick="event.stopPropagation()" class="doc-edit">수정</a>
+            <a class="doc-edit" href="{{ url_for('docs', edit_id=r.id) }}"
+               onclick="event.stopPropagation()">수정</a>
             {% endif %}
           </td>
           <td class="tc">{{ r.writer or '' }}</td>
           <td class="tc col-nowrap">{{ r.created_disp }}</td>
         </tr>
-        <tr class="doc-content-row" style="display: none;">
+        <tr class="doc-content-row" hidden>
           <td colspan="3" class="doc-content-cell">
-            <div class="doc-content-inner">
-              <pre>{{ r.content }}</pre>
-            </div>
+            {% if r.content %}
+            <pre>{{ r.content }}</pre>
+            {% elif r.url %}
+            <p class="doc-item-empty">링크만 등록된 자료입니다.</p>
+            {% else %}
+            <p class="doc-item-empty">내용이 없습니다.</p>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -88,12 +111,10 @@
     <p class="empty">등록된 자료가 없습니다.</p>
     {% endif %}
   </div>
-  {% set pager_endpoint = 'docs' %}
-  {% include "_pager.html" %}
   </div>
 </div>
 
-{% if can_write %}
+{% if show_form %}
 <script>
 (function () {
   var form = document.getElementById('doc-form');
@@ -117,37 +138,23 @@
       HTMLFormElement.prototype.submit.call(form);
     });
   }
-  var newBtn = document.getElementById('btn-doc-new');
-  if (newBtn) {
-    newBtn.addEventListener('click', function () {
-      if (act) act.value = 'new';
-      HTMLFormElement.prototype.submit.call(form);
-    });
-  }
 })();
 </script>
 {% endif %}
 
 <script>
 (function () {
-  // 아코디언 기능
-  var docRows = document.querySelectorAll('.doc-row');
-  docRows.forEach(function(row) {
-    row.addEventListener('click', function() {
-      var contentRow = this.nextElementSibling;
-      if (contentRow && contentRow.classList.contains('doc-content-row')) {
-        var toggle = this.querySelector('.doc-toggle');
-        if (contentRow.style.display === 'none') {
-          contentRow.style.display = 'table-row';
-          if (toggle) toggle.textContent = '▼';
-        } else {
-          contentRow.style.display = 'none';
-          if (toggle) toggle.textContent = '▶';
-        }
-      }
+  document.querySelectorAll('.doc-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var contentRow = row.nextElementSibling;
+      if (!contentRow || !contentRow.classList.contains('doc-content-row')) return;
+      var toggle = row.querySelector('.doc-toggle');
+      var open = !contentRow.hidden;
+      contentRow.hidden = open;
+      row.classList.toggle('is-open', !open);
+      if (toggle) toggle.textContent = open ? '▶' : '▼';
     });
   });
 })();
 </script>
 {% endblock %}
-{% block flash %}{% endblock %}

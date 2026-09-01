@@ -3,7 +3,7 @@
 `/payments/new` 라우트와 그 전용 도우미 함수들을 모아둔 모듈입니다.
 목록/검색은 `payments.py`, 건물·현세입자 조회 API는 `payments_api.py`에 있습니다.
 """
-from datetime import date
+from datetime import date, timedelta
 
 from flask import flash, make_response, redirect, render_template, request, session, url_for
 
@@ -45,17 +45,23 @@ def _hist_page_for_payment(bunji1, bunji2, hosu, ipju_seq, sukum_dt, sukum_seq, 
         extra.append("s.sukum_dt >= %s")
         args.append(str(date_from)[:10] + " 00:00:00")
     extra_sql = (" AND " + " AND ".join(extra)) if extra else ""
-    args.extend([dt, dt, sq])
+    target_start = dt + " 00:00:00"
+    try:
+        target_end = (date.fromisoformat(dt) + timedelta(days=1)).isoformat()
+    except ValueError:
+        target_end = dt + " 23:59:59"
+    args.extend([target_start, target_start, target_end, sq])
     row = db.query_one(
         f"""
         SELECT COUNT(*) AS c
         FROM sukum01 s
-        WHERE s.bunji1=%s AND s.bunji2=%s AND UPPER(TRIM(s.hosu))=%s
+        WHERE s.bunji1=%s AND s.bunji2=%s AND s.hosu_norm=%s
           {extra_sql}
           AND (s.del_yn IS NULL OR s.del_yn='' OR s.del_yn='N')
           AND (
-            DATE(s.sukum_dt) < %s
-            OR (DATE(s.sukum_dt)=%s AND CAST(s.sukum_seq AS UNSIGNED) < CAST(%s AS UNSIGNED))
+            s.sukum_dt < %s
+            OR (s.sukum_dt >= %s AND s.sukum_dt < %s
+                AND CAST(s.sukum_seq AS UNSIGNED) < CAST(%s AS UNSIGNED))
           )
         """,
         tuple(args),
@@ -100,7 +106,7 @@ def _recent_payments():
           ON c2.g_cd='02' AND c2.g_sub_cd=s.sukum_gb
         LEFT JOIN bd03_det d
           ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
-         AND d.hosu=s.hosu AND d.ipju_seq=s.ipju_seq
+             AND d.hosu_norm=s.hosu_norm AND d.ipju_seq=s.ipju_seq
         WHERE s.sys_dt >= %s AND s.sys_dt < %s + INTERVAL 1 DAY
           AND (s.del_yn IS NULL OR s.del_yn='' OR s.del_yn='N')
         ORDER BY s.sys_dt DESC, s.sukum_dt DESC, CAST(s.sukum_seq AS UNSIGNED) DESC

@@ -5,6 +5,7 @@
 """
 import re
 from datetime import date, timedelta
+from threading import Lock
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -21,9 +22,13 @@ from utils import (
     parse_money as _parse_money,
     require_write_access,
     resolve_hosu as _resolve_hosu,
+    table_columns as _table_columns,
 )
 
 JUNGKE_DESC_FIXED = "중개보수"
+_JUNGKE_SCHEMA_READY = False
+_JUNGKE_SCHEMA_LOCK = Lock()
+
 _HOSU_IN_DESC = re.compile(
     r"^\s*([Bb]?\d+)\s*(?:호)?\s*(?:깔)?\s*(?:(?:중개|중계)?\s*수수료|복비).*$",
     re.I,
@@ -42,13 +47,14 @@ def _hosu_from_desc(desc):
     return ""
 
 
-def _ensure_jungke_hosu_col():
-    try:
-        db.execute(
-            "ALTER TABLE sjungke01 ADD COLUMN hosu char(3) NOT NULL DEFAULT ''"
-        )
-    except Exception:
-        pass
+def _ensure_jungke_hosu_col_once():
+    if "hosu" not in _table_columns("sjungke01"):
+        try:
+            db.execute(
+                "ALTER TABLE sjungke01 ADD COLUMN hosu char(3) NOT NULL DEFAULT ''"
+            )
+        except Exception:
+            pass
     try:
         db.execute(
             """
@@ -71,6 +77,15 @@ def _ensure_jungke_hosu_col():
         )
     except Exception:
         pass
+    need = db.query_one(
+        """
+        SELECT 1 AS ok FROM sjungke01
+        WHERE hosu IS NULL OR TRIM(hosu)=''
+        LIMIT 1
+        """
+    )
+    if not need:
+        return
     rows = db.query(
         """
         SELECT jungke_dt, jungke_seq, bunji1, bunji2, jungke_desc
@@ -97,6 +112,18 @@ def _ensure_jungke_hosu_col():
                 r.get("bunji2"),
             ),
         )
+
+
+def _ensure_jungke_hosu_col():
+    """Run the legacy 호수-column/data migration once per worker."""
+    global _JUNGKE_SCHEMA_READY
+    if _JUNGKE_SCHEMA_READY:
+        return
+    with _JUNGKE_SCHEMA_LOCK:
+        if _JUNGKE_SCHEMA_READY:
+            return
+        _ensure_jungke_hosu_col_once()
+        _JUNGKE_SCHEMA_READY = True
 
 
 def _empty_jungke_form():

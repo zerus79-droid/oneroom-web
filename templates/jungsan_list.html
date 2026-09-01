@@ -4,12 +4,6 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">정산 현황 조회</span>
-    {% if ran %}
-    <span class="muted">
-      {{ month_label }}
-      {% if results %} · {{ results|length }}건 · 지급·청구 합 {{ sum_pay|money }}원{% endif %}
-    </span>
-    {% endif %}
     <span class="caption-actions">
       <a class="btn secondary" href="{{ url_for('jungsan') }}">주소별 작성</a>
     </span>
@@ -56,18 +50,23 @@
 
   <div class="panel-section-lab">
     정산 목록
-    {% if ran and results %}<span class="muted">{{ pager.total if pager else results|length }}건</span>{% endif %}
+    {% if ran and results %}
+    <span class="muted">
+      {{ pager.total if pager else results|length }}건
+      {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+    </span>
+    {% endif %}
+    {% set pager_endpoint = 'jungsan_list' %}
+    {% set pager_label = '정산 목록 페이지' %}
+    {% set pager_query = {
+      'q': 1,
+      'year': filters.year,
+      'month': filters.month,
+      'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+      'bunji2': filters.bunji2|bunji if filters.bunji2 else none
+    } %}
+    {% include '_pager.html' %}
   </div>
-  {% set pager_endpoint = 'jungsan_list' %}
-  {% set pager_label = '정산 목록 페이지' %}
-  {% set pager_query = {
-    'q': 1,
-    'year': filters.year,
-    'month': filters.month,
-    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
-    'bunji2': filters.bunji2|bunji if filters.bunji2 else none
-  } %}
-  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
     {% if ran and results %}
     <table class="legacy-grid">

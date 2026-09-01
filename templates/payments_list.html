@@ -18,10 +18,13 @@
 } %}
 <div class="panel-section-lab pay-list-lab">
   수금 내역
-  <span class="muted">{{ pager.total if pager else payments|length }}건</span>
+  <span class="muted">
+    {{ pager.total if pager else payments|length }}건
+    {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+  </span>
   <button type="button" id="btn-pay-delete" class="btn secondary" disabled>삭제</button>
+  {% include '_pager.html' %}
 </div>
-{% include '_pager.html' %}
 <div class="panel-table-wrap table-scroll">
   <table class="legacy-grid">
     <thead>

@@ -52,11 +52,18 @@
          title="결산현황 인쇄">인쇄</a>
     </div>
   </form>
+  {% if not ran or (ran and not data) or (ran and data and data.error) %}
+  <div class="legacy-sukum-body">
+    {% if ran and data and data.error %}
+    <p class="empty hint-box no-print">{{ data.error }}</p>
+    {% elif ran %}
+    <p class="empty hint-box no-print">조회 결과가 없습니다.</p>
+    {% else %}
+    <p class="empty hint-box no-print">주소와 기준일자를 넣고 「조회」하면 정산 내용이 <strong>화면 전체</strong>에 표시됩니다. (인쇄 없이도 확인 가능)</p>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
-
-{% if ran and data and data.error %}
-<p class="empty">{{ data.error }}</p>
-{% endif %}
 
 {% if ran and data and not data.error and data.building %}
 {# ── 조회 결과: 화면에서 바로 읽기 (XP 좁은 그리드 대신 전체 폭) ── #}
@@ -237,10 +244,6 @@
     {% endif %}
   </p>
 </div>
-{% elif ran and not data %}
-<p class="empty">조회 결과가 없습니다.</p>
-{% elif not ran %}
-<p class="empty no-print">주소와 기준일자를 넣고 「조회」하면 정산 내용이 <strong>화면 전체</strong>에 표시됩니다. (인쇄 없이도 확인 가능)</p>
 {% endif %}
 
 <script>

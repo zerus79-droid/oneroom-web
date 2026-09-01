@@ -22,6 +22,13 @@ CURRENT_TENANT_SQL = "(d.out_dt IS NULL OR d.out_dt < '1000-01-01')"
 _TENANT_LEASE_GB_READY = False
 
 
+def table_columns(table_name):
+    """SHOW COLUMNS 결과를 이름 집합으로. ALTER 실패를 먼저 시도하지 않기 위함."""
+    if not re.fullmatch(r"[A-Za-z0-9_]+", table_name or ""):
+        raise ValueError("invalid table name")
+    return {r.get("Field") for r in (db.query(f"SHOW COLUMNS FROM {table_name}") or [])}
+
+
 def ensure_tenant_lease_gb():
     """입주 이력에 계약구분 컬럼을 준비한다.
 
@@ -33,21 +40,29 @@ def ensure_tenant_lease_gb():
     global _TENANT_LEASE_GB_READY
     if _TENANT_LEASE_GB_READY:
         return
+    cols = table_columns("bd03_det")
+    if "lease_gb" not in cols:
+        try:
+            db.execute(
+                "ALTER TABLE bd03_det ADD COLUMN lease_gb CHAR(1) NOT NULL DEFAULT 'W'"
+            )
+        except Exception:
+            # 이미 컬럼이 있거나 레거시 DB에서 ALTER 권한이 없는 경우에도 조회는 계속한다.
+            pass
     try:
-        db.execute(
-            "ALTER TABLE bd03_det ADD COLUMN lease_gb CHAR(1) NOT NULL DEFAULT 'W'"
+        need = db.query_one(
+            """SELECT 1 AS ok FROM bd03_det
+               WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','B','J')
+               LIMIT 1"""
         )
-    except Exception:
-        # 이미 컬럼이 있거나 레거시 DB에서 ALTER 권한이 없는 경우에도 조회는 계속한다.
-        pass
-    try:
-        # ALTER TABLE의 기본값으로 들어간 W는 보존하고, 외부 입력으로 생긴
-        # NULL/잘못된 코드만 안전한 기본값으로 정리한다.
-        db.execute(
-            """UPDATE bd03_det
-               SET lease_gb='W'
-             WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','B','J')"""
-        )
+        if need:
+            # ALTER TABLE의 기본값으로 들어간 W는 보존하고, 외부 입력으로 생긴
+            # NULL/잘못된 코드만 안전한 기본값으로 정리한다.
+            db.execute(
+                """UPDATE bd03_det
+                   SET lease_gb='W'
+                 WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','B','J')"""
+            )
     except Exception:
         pass
     _TENANT_LEASE_GB_READY = True
@@ -545,7 +560,7 @@ def calc_misu_amt(
         SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
         FROM sukum01
         WHERE bunji1=%s AND bunji2=%s
-          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+          AND hosu_norm=%s AND ipju_seq=%s
           AND sukum_char='01'
           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
     """
@@ -592,7 +607,7 @@ def calc_month_misu_amt(
         SELECT {paid_sql} AS paid
         FROM sukum01
         WHERE bunji1=%s AND bunji2=%s
-          AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+          AND hosu_norm=%s AND ipju_seq=%s
           AND sukum_char='01'
           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
           AND sukum_dt >= %s AND sukum_dt < %s
@@ -705,7 +720,7 @@ def resolve_hosu(bunji1, bunji2, hosu):
         return db.query_one(
             """
             SELECT hosu FROM bd03_m
-            WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
+            WHERE bunji1=%s AND bunji2=%s AND hosu_norm=%s
             """,
             (b1, b2, x),
         )
@@ -744,7 +759,7 @@ def lookup_current_tenant(bunji1, bunji2, hosu):
         SELECT {cols}
         FROM bd03_det
         WHERE bunji1=%s AND bunji2=%s
-          AND UPPER(TRIM(hosu))=%s
+          AND hosu_norm=%s
           AND (out_dt IS NULL OR out_dt < '1000-01-01')
         ORDER BY CAST(ipju_seq AS UNSIGNED) DESC
         LIMIT 1
@@ -759,7 +774,7 @@ def lookup_current_tenant(bunji1, bunji2, hosu):
         SELECT {cols}
         FROM bd03_det
         WHERE bunji1=%s AND bunji2=%s
-          AND UPPER(TRIM(hosu))=%s
+          AND hosu_norm=%s
         ORDER BY CAST(ipju_seq AS UNSIGNED) DESC
         LIMIT 1
         """,
@@ -784,15 +799,15 @@ def first_date_for_tenant(b1, b2, h, seq=""):
               SELECT d.ipju_dt AS dt
               FROM bd03_det d
               WHERE d.bunji1=%s AND d.bunji2=%s
-                AND UPPER(TRIM(d.hosu))=%s
-                AND LPAD(TRIM(d.ipju_seq),2,'0')=LPAD(TRIM(%s),2,'0')
+                AND d.hosu_norm=%s
+                AND d.ipju_seq=%s
                 AND d.ipju_dt IS NOT NULL AND d.ipju_dt > '1000-01-01'
               UNION ALL
               SELECT s.sukum_dt AS dt
               FROM sukum01 s
               WHERE s.bunji1=%s AND s.bunji2=%s
-                AND UPPER(TRIM(s.hosu))=%s
-                AND LPAD(TRIM(s.ipju_seq),2,'0')=LPAD(TRIM(%s),2,'0')
+                AND s.hosu_norm=%s
+                AND s.ipju_seq=%s
                 AND s.sukum_dt IS NOT NULL AND s.sukum_dt > '1000-01-01'
             ) t
             """,
@@ -805,13 +820,13 @@ def first_date_for_tenant(b1, b2, h, seq=""):
               SELECT d.ipju_dt AS dt
               FROM bd03_det d
               WHERE d.bunji1=%s AND d.bunji2=%s
-                AND UPPER(TRIM(d.hosu))=%s
+                AND d.hosu_norm=%s
                 AND d.ipju_dt IS NOT NULL AND d.ipju_dt > '1000-01-01'
               UNION ALL
               SELECT s.sukum_dt AS dt
               FROM sukum01 s
               WHERE s.bunji1=%s AND s.bunji2=%s
-                AND UPPER(TRIM(s.hosu))=%s
+                AND s.hosu_norm=%s
                 AND s.sukum_dt IS NOT NULL AND s.sukum_dt > '1000-01-01'
             ) t
             """,
@@ -820,6 +835,33 @@ def first_date_for_tenant(b1, b2, h, seq=""):
     if not row or not row.get("mn"):
         return None
     return iso_min_date(row["mn"])
+
+
+def clean_building_juso(value):
+    """주소 표시용 문자열을 정리한다(원본 DB 값은 변경하지 않는다)."""
+    text = " ".join(str(value or "").strip().split())
+    text = re.sub(r"^[\]\-\s]+", "", text).strip()
+    return re.sub(r"^[0-9]+(?=[가-힣])", "", text).strip()
+
+
+def building_dong(value):
+    """주소 문자열에서 행정동(동·읍·면) 이름을 추출한다."""
+    text = clean_building_juso(value)
+    for token in text.split():
+        token = token.strip("[](),")
+        token = re.sub(r"^[0-9]+(?=[가-힣])", "", token)
+        if re.fullmatch(r"[가-힣]+[0-9]?[동읍면]", token):
+            return token
+    return "기타"
+
+
+def sort_dong_labels(labels):
+    """행정동 폴더 순서. 가나다 정렬, 「기타」는 맨 뒤."""
+    names = [str(x) for x in labels if x]
+    rest = sorted(x for x in names if x != "기타")
+    if "기타" in names:
+        rest.append("기타")
+    return rest
 
 
 def buildings_and_rooms():

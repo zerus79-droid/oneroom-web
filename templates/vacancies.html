@@ -4,7 +4,7 @@
 {# 상단 안내문/중복 제목 제거 — 내용 전부 「건물별 공실 현황 요약」 패널 안 #}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">건물별 공실 현황 요약</span>
+    <span class="caption-title">{{ stats.list_title }}</span>
     <span class="muted">
       공실 {{ stats.vacant_total }} · 입주 {{ stats.occupied_total }} · 전체 {{ stats.room_total }}호
       {% if filters.bunji or filters.q %} · 필터 적용{% endif %}
@@ -14,23 +14,23 @@
 
     {# KPI 요약 #}
     <div class="vacancy-stats">
-      <a href="{{ url_for('buildings') }}" class="dash-kpi kpi-building">
+      <a href="{{ url_for('vacancies', view='buildings') }}" class="dash-kpi kpi-building{% if stats.view == 'buildings' %} is-active{% endif %}">
         <div class="dash-kpi-lab">전체 건물</div>
         <div class="dash-kpi-circle st-navy">{{ stats.building_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies', only_empty=0) }}" class="dash-kpi kpi-rooms">
+      <a href="{{ url_for('vacancies', view='rooms') }}" class="dash-kpi kpi-rooms{% if stats.view == 'rooms' %} is-active{% endif %}">
         <div class="dash-kpi-lab">전체 호수</div>
         <div class="dash-kpi-circle st-info">{{ stats.room_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies', only_empty=0, show_occupied=1) }}" class="dash-kpi kpi-occupied">
+      <a href="{{ url_for('vacancies', view='occupied') }}" class="dash-kpi kpi-occupied{% if stats.view == 'occupied' %} is-active{% endif %}">
         <div class="dash-kpi-lab">현재 입주</div>
         <div class="dash-kpi-circle st-paid">{{ stats.occupied_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies') }}" class="dash-kpi kpi-vacant">
+      <a href="{{ url_for('vacancies', view='vacant') }}" class="dash-kpi kpi-vacant{% if stats.view == 'vacant' %} is-active{% endif %}">
         <div class="dash-kpi-lab">공실</div>
         <div class="dash-kpi-circle st-empty">{{ stats.vacant_total }}</div>
       </a>
-      <a href="{{ url_for('vacancies', only_empty=1) }}" class="dash-kpi kpi-vacancy-buildings">
+      <a href="{{ url_for('vacancies', view='vacancy_buildings') }}" class="dash-kpi kpi-vacancy-buildings{% if stats.view == 'vacancy_buildings' %} is-active{% endif %}">
         <div class="dash-kpi-lab">공실 있는 건물</div>
         <div class="dash-kpi-circle st-wait">{{ stats.buildings_with_vacancy }}</div>
       </a>
@@ -57,48 +57,32 @@
                    placeholder="건물명 · 건물주 · 호수" autocomplete="off" class="ls-box">
           </div>
         </div>
-        <div class="ls-row">
-          <label class="ls-lab">구분</label>
-          <div class="ls-val">
-            <div class="tenant-status-row">
-              <label class="tenant-status-opt">
-                <input type="hidden" name="only_empty" value="0">
-                <input type="checkbox" name="only_empty" value="1"
-                       {% if filters.only_empty %}checked{% endif %}>
-                <span>공실 있는 건물만</span>
-              </label>
-            </div>
-          </div>
-        </div>
       </div>
-      <input type="hidden" name="show_occupied" value="{% if stats.show_occupied %}1{% else %}0{% endif %}">
+      <input type="hidden" name="view" value="{{ filters.view }}">
       <div class="filter-bar-btns">
         <button type="submit" class="btn">조회</button>
         <a class="btn" href="{{ url_for('vacancies') }}">초기화</a>
       </div>
     </form>
 
-    {# 공실 호수 목록 #}
-    <div class="vacancy-section-lab">
-      {% if stats.show_occupied %}
-      현재 입주 호수
-      {% elif filters.only_empty %}
-      공실 호수
-      {% else %}
-      전체 호수
+    {% if stats.show_rooms %}
+    <div class="panel-section-lab vacancy-section-lab">
+      {{ stats.list_title }}
+      <span class="muted">
+        {{ stats.vacant_listed }}건
+        {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+      </span>
+      {% if pager %}
+      {% set pager_endpoint = 'vacancies' %}
+      {% set pager_query = {
+        'bunji1': filters.bunji1,
+        'bunji2': filters.bunji2,
+        'q': filters.q,
+        'view': filters.view
+      } %}
+      {% include '_pager.html' %}
       {% endif %}
-      <span class="muted">{{ stats.vacant_listed }}건</span>
     </div>
-    {% if pager %}
-    {% set pager_endpoint = 'vacancies' %}
-    {% set pager_query = {
-      'bunji1': filters.bunji1,
-      'bunji2': filters.bunji2,
-      'q': filters.q,
-      'only_empty': filters.only_empty
-    } %}
-    {% include '_pager.html' %}
-    {% endif %}
     <div class="table-scroll vacancy-table-wrap">
       {% if vacancies %}
       <table class="legacy-grid">
@@ -162,14 +146,28 @@
         </tbody>
       </table>
       {% else %}
-      <p class="empty">조건에 맞는 공실이 없습니다.</p>
+      <p class="empty">조건에 맞는 호수가 없습니다.</p>
       {% endif %}
     </div>
+    {% endif %}
 
-    {# 건물별 요약 #}
-    <div class="vacancy-section-lab">
-      건물별 요약
-      <span class="muted">{{ building_summary|length }}개 건물</span>
+    {% if stats.show_summary %}
+    <div class="panel-section-lab vacancy-section-lab">
+      {{ stats.list_title }}
+      <span class="muted">
+        {{ stats.summary_listed }}개 건물
+        {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+      </span>
+      {% if pager %}
+      {% set pager_endpoint = 'vacancies' %}
+      {% set pager_query = {
+        'bunji1': filters.bunji1,
+        'bunji2': filters.bunji2,
+        'q': filters.q,
+        'view': filters.view
+      } %}
+      {% include '_pager.html' %}
+      {% endif %}
     </div>
     <div class="table-scroll vacancy-table-wrap">
       {% if building_summary %}
@@ -216,7 +214,7 @@
             </td>
             <td class="tc menu-badges" onclick="event.stopPropagation()">
               <a class="st-badge info" href="{{ url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) }}">호수</a>
-              <a class="st-badge wait" href="{{ url_for('vacancies', bunji1=b.bunji1|bunji, bunji2=b.bunji2|bunji) }}">공실만</a>
+              <a class="st-badge wait" href="{{ url_for('vacancies', bunji1=b.bunji1|bunji, bunji2=b.bunji2|bunji, view='vacant') }}">공실만</a>
             </td>
           </tr>
           {% endfor %}
@@ -226,6 +224,11 @@
       <p class="empty">표시할 건물이 없습니다.</p>
       {% endif %}
     </div>
+    {% elif not stats.view %}
+    <div class="panel-table-wrap">
+      <p class="empty">검색어를 입력하거나 위 현황을 선택하세요.</p>
+    </div>
+    {% endif %}
 
   </div>
 </div>

@@ -1087,17 +1087,16 @@
   };
 
   window.appConfirmSubmit = function (form, message) {
-    if (form && form._appConfirmOk) {
-      form._appConfirmOk = false;
-      return true;
+    if (form && typeof form.reportValidity === 'function' && !form.reportValidity()) {
+      return false;
+    }
+    function trySubmit() {
+      if (!form) return;
+      if (typeof form.requestSubmit === 'function') form.requestSubmit();
+      else HTMLFormElement.prototype.submit.call(form);
     }
     if (window.appConfirm) {
-      window.appConfirm(message, function () {
-        if (!form) return;
-        form._appConfirmOk = true;
-        if (typeof form.requestSubmit === 'function') form.requestSubmit();
-        else HTMLFormElement.prototype.submit.call(form);
-      });
+      window.appConfirm(message, trySubmit);
       return false;
     }
     return window.confirm(message);
@@ -1601,6 +1600,9 @@
         }
 
         if (!a && !b && !h && !needB && !needH) return;
+
+        // 필수칸이 비었으면 팝업 대신 브라우저 기본 「이 입력란을 작성하세요」
+        if ((b1.required && !a) || (b2 && b2.required && !b) || (needH && !h)) return;
 
         e.preventDefault();
         e.stopPropagation();

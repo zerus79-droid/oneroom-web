@@ -30,13 +30,14 @@ def search():
             bunji1, bunji2 = "", ""
     hosu = (request.args.get("hosu") or "").strip().upper()
     ipju_seq = (request.args.get("ipju_seq") or "").strip()
-    tenant_status = (request.args.get("tenant_status") or "current").strip().lower()
+    tenant_status = (request.args.get("tenant_status") or "all").strip().lower()
     if tenant_status not in ("current", "past", "all"):
-        tenant_status = "current"
+        tenant_status = "all"
 
     results = []
     total = 0
-    has_filter = bool(q or bunji1 or bunji2 or hosu or ipju_seq or tenant_status != "all")
+    # 첫 화면(/search)은 안내창. 검색 버튼·상태 변경으로 tenant_status 가 오면 조회.
+    has_filter = "tenant_status" in request.args or bool(q or bunji1 or bunji2 or hosu or ipju_seq)
     pager = _make_pager(0)
     if has_filter:
         where = []
@@ -64,7 +65,7 @@ def search():
         elif tenant_status == "past":
             where.append("out_dt IS NOT NULL AND out_dt >= '1000-01-01'")
 
-        where_sql = " AND ".join(where)
+        where_sql = " AND ".join(where) if where else "1=1"
         count_row = db.query_one(
             f"SELECT COUNT(*) AS c FROM bd03_det WHERE {where_sql}",
             args,

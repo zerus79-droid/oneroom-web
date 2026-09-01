@@ -120,10 +120,14 @@ def docs():
     for r in rows:
         r["created_disp"] = fmt_date(r.get("created_at"))
 
+    can_write = _is_admin()
+    want_new = (request.args.get("new") or "").strip() == "1"
+    show_form = can_write and (form["mode"] == "edit" or want_new)
     return render_template(
         "docs.html",
         form=form,
-        can_write=_is_admin(),
+        can_write=can_write,
+        show_form=show_form,
         rows=rows,
         pager=pager,
     )

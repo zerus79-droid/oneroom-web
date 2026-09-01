@@ -4,6 +4,7 @@
 그 전용 도우미 함수들을 모아둔 모듈입니다. (기초 내역 관리 메뉴)
 """
 from datetime import date, datetime
+from threading import Lock
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -12,14 +13,20 @@ from app_instance import app
 from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
     account_digits as _account_digits,
+    building_dong as _building_dong,
+    clean_building_juso as _clean_building_juso,
     fmt_bunji_pair,
+    sort_dong_labels as _sort_dong_labels,
     login_required,
+    make_pager as _make_pager,
     money,
     pad_bunji as _pad_bunji,
     paginate as _paginate,
+    parse_page as _parse_page,
     parse_bunji_input as _parse_bunji_input,
     parse_money as _parse_money,
     require_write_access,
+    table_columns as _table_columns,
 )
 
 # 전기료납부(elec_gb) — 기존 프로그램: 각세대별 / 관리비에 포함
@@ -68,6 +75,13 @@ BANK_OPTIONS = [
     ("우체국", "우체국"),
     ("저축", "저축"),
 ]
+
+# Legacy installations may not yet have the optional building-account columns.
+# They used to be checked with ALTER/UPDATE on every request, which becomes a
+# metadata-lock and table-scan bottleneck as the building count grows.  Keep
+# the compatibility migration lazy, but run it once per worker process.
+_BUILDING_SCHEMA_READY = False
+_BUILDING_SCHEMA_LOCK = Lock()
 
 
 def _bank_name_set():
@@ -162,22 +176,49 @@ def _normalize_sukum_acct_gb(value, mgmt_gb="R"):
 
 
 def _ensure_g_cost_cols():
+    global _BUILDING_SCHEMA_READY
+    if _BUILDING_SCHEMA_READY:
+        return
+    with _BUILDING_SCHEMA_LOCK:
+        if _BUILDING_SCHEMA_READY:
+            return
+        _ensure_g_cost_cols_once()
+        _BUILDING_SCHEMA_READY = True
+
+
+def _ensure_g_cost_cols_once():
+    cols = _table_columns("bd01")
     for col in ("stair_cost", "inet_cost", "option_cost"):
+        if col in cols:
+            continue
         try:
             db.execute(
                 f"ALTER TABLE bd01 ADD COLUMN {col} decimal(18,0) NULL DEFAULT 0"
             )
         except Exception:
             pass
-    try:
-        db.execute("ALTER TABLE bd01 ADD COLUMN sukum_acct_gb char(1) NULL DEFAULT NULL")
-    except Exception:
-        pass
+    if "sukum_acct_gb" not in cols:
+        try:
+            db.execute("ALTER TABLE bd01 ADD COLUMN sukum_acct_gb char(1) NULL DEFAULT NULL")
+        except Exception:
+            pass
     for col in ("sukum_bojung_acct_gb", "sukum_rent_acct_gb", "sukum_manage_acct_gb"):
+        if col in cols:
+            continue
         try:
             db.execute(f"ALTER TABLE bd01 ADD COLUMN {col} char(1) NULL DEFAULT NULL")
         except Exception:
             pass
+    need = db.query_one(
+        """SELECT 1 AS ok FROM bd01
+           WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''
+              OR sukum_bojung_acct_gb IS NULL OR TRIM(sukum_bojung_acct_gb)=''
+              OR sukum_rent_acct_gb IS NULL OR TRIM(sukum_rent_acct_gb)=''
+              OR sukum_manage_acct_gb IS NULL OR TRIM(sukum_manage_acct_gb)=''
+           LIMIT 1"""
+    )
+    if not need:
+        return
     db.execute(
         """UPDATE bd01 SET sukum_acct_gb=CASE WHEN COALESCE(mgmt_gb,'R')='G' THEN 'O' ELSE 'M' END
            WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
@@ -287,6 +328,36 @@ def _decorate_building_card(r):
     return r
 
 
+def _building_search_blob(row):
+    return "".join(
+        [
+            str(row.get("juso") or ""),
+            str(row.get("owner_nm") or ""),
+            fmt_bunji_pair(row.get("bunji1"), row.get("bunji2")),
+            str(row.get("bunji1") or ""),
+            str(row.get("bunji2") or ""),
+        ]
+    ).replace(" ", "").lower()
+
+
+def _load_buildings_by_keys(keys):
+    """카드에 필요한 건물 행만 키 순서를 유지해서 읽는다."""
+    if not keys:
+        return []
+    pair_placeholders = ", ".join(["(%s, %s)"] * len(keys))
+    query_args = [part for key in keys for part in key]
+    rows = db.query(
+        f"""SELECT * FROM bd01
+             WHERE (bunji1, bunji2) IN ({pair_placeholders})""",
+        query_args,
+    ) or []
+    by_key = {
+        (str(r.get("bunji1") or "").strip(), str(r.get("bunji2") or "").strip()): r
+        for r in rows
+    }
+    return [by_key[key] for key in keys if key in by_key]
+
+
 @app.route("/buildings")
 @login_required
 def buildings():
@@ -296,55 +367,72 @@ def buildings():
     _ensure_g_cost_cols()
     next_mode = (request.args.get("next") or "").strip()
     q = (request.args.get("q") or "").strip()
-    rows = db.query(
-        f"""
-        SELECT b.*,
-               COALESCE(m.room_cnt, 0) AS room_cnt,
-               COALESCE(d.tenant_cnt, 0) AS tenant_cnt
-        FROM bd01 b
-        LEFT JOIN (
-            SELECT bunji1, bunji2, COUNT(*) AS room_cnt
-            FROM bd03_m
-            GROUP BY bunji1, bunji2
-        ) m ON m.bunji1=b.bunji1 AND m.bunji2=b.bunji2
-        LEFT JOIN (
-            SELECT bunji1, bunji2, COUNT(*) AS tenant_cnt
-            FROM bd03_det d
-            WHERE {_CURRENT_TENANT_SQL}
-            GROUP BY bunji1, bunji2
-        ) d ON d.bunji1=b.bunji1 AND d.bunji2=b.bunji2
-        ORDER BY b.bunji1, b.bunji2
-        """
-    )
+    # 폴더 탭용으로 주소만 읽고, 카드/호실 지도는 현재 페이지 건물만 읽는다.
+    slim_cols = "bunji1, bunji2, juso, owner_nm" if q else "bunji1, bunji2, juso"
+    slim = db.query(
+        f"SELECT {slim_cols} FROM bd01 ORDER BY bunji1, bunji2"
+    ) or []
     if q:
         ql = q.replace(" ", "").lower()
-        filtered = []
-        for r in rows:
-            key = "".join(
-                [
-                    str(r.get("juso") or ""),
-                    str(r.get("owner_nm") or ""),
-                    fmt_bunji_pair(r.get("bunji1"), r.get("bunji2")),
-                    str(r.get("bunji1") or ""),
-                    str(r.get("bunji2") or ""),
-                ]
-            ).replace(" ", "").lower()
-            if ql in key:
-                filtered.append(r)
-        rows = filtered
-    for r in rows:
+        slim = [r for r in slim if ql in _building_search_blob(r)]
+
+    # 주소에서 행정동을 뽑아 가로 폴더(탭)로 묶는다. 앞에 잘못 붙은 ']'
+    # 같은 원본 표기 오류는 화면 분류·표시에서만 정리하고 DB 값은 보존한다.
+    grouped_counts = {}
+    for r in slim:
+        dong = _building_dong(r.get("juso"))
+        r["dong_label"] = dong
+        grouped_counts[dong] = grouped_counts.get(dong, 0) + 1
+
+    dong_filter = _clean_building_juso(request.args.get("dong"))
+    if dong_filter == "전체":
+        dong_filter = ""
+    selected_dong = dong_filter if dong_filter in grouped_counts else "전체"
+    selected = slim if selected_dong == "전체" else [
+        r for r in slim if r["dong_label"] == selected_dong
+    ]
+
+    folder_groups = [{"label": "전체", "count": len(slim)}]
+    folder_groups.extend(
+        {"label": label, "count": grouped_counts[label]}
+        for label in _sort_dong_labels(grouped_counts)
+    )
+
+    pager = _make_pager(len(selected), _parse_page())
+    page_slim = selected[pager["offset"] : pager["offset"] + pager["per_page"]]
+    page_keys = [
+        (str(r.get("bunji1") or "").strip(), str(r.get("bunji2") or "").strip())
+        for r in page_slim
+    ]
+    visible_rows = _load_buildings_by_keys(page_keys)
+    room_maps = _get_rooms_bulk(page_keys)
+    for r in visible_rows:
+        r["juso_display"] = _clean_building_juso(r.get("juso"))
+        r["dong_label"] = _building_dong(r.get("juso"))
         _decorate_building_card(r)
-        room_rows = _get_rooms(r.get("bunji1"), r.get("bunji2"))
+        building_key = (
+            str(r.get("bunji1") or "").strip(),
+            str(r.get("bunji2") or "").strip(),
+        )
+        room_rows = room_maps.get(building_key, [])
+        r["room_cnt"] = len(room_rows)
         floor_map = {}
         for room in room_rows:
             h = str(room.get("hosu") or "").strip()
+            if not h:
+                continue
             d = "".join(c for c in h if c.isdigit())
             f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
             floor_map.setdefault(f, []).append((h, room.get("room_state") or "vacant"))
         r["floor_map"] = [(f, ([rooms] if len(rooms) <= 5 else [rooms[i:i + ((len(rooms) + 1) // 2)] for i in range(0, len(rooms), (len(rooms) + 1) // 2)])) for f, rooms in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]
     return render_template(
         "buildings.html",
-        buildings=rows,
+        buildings=visible_rows,
+        building_total=len(slim),
+        selected_total=len(selected),
+        folder_groups=folder_groups,
+        selected_dong=selected_dong,
+        pager=pager,
         next_mode=next_mode,
         q=q,
     )
@@ -367,14 +455,35 @@ def vacancies():
         except Exception:
             bunji1, bunji2 = "", ""
     q = (request.args.get("q") or "").strip()
-    # checkbox+hidden: 마지막 값 사용 (체크 시 0,1 → 1 / 미체크 시 0)
     only_vals = request.args.getlist("only_empty")
     if only_vals:
-        only_empty = only_vals[-1].strip() == "1"
+        only_empty_arg = only_vals[-1].strip() == "1"
     else:
-        only_empty = True
+        only_empty_arg = None
+    show_occupied_arg = request.args.get("show_occupied") == "1"
 
-    show_occupied = request.args.get("show_occupied") == "1"
+    view = (request.args.get("view") or "").strip()
+    form_submitted = "view" in request.args
+    if view not in (
+        "buildings",
+        "rooms",
+        "occupied",
+        "vacant",
+        "vacancy_buildings",
+    ):
+        if show_occupied_arg:
+            view = "occupied"
+        elif only_empty_arg is False:
+            view = "rooms"
+        elif form_submitted or bunji1 or bunji2 or q or only_empty_arg is True:
+            view = "vacant"
+        else:
+            view = ""
+
+    only_empty = view == "vacant"
+    show_occupied = view == "occupied"
+    show_rooms = view in ("rooms", "occupied", "vacant")
+    show_summary = view in ("buildings", "vacancy_buildings")
 
     where = []
     if only_empty:
@@ -382,7 +491,7 @@ def vacancies():
             f"""NOT EXISTS (
                   SELECT 1 FROM bd03_det d
                   WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-                    AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
+                    AND d.hosu_norm=m.hosu_norm
                     AND {_CURRENT_TENANT_SQL}
                 )"""
         )
@@ -391,7 +500,7 @@ def vacancies():
             f"""EXISTS (
                   SELECT 1 FROM bd03_det d
                   WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-                    AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
+                    AND d.hosu_norm=m.hosu_norm
                     AND {_CURRENT_TENANT_SQL}
                 )"""
         )
@@ -414,23 +523,23 @@ def vacancies():
     else:
         where_clause = ""
 
-    # 전체 개수 조회
-    count_query = f"""
-        SELECT COUNT(*) as total
-        FROM bd03_m m
-        LEFT JOIN bd01 b ON b.bunji1=m.bunji1 AND b.bunji2=m.bunji2
-        {where_clause}
-    """
-    total_row = db.query_one(count_query, tuple(args))
-    total_count = int((total_row or {}).get("total") or 0)
-
-    # 페이징 처리
     from utils import parse_page, make_pager, PAGE_SIZE
-    page = parse_page()
-    per_page = PAGE_SIZE
-    pager = make_pager(total_count, page, per_page=per_page)
-
-    vacant_rows = db.query(
+    vacant_rows = []
+    total_count = 0
+    pager = make_pager(0)
+    if show_rooms:
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM bd03_m m
+            LEFT JOIN bd01 b ON b.bunji1=m.bunji1 AND b.bunji2=m.bunji2
+            {where_clause}
+        """
+        total_row = db.query_one(count_query, tuple(args))
+        total_count = int((total_row or {}).get("total") or 0)
+        page = parse_page()
+        per_page = PAGE_SIZE
+        pager = make_pager(total_count, page, per_page=per_page)
+        vacant_rows = db.query(
         f"""
         SELECT m.bunji1, m.bunji2, m.hosu, m.rent_gb, m.r_type, m.b_type, m.o_type,
                b.juso, b.owner_nm, b.owner_tel,
@@ -445,11 +554,11 @@ def vacancies():
         LEFT JOIN bd01 b ON b.bunji1=m.bunji1 AND b.bunji2=m.bunji2
         LEFT JOIN bd03_det last_d
           ON last_d.bunji1=m.bunji1 AND last_d.bunji2=m.bunji2
-         AND UPPER(TRIM(last_d.hosu))=UPPER(TRIM(m.hosu))
+         AND last_d.hosu_norm=m.hosu_norm
          AND last_d.ipju_seq = (
                SELECT d2.ipju_seq FROM bd03_det d2
                WHERE d2.bunji1=m.bunji1 AND d2.bunji2=m.bunji2
-                 AND UPPER(TRIM(d2.hosu))=UPPER(TRIM(m.hosu))
+                 AND d2.hosu_norm=m.hosu_norm
                ORDER BY CAST(d2.ipju_seq AS UNSIGNED) DESC
                LIMIT 1
              )
@@ -459,8 +568,8 @@ def vacancies():
           m.hosu
         LIMIT %s OFFSET %s
         """,
-        tuple(args + [per_page, pager["offset"]]),
-    )
+            tuple(args + [per_page, pager["offset"]]),
+        )
 
     today = date.today()
     for r in vacant_rows:
@@ -501,10 +610,15 @@ def vacancies():
             GROUP BY bunji1, bunji2
         ) m ON m.bunji1=b.bunji1 AND m.bunji2=b.bunji2
         LEFT JOIN (
-            SELECT bunji1, bunji2, COUNT(*) AS occupied_cnt
-            FROM bd03_det d
-            WHERE {_CURRENT_TENANT_SQL}
-            GROUP BY bunji1, bunji2
+            SELECT m.bunji1, m.bunji2, COUNT(*) AS occupied_cnt
+            FROM bd03_m m
+            WHERE EXISTS (
+                  SELECT 1 FROM bd03_det d
+                  WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+                    AND d.hosu_norm=m.hosu_norm
+                    AND {_CURRENT_TENANT_SQL}
+                )
+            GROUP BY m.bunji1, m.bunji2
         ) d ON d.bunji1=b.bunji1 AND d.bunji2=b.bunji2
         ORDER BY b.bunji1, b.bunji2
         """
@@ -516,8 +630,9 @@ def vacancies():
         vac = max(0, room_cnt - occ)
         b["occupied_cnt"] = occ
         b["vacant_cnt"] = vac
-        # 공실 있는 건물만: 공실 0 (만실·호수 미등록) 제외
-        if only_empty and vac == 0:
+        if not show_summary:
+            continue
+        if view == "vacancy_buildings" and vac == 0:
             continue
         if bunji1 and bunji2 and (b["bunji1"] != bunji1 or b["bunji2"] != bunji2):
             continue
@@ -525,17 +640,30 @@ def vacancies():
             display = fmt_bunji_pair(b["bunji1"], b["bunji2"])
             blob = f"{b.get('juso') or ''} {b.get('owner_nm') or ''} {display}"
             if q not in blob and q not in display:
-                # 공실 목록에 이미 잡힌 건물만 통과시킬 수도 있음 — 검색어 포함 여부
                 if q.lower() not in blob.lower():
                     continue
         building_summary.append(b)
+
+    summary_listed = len(building_summary)
+    if show_summary:
+        page = parse_page()
+        pager = make_pager(summary_listed, page, per_page=PAGE_SIZE)
+        building_summary = building_summary[
+            pager["offset"] : pager["offset"] + pager["per_page"]
+        ]
 
     # 전체 집계
     totals = db.query_one(
         f"""
         SELECT
           (SELECT COUNT(*) FROM bd03_m) AS room_total,
-          (SELECT COUNT(*) FROM bd03_det d WHERE {_CURRENT_TENANT_SQL}) AS occupied_total,
+          (SELECT COUNT(*) FROM bd03_m m
+            WHERE EXISTS (
+              SELECT 1 FROM bd03_det d
+              WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+                AND d.hosu_norm=m.hosu_norm
+                AND {_CURRENT_TENANT_SQL}
+            )) AS occupied_total,
           (SELECT COUNT(*) FROM bd01) AS building_total
         """
     )
@@ -547,11 +675,22 @@ def vacancies():
         "room_total": room_total,
         "occupied_total": occupied_total,
         "vacant_total": vacant_total,
-        "vacant_listed": len(vacant_rows),
+        "vacant_listed": total_count,
+        "summary_listed": summary_listed,
         "buildings_with_vacancy": sum(
             1 for b in building_rows if int(b.get("vacant_cnt") or 0) > 0
         ),
         "show_occupied": show_occupied,
+        "show_rooms": show_rooms,
+        "show_summary": show_summary,
+        "view": view,
+        "list_title": {
+            "buildings": "건물별 현황",
+            "vacancy_buildings": "공실 있는 건물",
+            "rooms": "전체 호수",
+            "occupied": "현재 입주 호수",
+            "vacant": "공실 호수",
+        }.get(view, "공실 현황"),
     }
 
     return render_template(
@@ -565,6 +704,7 @@ def vacancies():
             "bunji2": bunji2,
             "q": q,
             "only_empty": only_empty,
+            "view": view,
         },
     )
 
@@ -697,6 +837,82 @@ def _get_building_or_redirect(bunji1, bunji2):
     return b
 
 
+def _room_as_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _room_seq(value):
+    try:
+        return int(str(value or "0") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _room_key(row, default_key=None):
+    if default_key is None:
+        bunji1 = str(row.get("bunji1") or "").strip()
+        bunji2 = str(row.get("bunji2") or "").strip()
+    else:
+        bunji1, bunji2 = default_key
+    hosu = str(row.get("hosu") or "").strip().upper()
+    return bunji1, bunji2, hosu
+
+
+def _decorate_room_states(room_rows, detail_rows, default_key=None):
+    """호실·입주 이력을 현재 상태가 포함된 행으로 합친다."""
+    by_hosu = {}
+    for detail in detail_rows:
+        key = _room_key(detail, default_key)
+        by_hosu.setdefault(key, []).append(detail)
+
+    today = date.today()
+
+    def is_current(detail):
+        ipju = _room_as_date(detail.get("ipju_dt"))
+        out = _room_as_date(detail.get("out_dt"))
+        return bool(ipju and ipju <= today and (out is None or out.year < 1000 or out > today))
+
+    result = []
+    for room in room_rows:
+        key = _room_key(room, default_key)
+        history = by_hosu.get(key, [])
+        current = [d for d in history if is_current(d)]
+        current.sort(
+            key=lambda d: (_room_as_date(d.get("ipju_dt")) or date.min, _room_seq(d.get("ipju_seq"))),
+            reverse=True,
+        )
+        planned = [
+            d for d in history
+            if (_room_as_date(d.get("ipju_dt")) or date.min) > today
+        ]
+        planned.sort(
+            key=lambda d: (_room_as_date(d.get("ipju_dt")) or date.max, _room_seq(d.get("ipju_seq")))
+        )
+        chosen = current[0] if current else None
+        row = dict(room)
+        if chosen:
+            row.update(chosen)
+            plan_out = _room_as_date(chosen.get("plan_out_dt"))
+            row["room_state"] = "checkout-pending" if plan_out and plan_out >= today else "occupied"
+        elif planned:
+            # 입주예정자는 호실 색상에만 반영하고, 현재입주자 칸은 비워 둔다.
+            row["planned_ipju_nm"] = planned[0].get("ipju_nm") or ""
+            row["planned_ipju_dt"] = planned[0].get("ipju_dt")
+            row["planned_ipju_seq"] = planned[0].get("ipju_seq")
+            row["room_state"] = "movein-pending"
+        else:
+            row["room_state"] = "vacant"
+        result.append(row)
+    return result
+
+
 def _get_rooms(bunji1, bunji2):
     room_rows = db.query(
         """SELECT hosu, rent_gb, r_type, b_type, o_type, r_no, gas_no
@@ -714,60 +930,58 @@ def _get_rooms(bunji1, bunji2):
                 ORDER BY UPPER(TRIM(hosu)), ipju_dt, CAST(ipju_seq AS UNSIGNED)""",
         (bunji1, bunji2),
     ) or []
-    by_hosu = {}
-    for detail in detail_rows:
-        key = (detail.get("hosu") or "").strip().upper()
-        by_hosu.setdefault(key, []).append(detail)
+    return _decorate_room_states(
+        room_rows,
+        detail_rows,
+        default_key=(str(bunji1 or "").strip(), str(bunji2 or "").strip()),
+    )
 
-    today = date.today()
 
-    def as_date(value):
-        if isinstance(value, datetime):
-            return value.date()
-        if isinstance(value, date):
-            return value
-        try:
-            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
-        except (TypeError, ValueError):
-            return None
+def _get_rooms_bulk(building_keys):
+    """건물 목록에 필요한 호실 번호·현재 입주 여부만 일괄 조회한다."""
+    keys = []
+    seen = set()
+    for raw_key in building_keys or []:
+        if not raw_key or len(raw_key) < 2:
+            continue
+        key = (str(raw_key[0] or "").strip(), str(raw_key[1] or "").strip())
+        if key[0] and key[1] and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    if not keys:
+        return {}
 
-    def is_current(detail):
-        ipju = as_date(detail.get("ipju_dt"))
-        out = as_date(detail.get("out_dt"))
-        return bool(ipju and ipju <= today and (out is None or out.year < 1000 or out > today))
+    pair_placeholders = ", ".join(["(%s, %s)"] * len(keys))
+    query_args = [part for key in keys for part in key]
+    room_rows = db.query(
+        f"""SELECT bunji1, bunji2, hosu
+              FROM bd03_m
+             WHERE (bunji1, bunji2) IN ({pair_placeholders})
+             ORDER BY bunji1, bunji2, hosu""",
+        query_args,
+    ) or []
+    # 목록의 색상에는 현재 입주자 유무만 필요하므로 과거 이력 전체를
+    # 가져오지 않고, 오늘 기준으로 살아 있는 이력만 읽는다.
+    detail_rows = db.query(
+        f"""SELECT DISTINCT bunji1, bunji2, hosu_norm AS hosu
+                  FROM bd03_det
+                 WHERE (bunji1, bunji2) IN ({pair_placeholders})
+                   AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
+                   AND ipju_dt IS NOT NULL
+                   AND ipju_dt <= CURDATE()
+                   AND (out_dt IS NULL OR out_dt < '1000-01-01' OR out_dt > CURDATE())""",
+        query_args,
+    ) or []
+    occupied = {_room_key(detail) for detail in detail_rows}
 
-    result = []
+    grouped = {}
     for room in room_rows:
-        key = (room.get("hosu") or "").strip().upper()
-        history = by_hosu.get(key, [])
-        current = [d for d in history if is_current(d)]
-        current.sort(
-            key=lambda d: (as_date(d.get("ipju_dt")) or date.min, int(str(d.get("ipju_seq") or "0") or 0)),
-            reverse=True,
-        )
-        planned = [
-            d for d in history
-            if (as_date(d.get("ipju_dt")) or date.min) > today
-        ]
-        planned.sort(
-            key=lambda d: (as_date(d.get("ipju_dt")) or date.max, int(str(d.get("ipju_seq") or "0") or 0))
-        )
-        chosen = current[0] if current else None
+        key = _room_key(room)
+        building_key = (key[0], key[1])
         row = dict(room)
-        if chosen:
-            row.update(chosen)
-            plan_out = as_date(chosen.get("plan_out_dt"))
-            row["room_state"] = "checkout-pending" if plan_out and plan_out >= today else "occupied"
-        elif planned:
-            # 입주예정자는 호실 색상에만 반영하고, 현재입주자 칸은 비워 둔다.
-            row["planned_ipju_nm"] = planned[0].get("ipju_nm") or ""
-            row["planned_ipju_dt"] = planned[0].get("ipju_dt")
-            row["planned_ipju_seq"] = planned[0].get("ipju_seq")
-            row["room_state"] = "movein-pending"
-        else:
-            row["room_state"] = "vacant"
-        result.append(row)
-    return result
+        row["room_state"] = "occupied" if key in occupied else "vacant"
+        grouped.setdefault(building_key, []).append(row)
+    return grouped
 
 
 @app.route("/building/<bunji1>/<bunji2>")
@@ -804,7 +1018,10 @@ def building_rooms(bunji1, bunji2):
     rooms = _get_rooms(bunji1, bunji2)
     floor_map = {}
     for room in rooms:
-        h = str(room.get("hosu") or "").strip(); d = "".join(c for c in h if c.isdigit())
+        h = str(room.get("hosu") or "").strip()
+        if not h:
+            continue
+        d = "".join(c for c in h if c.isdigit())
         f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
         floor_map.setdefault(f, []).append((h, room.get("room_state") or "vacant"))
     floor_map = [(f, [rs] if len(rs) <= 5 else [rs[i:i + ((len(rs)+1)//2)] for i in range(0, len(rs), (len(rs)+1)//2)]) for f, rs in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]

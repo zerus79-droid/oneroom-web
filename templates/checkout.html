@@ -67,6 +67,15 @@
       {% endif %}
     </div>
   </form>
+  {% if not data %}
+  <div class="legacy-sukum-body">
+    {% if form.bunji1 and form.hosu %}
+    <p class="empty hint-box">조회 결과가 없습니다. 주소·호수를 확인하세요.</p>
+    {% else %}
+    <p class="empty hint-box">퇴실일·주소·호수를 넣고 「조회」하세요.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
 {% if data and data.select_required %}
@@ -193,10 +202,6 @@
     {% include "checkout_pays.html" %}
   </div>
 </div>
-{% elif form.bunji1 and form.hosu %}
-  <p class="empty">조회 결과가 없습니다. 주소·호수를 확인하세요.</p>
-{% else %}
-<p class="empty">퇴실일·주소·호수를 넣고 「조회」하세요.</p>
 {% endif %}
 
 <script>

@@ -55,7 +55,6 @@
         </div>
       </div>
     </div>
-    <p class="muted" style="margin:0;font-size:0.85rem">※ 주소 또는 이름 중 하나를 입력 후 조회</p>
     </div>
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
@@ -67,23 +66,21 @@
     퇴실 · 예정 목록
     {% if ran and pager.total %}
     <span class="muted">
-      전체 {{ pager.total }}건
-      · {{ pager.page }}/{{ pager.total_pages }}페이지
-      (페이지당 {{ pager.per_page }}건)
+      {{ pager.total }}건
+      · {{ pager.page }}/{{ pager.total_pages }}
     </span>
     {% endif %}
-  </div>
-  {% set pager_endpoint = 'checkout_list' %}
-  {% set pager_label = '목록 페이지' %}
-  {% set pager_query = {
-    'q': 1,
-    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
-    'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
-    'hosu': filters.hosu or none,
-    'name': filters.name or none,
-    'mode': filters.mode
-  } %}
-  <div class="checkout-list-tools">
+    {% set pager_endpoint = 'checkout_list' %}
+    {% set pager_label = '목록 페이지' %}
+    {% set pager_query = {
+      'q': 1,
+      'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+      'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+      'hosu': filters.hosu or none,
+      'name': filters.name or none,
+      'mode': filters.mode
+    } %}
+    <div class="checkout-list-tools">
     {% include '_pager.html' %}
     {% if ran and results %}
     <form method="post" id="restore-form" class="ls-actions" autocomplete="off">
@@ -104,6 +101,7 @@
               disabled>현입주자로 변환</button>
     </form>
     {% endif %}
+    </div>
   </div>
   <div class="panel-table-wrap table-scroll">
     {% if ran and results %}

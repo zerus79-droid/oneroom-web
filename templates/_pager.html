@@ -1,6 +1,6 @@
-{# 목록 공통 페이지 묶음. 호출 전:
-   pager, pager_endpoint 필수
-   pager_query(dict), pager_label 선택 #}
+{# 목록 공통 페이지 묶음.
+   .panel-section-lab 안에 include 하면 제목·건수와 한 줄.
+   호출 전: pager, pager_endpoint 필수 / pager_query, pager_label 선택 #}
 {% if pager and pager.total_pages > 1 %}
 {% set _pq = pager_query if pager_query is defined else {} %}
 {% set _lab = pager_label if pager_label is defined else '목록 페이지' %}

@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}입주자 이력 조회 · 원룸 관리{% endblock %}
 {% block content %}
-{% set has_filter = q or bunji1 or bunji2 or hosu or ipju_seq or tenant_status != 'all' %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">입주자 이력 조회</span>
@@ -55,18 +54,28 @@
       </div>
     </form>
 
-    <div class="panel-section-lab">검색 결과{% if total %} <span class="muted">{{ total }}건</span>{% elif results %} <span class="muted">{{ results|length }}건</span>{% endif %}</div>
-    {% set pager_endpoint = 'search' %}
-    {% set pager_label = '입주자 조회 페이지' %}
-    {% set pager_query = {
-      'q': q,
-      'bunji1': bunji1,
-      'bunji2': bunji2,
-      'hosu': hosu,
-      'ipju_seq': ipju_seq,
-      'tenant_status': tenant_status
-    } %}
-    {% include '_pager.html' %}
+    <div class="panel-section-lab">
+      검색 결과
+      {% if total %}
+      <span class="muted">
+        {{ total }}건
+        {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+      </span>
+      {% elif results %}
+      <span class="muted">{{ results|length }}건</span>
+      {% endif %}
+      {% set pager_endpoint = 'search' %}
+      {% set pager_label = '입주자 조회 페이지' %}
+      {% set pager_query = {
+        'q': q,
+        'bunji1': bunji1,
+        'bunji2': bunji2,
+        'hosu': hosu,
+        'ipju_seq': ipju_seq,
+        'tenant_status': tenant_status
+      } %}
+      {% include '_pager.html' %}
+    </div>
     <div class="panel-table-wrap table-scroll">
       {% if results %}
       <table class="legacy-grid">

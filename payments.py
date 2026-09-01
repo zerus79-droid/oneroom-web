@@ -83,7 +83,7 @@ def _first_date_for_name(nm):
           FROM sukum01 s
           INNER JOIN bd03_det d
             ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
-           AND TRIM(d.hosu)=TRIM(s.hosu) AND d.ipju_seq=s.ipju_seq
+           AND d.hosu_norm=s.hosu_norm AND d.ipju_seq=s.ipju_seq
           WHERE d.ipju_nm LIKE %s
             AND s.sukum_dt IS NOT NULL AND s.sukum_dt > '1000-01-01'
         ) t
@@ -287,7 +287,7 @@ def _list_room_tenants(bunji1, bunji2, hosu, tenant_status):
         FROM bd03_det d
         LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
         WHERE d.bunji1=%s AND d.bunji2=%s
-          AND UPPER(TRIM(d.hosu))=UPPER(TRIM(%s))
+          AND d.hosu_norm=%s
           AND {status_sql}
         ORDER BY CAST(d.ipju_seq AS UNSIGNED) DESC
         """,
@@ -355,8 +355,8 @@ def _name_match_payment_groups(tenants, date_from, date_to):
         stats_sql = f"""
             SELECT
               s.bunji1, s.bunji2,
-              UPPER(TRIM(s.hosu)) AS hosu,
-              LPAD(TRIM(s.ipju_seq), 2, '0') AS ipju_seq,
+              s.hosu_norm AS hosu,
+              s.ipju_seq AS ipju_seq,
               COUNT(*) AS hist_c,
               MIN(s.sukum_dt) AS mn,
               MAX(s.sukum_dt) AS mx,
@@ -367,12 +367,11 @@ def _name_match_payment_groups(tenants, date_from, date_to):
                 END
               ) AS pay_c
             FROM sukum01 s
-            WHERE (s.bunji1, s.bunji2, UPPER(TRIM(s.hosu)),
-                   LPAD(TRIM(s.ipju_seq), 2, '0'))
+            WHERE (s.bunji1, s.bunji2, s.hosu_norm, s.ipju_seq)
                   IN ({','.join(placeholders)})
             GROUP BY s.bunji1, s.bunji2,
-                     UPPER(TRIM(s.hosu)),
-                     LPAD(TRIM(s.ipju_seq), 2, '0')
+                     s.hosu_norm,
+                     s.ipju_seq
         """
         stats_rows = db.query(
             stats_sql,
@@ -419,7 +418,7 @@ def _payment_row_filters(
         where.append("s.bunji2=%s")
         args.append(bunji2)
     if hosu:
-        where.append("s.hosu=%s")
+        where.append("s.hosu_norm=%s")
         args.append(hosu)
     if ipju_seq_f:
         where.append("s.ipju_seq=%s")
@@ -460,7 +459,7 @@ def _count_payment_rows(
         FROM sukum01 s
         {join_kw} bd03_det d
           ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
-         AND d.hosu=s.hosu AND d.ipju_seq=s.ipju_seq
+         AND d.hosu_norm=s.hosu_norm AND d.ipju_seq=s.ipju_seq
         WHERE {' AND '.join(where)}
         """,
         tuple(args),
@@ -490,7 +489,7 @@ def _query_payment_rows(
         FROM sukum01 s
         {join_kw} bd03_det d
           ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
-         AND d.hosu=s.hosu AND d.ipju_seq=s.ipju_seq
+         AND d.hosu_norm=s.hosu_norm AND d.ipju_seq=s.ipju_seq
         LEFT JOIN gicho_code c1
           ON c1.g_cd='01' AND c1.g_sub_cd=s.sukum_char
         LEFT JOIN gicho_code c2

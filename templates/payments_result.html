@@ -22,23 +22,23 @@
       동명이인 · 「{{ filters.name }}」
       <span class="muted">{{ pager.total if pager else payment_groups|length }}곳 · 행 클릭 시 상세</span>
     {% endif %}
+    {% set pager_endpoint = 'payments' %}
+    {% set pager_label = '수금 목록 페이지' %}
+    {% set pager_query = {
+      'name': filters.name or none,
+      'name_mode': filters.name_mode or none,
+      'tenant_status': filters.tenant_status,
+      'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+      'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+      'hosu': filters.hosu or none,
+      'ipju_seq': filters.ipju_seq or none,
+      'date_from': filters.date_from or none,
+      'date_to': filters.date_to or none,
+      'all_hist': filters.all_hist or none,
+      'include_dache': filters.include_dache or none
+    } %}
+    {% include '_pager.html' %}
   </div>
-  {% set pager_endpoint = 'payments' %}
-  {% set pager_label = '수금 목록 페이지' %}
-  {% set pager_query = {
-    'name': filters.name or none,
-    'name_mode': filters.name_mode or none,
-    'tenant_status': filters.tenant_status,
-    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
-    'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
-    'hosu': filters.hosu or none,
-    'ipju_seq': filters.ipju_seq or none,
-    'date_from': filters.date_from or none,
-    'date_to': filters.date_to or none,
-    'all_hist': filters.all_hist or none,
-    'include_dache': filters.include_dache or none
-  } %}
-  {% include '_pager.html' %}
   {% if payment_groups %}
   <div class="panel-table-wrap table-scroll">
     <table class="legacy-grid name-summary-table">

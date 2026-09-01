@@ -4,50 +4,32 @@
 <div class="legacy-home">
   <div class="legacy-title-bar">주택관리 시스템</div>
 
-  {# ── 집사 PC 메인 대응: 현황 바 + KPI 박스 + 즐겨찾기 ── #}
+  {# ── 자주 쓰는 등록 바로가기 ── #}
   <div class="dash-panel">
-    <div class="dash-quick">
-      <a class="dash-chip primary" href="{{ url_for('payment_new') }}">수금 등록</a>
-      <a class="dash-chip" href="{{ url_for('jungsan') }}">정산서 작성</a>
-      <a class="dash-chip" href="{{ url_for('tenant_manage') }}">입주자 등록·수정</a>
-      <a class="dash-chip warn" href="{{ url_for('misu') }}">미수금 현황</a>
-      <a class="dash-chip" href="{{ url_for('checkout') }}">퇴실 정산</a>
-      <a class="dash-chip" href="{{ url_for('repair_new') }}">수리 등록</a>
-      <a class="dash-chip" href="{{ url_for('vacancies') }}">공실 현황</a>
-    </div>
-
-    <div class="dash-kpi-row">
-      <a class="dash-kpi kpi-building" href="{{ url_for('buildings') }}">
-        <span class="dash-kpi-circle st-navy">{{ stats.building_total }}</span>
-        <span class="dash-kpi-lab">건물</span>
+    <div class="dash-kpi-row dash-kpi-row-home">
+      <a class="dash-kpi kpi-payments" href="{{ url_for('payment_new') }}">
+        <span class="dash-kpi-circle st-info">1</span>
+        <span class="dash-kpi-lab">수금등록</span>
       </a>
-      <a class="dash-kpi kpi-rooms" href="{{ url_for('vacancies', only_empty=0) }}">
-        <span class="dash-kpi-circle st-info">{{ stats.room_total }}</span>
-        <span class="dash-kpi-lab">전체 호수</span>
+      <a class="dash-kpi kpi-checkout" href="{{ url_for('checkout') }}">
+        <span class="dash-kpi-circle st-wait">2</span>
+        <span class="dash-kpi-lab">퇴실정산</span>
       </a>
-      <a class="dash-kpi kpi-occupied" href="{{ url_for('search') }}">
-        <span class="dash-kpi-circle st-paid">{{ stats.occupied_total }}</span>
-        <span class="dash-kpi-lab">입주</span>
+      <a class="dash-kpi kpi-jungsan" href="{{ url_for('jungsan') }}">
+        <span class="dash-kpi-circle st-navy">3</span>
+        <span class="dash-kpi-lab">정산서작성</span>
       </a>
-      <a class="dash-kpi kpi-vacant" href="{{ url_for('vacancies') }}">
-        <span class="dash-kpi-circle st-empty">{{ stats.vacant_total }}</span>
-        <span class="dash-kpi-lab">공실</span>
+      <a class="dash-kpi kpi-repairs" href="{{ url_for('repair_new') }}">
+        <span class="dash-kpi-circle st-overdue">4</span>
+        <span class="dash-kpi-lab">수리등록</span>
       </a>
-      <a class="dash-kpi kpi-misu" href="{{ url_for('misu') }}">
-        <span class="dash-kpi-circle st-overdue">{{ stats.misu_total }}</span>
-        <span class="dash-kpi-lab">미수조회</span>
+      <a class="dash-kpi kpi-occupied" href="{{ url_for('tenant_manage') }}">
+        <span class="dash-kpi-circle st-paid">5</span>
+        <span class="dash-kpi-lab">입주자등록</span>
       </a>
-      <a class="dash-kpi kpi-checkout" href="{{ url_for('checkout_list') }}">
-        <span class="dash-kpi-circle st-wait">퇴</span>
-        <span class="dash-kpi-lab">퇴실예정</span>
-      </a>
-      <a class="dash-kpi kpi-payments" href="{{ url_for('payments', fresh=1) }}">
-        <span class="dash-kpi-circle st-info">수</span>
-        <span class="dash-kpi-lab">수금현황</span>
-      </a>
-      <a class="dash-kpi kpi-repairs" href="{{ url_for('repairs') }}">
-        <span class="dash-kpi-circle st-wait">수</span>
-        <span class="dash-kpi-lab">수리</span>
+      <a class="dash-kpi kpi-rooms" href="{{ url_for('jungke', reset=1) }}">
+        <span class="dash-kpi-circle st-empty">6</span>
+        <span class="dash-kpi-lab">중개비등록</span>
       </a>
     </div>
   </div>

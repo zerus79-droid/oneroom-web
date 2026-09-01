@@ -21,10 +21,14 @@ from utils import (
     building_label as _building_label,
     buildings_and_rooms as _buildings_and_rooms,
     calc_misu_amt as _calc_misu_amt,
+    fmt_bunji_pair as _fmt_bunji_pair,
     login_required,
+    make_pager as _make_pager,
     next_sukum_seq as _next_sukum_seq,
     pad_bunji as _pad_bunji,
+    parse_page as _parse_page,
     require_write_access,
+    table_columns as _table_columns,
 )
 
 try:
@@ -56,7 +60,7 @@ def _cleanup_tmp():
         pass
 
 
-def _save_state(bunji1, bunji2, deposits, auto_detected, filename=""):
+def _save_state(bunji1, bunji2, deposits, auto_detected, filename="", account_no=""):
     os.makedirs(_TMP_DIR, exist_ok=True)
     _cleanup_tmp()
     token = uuid.uuid4().hex
@@ -68,6 +72,7 @@ def _save_state(bunji1, bunji2, deposits, auto_detected, filename=""):
                 "deposits": deposits,
                 "auto_detected": auto_detected,
                 "filename": filename or "",
+                "account_no": account_no or "",
             },
             f,
             ensure_ascii=False,
@@ -359,17 +364,85 @@ def _narrow_by_room_hint(text, candidates, amount=None, allow_bare_number=True):
     return candidates
 
 
+_EXCLUDE_SCOPE_READY = False
+
+
+def _ensure_exclude_scope_cols():
+    """제외 항목에 주소·계좌 범위를 붙인다. 컬럼이 있으면 ALTER 하지 않는다."""
+    global _EXCLUDE_SCOPE_READY
+    if _EXCLUDE_SCOPE_READY:
+        return
+    cols = _table_columns("sukum_import_exclude")
+    if "bunji1" not in cols:
+        db.execute(
+            "ALTER TABLE sukum_import_exclude "
+            "ADD COLUMN bunji1 CHAR(4) NOT NULL DEFAULT ''"
+        )
+    if "bunji2" not in cols:
+        db.execute(
+            "ALTER TABLE sukum_import_exclude "
+            "ADD COLUMN bunji2 CHAR(4) NOT NULL DEFAULT ''"
+        )
+    if "acct_no" not in cols:
+        db.execute(
+            "ALTER TABLE sukum_import_exclude "
+            "ADD COLUMN acct_no VARCHAR(32) NOT NULL DEFAULT ''"
+        )
+    _EXCLUDE_SCOPE_READY = True
+
+
 def list_exclude_keywords():
-    return db.query("SELECT id, keyword FROM sukum_import_exclude ORDER BY keyword")
+    _ensure_exclude_scope_cols()
+    rows = db.query(
+        """
+        SELECT e.id, e.keyword, e.bunji1, e.bunji2, e.acct_no, b.juso
+        FROM sukum_import_exclude e
+        LEFT JOIN bd01 b ON b.bunji1=e.bunji1 AND b.bunji2=e.bunji2
+        ORDER BY e.keyword, e.bunji1, e.bunji2, e.id
+        """
+    ) or []
+    for r in rows:
+        r["bunji1"] = _pad_bunji(r.get("bunji1"))
+        r["bunji2"] = _pad_bunji(r.get("bunji2")) if r.get("bunji1") else ""
+        r["acct_no"] = _account_digits(r.get("acct_no") or "")
+    return rows
 
 
-def add_exclude_keyword(keyword):
+def add_exclude_keyword(keyword, bunji1="", bunji2="", acct_no=""):
+    _ensure_exclude_scope_cols()
     keyword = (keyword or "").strip()
-    if not keyword:
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2) if bunji1 else ""
+    acct_no = _account_digits(acct_no or "")
+    if not keyword and not bunji1 and not acct_no:
         return
     db.execute(
-        "INSERT INTO sukum_import_exclude (keyword, sys_dt, uid) VALUES (%s, NOW(), %s)",
-        (keyword, session.get("sabun") or ""),
+        "INSERT INTO sukum_import_exclude "
+        "(keyword, bunji1, bunji2, acct_no, sys_dt, uid) "
+        "VALUES (%s, %s, %s, %s, NOW(), %s)",
+        (keyword, bunji1 or "", bunji2 or "", acct_no, session.get("sabun") or ""),
+    )
+
+
+def update_exclude_keyword(keyword_id, keyword, bunji1="", bunji2="", acct_no=""):
+    _ensure_exclude_scope_cols()
+    try:
+        keyword_id = int(keyword_id or 0)
+    except (TypeError, ValueError):
+        return
+    if keyword_id <= 0:
+        return
+    keyword = (keyword or "").strip()
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2) if bunji1 else ""
+    acct_no = _account_digits(acct_no or "")
+    if not keyword and not bunji1 and not acct_no:
+        return
+    db.execute(
+        "UPDATE sukum_import_exclude "
+        "SET keyword=%s, bunji1=%s, bunji2=%s, acct_no=%s, sys_dt=NOW(), uid=%s "
+        "WHERE id=%s",
+        (keyword, bunji1 or "", bunji2 or "", acct_no, session.get("sabun") or "", keyword_id),
     )
 
 
@@ -377,8 +450,27 @@ def delete_exclude_keyword(keyword_id):
     db.execute("DELETE FROM sukum_import_exclude WHERE id=%s", (keyword_id,))
 
 
-def _matches_excluded(name, exclude_keywords):
-    return any(kw and kw in name for kw in exclude_keywords)
+def _matches_excluded(name, bunji1, bunji2, account_no, rules):
+    """적요 글자 + (있으면) 주소 + (있으면) 계좌. 비어 있는 조건은 전체."""
+    name = name or ""
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2)
+    acct = _account_digits(account_no or "")
+    for r in rules or []:
+        kw = (r.get("keyword") or "").strip()
+        rb1 = _pad_bunji(r.get("bunji1"))
+        rb2 = _pad_bunji(r.get("bunji2"))
+        racct = _account_digits(r.get("acct_no") or "")
+        if not kw and not rb1 and not racct:
+            continue
+        if kw and kw not in name:
+            continue
+        if rb1 and (rb1 != bunji1 or rb2 != bunji2):
+            continue
+        if racct and racct != acct:
+            continue
+        return True
+    return False
 
 
 def buildings_by_account(account_no):
@@ -583,7 +675,7 @@ def _finish_match_row(
     return row
 
 
-def _match_deposits(deposits, bunji1, bunji2):
+def _match_deposits(deposits, bunji1, bunji2, account_no=""):
     if not (bunji1 and bunji2):
         return []
     tenants = db.query(
@@ -612,12 +704,12 @@ def _match_deposits(deposits, bunji1, bunji2):
         )
         for r in existing
     }
-    exclude_keywords = [r["keyword"] for r in list_exclude_keywords()]
+    exclude_rules = list_exclude_keywords()
     all_room_options = _room_options(tenants)
 
     results = []
     for dep in deposits:
-        if _matches_excluded(dep["name"], exclude_keywords):
+        if _matches_excluded(dep["name"], bunji1, bunji2, account_no, exclude_rules):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
 
         # 수도·전기·가스 적요는 호수 힌트가 있어도 월세로 넣지 않음
@@ -892,7 +984,9 @@ def payments_import():
             amt = _parse_amount(request.form.get(k))
             if amt > 0:
                 split_map.setdefault(idx, {})[room] = amt
-        rows = _match_deposits(state["deposits"], bunji1, bunji2)
+        rows = _match_deposits(
+            state["deposits"], bunji1, bunji2, state.get("account_no") or "",
+        )
         _saved, applied = _apply_selected(
             rows, bunji1, bunji2, selected_idx, manual_overrides, split_map,
         )
@@ -947,6 +1041,7 @@ def payments_import():
             deposits,
             auto_detected,
             filename=os.path.basename(f.filename or ""),
+            account_no=account_no or "",
         )
         return redirect(url_for("payments_import", token=token))
 
@@ -967,7 +1062,13 @@ def payments_import():
         bunji1, bunji2 = state["bunji1"], state["bunji2"]
         auto_detected = bool(state.get("auto_detected"))
         uploaded_name = (state.get("filename") or "").strip()
-        rows = _match_deposits(state["deposits"], bunji1, bunji2) if (bunji1 and bunji2) else []
+        rows = (
+            _match_deposits(
+                state["deposits"], bunji1, bunji2, state.get("account_no") or "",
+            )
+            if (bunji1 and bunji2)
+            else []
+        )
 
     return render_template(
         "payments_import.html",
@@ -987,8 +1088,7 @@ def payments_import():
 @login_required
 @require_write_access
 def payments_import_exclude():
-    """제외 목록 관리 — 여기 등록한 이름/글자가 적요에 포함되면 입금파일
-    매칭 결과에 아예 표시되지 않는다.
+    """제외 목록 관리 — 글자(적요) + 선택 주소·계좌 범위.
     매칭 결과 화면(미매칭 행)에서 바로 제외할 때는 token을 같이 보내서
     등록 후 그 매칭 결과로 돌아가게 한다."""
     return_token = request.form.get("token") or ""
@@ -999,7 +1099,21 @@ def payments_import_exclude():
         return redirect(url_for("payments_import_exclude"))
 
     if request.method == "POST" and request.form.get("action") == "exclude_add":
-        add_exclude_keyword(request.form.get("keyword"))
+        add_exclude_keyword(
+            request.form.get("keyword"),
+            request.form.get("bunji1"),
+            request.form.get("bunji2"),
+            request.form.get("acct_no"),
+        )
+        return _back()
+    if request.method == "POST" and request.form.get("action") == "exclude_edit":
+        update_exclude_keyword(
+            request.form.get("keyword_id"),
+            request.form.get("keyword"),
+            request.form.get("bunji1"),
+            request.form.get("bunji2"),
+            request.form.get("acct_no"),
+        )
         return _back()
     if request.method == "POST" and request.form.get("action") == "exclude_del":
         try:
@@ -1008,7 +1122,33 @@ def payments_import_exclude():
             pass
         return _back()
 
+    buildings, _rooms = _buildings_and_rooms()
+    rows = list_exclude_keywords()
+    q = (request.args.get("q") or "").strip()
+    if q:
+        ql = q.lower()
+        def _blob(r):
+            parts = [r.get("keyword") or "", r.get("juso") or "", r.get("acct_no") or "전체"]
+            if r.get("bunji1"):
+                parts.append(_fmt_bunji_pair(r.get("bunji1"), r.get("bunji2")))
+            else:
+                parts.append("전체")
+            return " ".join(parts).lower()
+        rows = [r for r in rows if ql in _blob(r)]
+    pager = _make_pager(len(rows), _parse_page())
+    page_rows = rows[pager["offset"] : pager["offset"] + pager["per_page"]]
+    edit = None
+    try:
+        edit_id = int(request.args.get("edit_id") or 0)
+    except ValueError:
+        edit_id = 0
+    if edit_id:
+        edit = next((r for r in list_exclude_keywords() if int(r.get("id") or 0) == edit_id), None)
     return render_template(
         "payments_import_exclude.html",
-        exclude_keywords=list_exclude_keywords(),
+        exclude_keywords=page_rows,
+        buildings=buildings,
+        edit=edit,
+        pager=pager,
+        q=q,
     )

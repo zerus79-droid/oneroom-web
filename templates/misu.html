@@ -67,22 +67,23 @@
     미수 목록
     {% if ran and results %}
     <span class="muted">
-      {{ total_count }}건 · 기준 {{ filters.as_of }} · 미수 합계 {{ total_misu|money }}원 · 대체잔액 합계 {{ total_dache|money }}원
+      {{ total_count }}건 · 기준 {{ filters.as_of }}
+      {% if pager %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
     </span>
     {% endif %}
+    {% set pager_endpoint = 'misu' %}
+    {% set pager_label = '미수 목록 페이지' %}
+    {% set pager_query = {
+      'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
+      'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
+      'hosu': filters.hosu or none,
+      'name': filters.name or none,
+      'as_of': filters.as_of,
+      'only_misu': '1' if filters.only_misu else none,
+      'q': 1
+    } %}
+    {% include '_pager.html' %}
   </div>
-  {% set pager_endpoint = 'misu' %}
-  {% set pager_label = '미수 목록 페이지' %}
-  {% set pager_query = {
-    'bunji1': filters.bunji1|bunji if filters.bunji1 else none,
-    'bunji2': filters.bunji2|bunji if filters.bunji2 else none,
-    'hosu': filters.hosu or none,
-    'name': filters.name or none,
-    'as_of': filters.as_of,
-    'only_misu': '1' if filters.only_misu else none,
-    'q': 1
-  } %}
-  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
     {% if ran and results %}
     <table class="legacy-grid">

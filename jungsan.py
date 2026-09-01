@@ -26,6 +26,7 @@ from utils import (
     pad_bunji as _pad_bunji,
     paginate as _paginate,
     require_write_access,
+    table_columns as _table_columns,
     to_int_amt as _to_int_amt,
 )
 
@@ -118,7 +119,10 @@ def _ensure_g_cost_cols():
     global _G_COST_COLS_READY
     if _G_COST_COLS_READY:
         return
+    cols = _table_columns("bd01")
     for col in ("stair_cost", "inet_cost", "option_cost"):
+        if col in cols:
+            continue
         try:
             db.execute(
                 f"ALTER TABLE bd01 ADD COLUMN {col} decimal(18,0) NULL DEFAULT 0"
@@ -131,28 +135,39 @@ def _ensure_g_cost_cols():
         "sukum_rent_acct_gb",
         "sukum_manage_acct_gb",
     ):
+        if col in cols:
+            continue
         try:
             db.execute(f"ALTER TABLE bd01 ADD COLUMN {col} char(1) NULL DEFAULT NULL")
         except Exception:
             pass
-    # 신규 항목별 값이 비어 있는 기존 건물은 레거시 일반 수금통장을 상속한다.
-    for col in (
-        "sukum_bojung_acct_gb",
-        "sukum_rent_acct_gb",
-        "sukum_manage_acct_gb",
-    ):
-        try:
-            db.execute(
-                f"UPDATE bd01 SET {col}=sukum_acct_gb "
-                f"WHERE ({col} IS NULL OR TRIM({col})='') "
-                "AND sukum_acct_gb IS NOT NULL"
-            )
-        except Exception:
-            pass
-    db.execute(
-        """UPDATE bd01 SET sukum_acct_gb=CASE WHEN COALESCE(mgmt_gb,'R')='G' THEN 'O' ELSE 'M' END
-           WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
+    need = db.query_one(
+        """SELECT 1 AS ok FROM bd01
+           WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''
+              OR sukum_bojung_acct_gb IS NULL OR TRIM(sukum_bojung_acct_gb)=''
+              OR sukum_rent_acct_gb IS NULL OR TRIM(sukum_rent_acct_gb)=''
+              OR sukum_manage_acct_gb IS NULL OR TRIM(sukum_manage_acct_gb)=''
+           LIMIT 1"""
     )
+    if need:
+        # 신규 항목별 값이 비어 있는 기존 건물은 레거시 일반 수금통장을 상속한다.
+        for col in (
+            "sukum_bojung_acct_gb",
+            "sukum_rent_acct_gb",
+            "sukum_manage_acct_gb",
+        ):
+            try:
+                db.execute(
+                    f"UPDATE bd01 SET {col}=sukum_acct_gb "
+                    f"WHERE ({col} IS NULL OR TRIM({col})='') "
+                    "AND sukum_acct_gb IS NOT NULL"
+                )
+            except Exception:
+                pass
+        db.execute(
+            """UPDATE bd01 SET sukum_acct_gb=CASE WHEN COALESCE(mgmt_gb,'R')='G' THEN 'O' ELSE 'M' END
+               WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
+        )
     _G_COST_COLS_READY = True
 
 
@@ -1499,7 +1514,7 @@ def jungsan_list():
 
     bunji1 = _pad_bunji(request.args.get("bunji1"))
     bunji2 = _pad_bunji(request.args.get("bunji2"))
-    ran = True
+    ran = request.args.get("q") == "1"
 
     month_start = date(y, m, 1)
     month_end = date(y, m, monthrange(y, m)[1])

@@ -168,18 +168,21 @@
 
   <div class="panel-section-lab">
     오늘 등록한 수리 내역
-    <span class="muted">{{ pager.total if pager else (recent_repairs|length if recent_repairs else 0) }}건</span>
+    <span class="muted">
+      {{ pager.total if pager else (recent_repairs|length if recent_repairs else 0) }}건
+      {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+    </span>
+    {% set pager_endpoint = 'repair_new' %}
+    {% set pager_label = '오늘 등록 수리 페이지' %}
+    {% set pager_query = {
+      'bunji1': form.bunji1|bunji if form.bunji1 else none,
+      'bunji2': form.bunji2|bunji if form.bunji2 else none,
+      'hosu': form.hosu or none,
+      'suri_dt': form.suri_dt or none,
+      'suri_seq': form.suri_seq if form.mode == 'edit' else none
+    } %}
+    {% include '_pager.html' %}
   </div>
-  {% set pager_endpoint = 'repair_new' %}
-  {% set pager_label = '오늘 등록 수리 페이지' %}
-  {% set pager_query = {
-    'bunji1': form.bunji1|bunji if form.bunji1 else none,
-    'bunji2': form.bunji2|bunji if form.bunji2 else none,
-    'hosu': form.hosu or none,
-    'suri_dt': form.suri_dt or none,
-    'suri_seq': form.suri_seq if form.mode == 'edit' else none
-  } %}
-  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
   {% if recent_repairs is defined and recent_repairs %}
   <table class="legacy-grid">

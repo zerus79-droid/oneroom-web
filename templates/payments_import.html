@@ -4,12 +4,11 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">입금파일 자동반영</span>
-    <span class="caption-actions">
-      <a class="btn secondary" href="{{ url_for('payments_import_exclude') }}">제외항목</a>
-    </span>
   </div>
   <div class="legacy-sukum-body xp-form">
-    <form method="post" enctype="multipart/form-data" class="filter-bar" autocomplete="off">
+    <form method="post" action="{{ url_for('payments_import') }}" enctype="multipart/form-data"
+          class="filter-bar" autocomplete="off" data-skip-addr-check="1" data-full-nav="1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="parse">
       {% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}
       <div class="filter-bar-fields">
@@ -46,13 +45,15 @@
       </div>
       <div class="filter-bar-btns">
         <button type="submit" class="btn">업로드</button>
+        <a class="btn" href="{{ url_for('payments_import_exclude') }}">제외항목</a>
       </div>
     </form>
 
-    <p class="panel-inline-note">
-      주소를 선택하면 그 주소로 바로 매칭하고, 선택하지 않으면 적요(입금자명)를 전체 주소의
-      현재 입주자 이름과 비교해서 주소를 자동으로 찾습니다.
-    </p>
+    {% if rows is none %}
+    <div class="panel-table-wrap">
+      <p class="empty">주소를 고르면 그 주소로 맞춥니다. 안 고르면 적요(입금자명)로 현재 입주자를 찾아 주소를 맞춥니다.</p>
+    </div>
+    {% endif %}
 
     {% if rows is not none %}
     <form method="get" class="filter-bar" autocomplete="off">
@@ -90,6 +91,8 @@
       <input type="hidden" name="action" value="exclude_add">
       <input type="hidden" name="token" value="{{ token }}">
       <input type="hidden" name="keyword" id="exclude-quick-keyword">
+      <input type="hidden" name="bunji1" value="{{ bunji1 }}">
+      <input type="hidden" name="bunji2" value="{{ bunji2 }}">
     </form>
     <form method="post" id="apply-form">
       <input type="hidden" name="action" value="apply">
@@ -245,13 +248,23 @@
 (function () {
   var inp = document.getElementById('bank_file');
   var name = document.getElementById('bank_file_name');
-  if (inp && name) {
-    inp.addEventListener('change', function () {
-      name.textContent = (inp.files && inp.files[0] && inp.files[0].name)
-        ? inp.files[0].name
-        : (name.getAttribute('data-kept') || '선택된 파일 없음');
-    });
+  var form = inp && inp.form;
+  if (!inp || !form) return;
+  function syncName() {
+    if (!name) return;
+    name.textContent = (inp.files && inp.files[0] && inp.files[0].name)
+      ? inp.files[0].name
+      : (name.getAttribute('data-kept') || '선택된 파일 없음');
   }
+  form.addEventListener('submit', function (e) {
+    if (inp.files && inp.files[0]) return;
+    e.preventDefault();
+    inp.click();
+  });
+  inp.addEventListener('change', function () {
+    syncName();
+    if (inp.files && inp.files[0]) HTMLFormElement.prototype.submit.call(form);
+  });
 })();
 document.addEventListener('click', function (e) {
   var btn = e.target.closest && e.target.closest('.exclude-quick-btn');

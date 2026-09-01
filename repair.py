@@ -4,6 +4,7 @@
 모아둔 모듈입니다.
 """
 from datetime import date
+from threading import Lock
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -22,12 +23,16 @@ from utils import (
     make_pager as _make_pager,
     parse_money as _parse_money,
     require_write_access,
+    table_columns as _table_columns,
 )
 
 
 # A4 가로(높이 210mm) + 제목·기간행. 32줄이면 크롬이 한 장을 둘로 쪼개
 # 날짜가 이어지지 않은 것처럼 보임.
 _PRINT_ROWS_PER_PAGE = 20
+_REPAIR_PRINT_COL_READY = False
+_REPAIR_COMMON_HOSU_READY = False
+_REPAIR_SCHEMA_LOCK = Lock()
 
 
 def _repair_list_filters():
@@ -193,7 +198,9 @@ def _empty_repair_form():
     }
 
 
-def _ensure_js_print_col():
+def _ensure_js_print_col_once():
+    if "js_print_yn" in _table_columns("bd05_suri"):
+        return
     try:
         db.execute(
             "ALTER TABLE bd05_suri ADD COLUMN js_print_yn char(1) NOT NULL DEFAULT 'N'"
@@ -202,8 +209,18 @@ def _ensure_js_print_col():
         pass
 
 
-def _ensure_blank_hosu_common():
+def _ensure_blank_hosu_common_once():
     """호수 없는 옛 수리 내역은 공용."""
+    need = db.query_one(
+        """
+        SELECT 1 AS ok FROM bd05_suri
+        WHERE TRIM(hosu)='' OR hosu IN ('00','000')
+           OR UPPER(TRIM(hosu)) IN ('COM','NONE')
+        LIMIT 1
+        """
+    )
+    if not need:
+        return
     db.execute(
         """
         UPDATE bd05_suri
@@ -212,6 +229,32 @@ def _ensure_blank_hosu_common():
            OR UPPER(TRIM(hosu)) IN ('COM','NONE')
         """
     )
+
+
+def _ensure_js_print_col():
+    """Run the optional-column compatibility migration once per worker."""
+    global _REPAIR_PRINT_COL_READY
+    if _REPAIR_PRINT_COL_READY:
+        return
+    with _REPAIR_SCHEMA_LOCK:
+        if _REPAIR_PRINT_COL_READY:
+            return
+        _ensure_js_print_col_once()
+        _REPAIR_PRINT_COL_READY = True
+
+
+def _ensure_blank_hosu_common():
+    """Normalize legacy common-room markers once per worker."""
+    global _REPAIR_COMMON_HOSU_READY
+    if _REPAIR_COMMON_HOSU_READY:
+        return
+    with _REPAIR_SCHEMA_LOCK:
+        if _REPAIR_COMMON_HOSU_READY:
+            return
+        try:
+            _ensure_blank_hosu_common_once()
+        finally:
+            _REPAIR_COMMON_HOSU_READY = True
 
 
 def _repair_next_seq(suri_dt):

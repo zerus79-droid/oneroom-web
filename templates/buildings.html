@@ -4,11 +4,13 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">{% if next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %}</span>
+    {% if building_total is defined %}<span class="muted">{{ building_total }}건{% if selected_dong != '전체' %} · {{ selected_dong }} {{ selected_total }}건{% endif %}</span>{% endif %}
   </div>
   <div class="legacy-sukum-body">
     <form class="filter-bar" method="get" action="{{ url_for('buildings') }}">
       <div class="filter-bar-fields">
         {% if next_mode=='rooms' %}<input type="hidden" name="next" value="rooms">{% endif %}
+        {% if selected_dong is defined and selected_dong != '전체' %}<input type="hidden" name="dong" value="{{ selected_dong }}">{% endif %}
         <div class="ls-row">
           <label class="ls-lab">검색어</label>
           <div class="ls-val">
@@ -25,42 +27,71 @@
       </div>
     </form>
 
+    {% if folder_groups is defined %}
+    <nav class="building-folder-tabs" aria-label="행정동별 건물 폴더">
+      {% for folder in folder_groups %}
+      <a class="building-folder-tab{% if selected_dong == folder.label %} is-active{% endif %}"
+         href="{{ url_for('buildings', q=q, dong=folder.label, next=next_mode) }}"
+         {% if selected_dong == folder.label %}aria-current="page"{% endif %}>
+        <span>{{ folder.label }}</span><small>{{ folder.count }}</small>
+      </a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+
     {% if buildings %}
+    <div class="panel-section-lab">
+      {% if next_mode=='rooms' %}호수 내역{% else %}건물 목록{% endif %}
+      <span class="muted">
+        {{ selected_total if selected_dong != '전체' else building_total }}건
+        {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+      </span>
+      {% set pager_endpoint = 'buildings' %}
+      {% set pager_label = '건물 목록 페이지' %}
+      {% set pager_query = {'q': q or none, 'dong': selected_dong or none, 'next': next_mode or none} %}
+      {% include '_pager.html' %}
+    </div>
+    <div class="bldg-card-list">
     {% for b in buildings %}
     {% set href = url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) if next_mode=='rooms' else url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) %}
     <article class="bldg-card">
-      <header class="bldg-card-head">
-        <a class="bldg-card-title" href="{{ href }}">{{ b.juso or '이름 없음' }} [{{ b.bunji1|bunji_pair(b.bunji2) }}]</a>
-      </header>
       <div class="bldg-card-body">
         <div class="bldg-card-left">
+          <a class="bldg-card-title bldg-card-title-left" href="{{ href }}">{{ b.juso_display or b.juso or '이름 없음' }} [{{ b.bunji1|bunji_pair(b.bunji2) }}]</a>
           <div class="bldg-card-count {% if b.mgmt_gb == 'G' %}is-general{% else %}is-responsible{% endif %}">총 {{ b.room_cnt }}호수</div>
-          <div class="bldg-card-illust" aria-hidden="true">
-            {% if b.floor_map %}<div class="mini-building"><div class="mini-roof"></div><div class="mini-facade">{% for floor, rows in b.floor_map %}{% for rooms in rows %}<div class="mini-floor-row">{% for h, occ in rooms %}<span class="mini-room {% if occ %}occupied{% endif %}">{{ h }}</span>{% endfor %}</div>{% endfor %}{% endfor %}<div class="mini-door"></div></div></div>{% else %}
-            <svg viewBox="0 0 120 120" width="120" height="120">
-              <circle cx="60" cy="60" r="56" fill="#e8eef4"/>
-              <rect x="34" y="38" width="52" height="52" rx="3" fill="#8fb4d4"/>
-              <rect x="38" y="28" width="44" height="12" rx="2" fill="#7aa3c7"/>
-              <rect x="42" y="46" width="10" height="10" fill="#f4f8fb"/>
-              <rect x="55" y="46" width="10" height="10" fill="#f4f8fb"/>
-              <rect x="68" y="46" width="10" height="10" fill="#f4f8fb"/>
-              <rect x="42" y="60" width="10" height="10" fill="#f4f8fb"/>
-              <rect x="55" y="60" width="10" height="10" fill="#f4f8fb"/>
-              <rect x="68" y="60" width="10" height="10" fill="#f4f8fb"/>
-              <rect x="54" y="74" width="12" height="16" fill="#6b8eab"/>
-            </svg>
-            {% endif %}
+          <div class="bldg-card-illust-row">
+            <div class="bldg-card-illust" role="button" tabindex="0" aria-expanded="false" title="건물 정보 펼치기">
+              {% if b.floor_map %}<div class="mini-building"><div class="mini-roof"></div><div class="mini-facade">{% for floor, rows in b.floor_map %}{% for rooms in rows %}<div class="mini-floor-row">{% for h, occ in rooms %}<span class="mini-room {% if occ in ('occupied', 'checkout-pending') %}occupied{% else %}vacant{% endif %}">{{ h }}</span>{% endfor %}</div>{% endfor %}{% endfor %}<div class="mini-door"></div></div></div>{% else %}
+              <svg viewBox="0 0 120 120" width="120" height="120">
+                <circle cx="60" cy="60" r="56" fill="#e8eef4"/>
+                <rect x="34" y="38" width="52" height="52" rx="3" fill="#8fb4d4"/>
+                <rect x="38" y="28" width="44" height="12" rx="2" fill="#7aa3c7"/>
+                <rect x="42" y="46" width="10" height="10" fill="#f4f8fb"/>
+                <rect x="55" y="46" width="10" height="10" fill="#f4f8fb"/>
+                <rect x="68" y="46" width="10" height="10" fill="#f4f8fb"/>
+                <rect x="42" y="60" width="10" height="10" fill="#f4f8fb"/>
+                <rect x="55" y="60" width="10" height="10" fill="#f4f8fb"/>
+                <rect x="68" y="60" width="10" height="10" fill="#f4f8fb"/>
+                <rect x="54" y="74" width="12" height="16" fill="#6b8eab"/>
+              </svg>
+              {% endif %}
+            </div>
+            <span class="bldg-card-toggle" aria-hidden="true">
+              <svg class="bldg-card-toggle-mark" viewBox="0 0 12 16">
+                <path d="M2.2 1.4c0-.7.8-1.1 1.4-.7l8 6.3c.5.4.5 1.2 0 1.6l-8 6.3c-.6.5-1.4.1-1.4-.7V1.4z"/>
+              </svg>
+            </span>
           </div>
         </div>
         <div class="bldg-card-mid">
           {% if next_mode=='rooms' %}
             <div class="card-floor-map floor-map">
             <div class="floor-map-title">층별 호실 현황</div>
-            {% for floor, rows in b.floor_map %}{% for rooms in rows %}<div class="floor-row"><a class="floor-label" href="{{ url_for('room_new', bunji1=b.bunji1, bunji2=b.bunji2) }}">{% if floor is number %}{{ floor }}층{% else %}{{ floor }}{% endif %}</a><div class="floor-rooms">{% for h, occ in rooms %}<span class="room-cell {% if occ %}occupied{% else %}vacant{% endif %}">{{ h }}</span>{% endfor %}</div></div>{% endfor %}{% endfor %}
+            {% for floor, rows in b.floor_map %}{% for rooms in rows %}<div class="floor-row"><a class="floor-label" href="{{ url_for('room_new', bunji1=b.bunji1, bunji2=b.bunji2) }}">{% if floor is number %}{{ floor }}층{% else %}{{ floor }}{% endif %}</a><div class="floor-rooms">{% for h, occ in rooms %}<span class="room-cell {% if occ in ('occupied', 'checkout-pending') %}occupied{% else %}vacant{% endif %}">{{ h }}</span>{% endfor %}</div></div>{% endfor %}{% endfor %}
           </div>
           {% else %}
           <table class="bldg-card-table">
-            <tr><th>주소</th><td>{{ b.juso or '' }} {{ b.bunji1|bunji_pair(b.bunji2) }}</td></tr>
+            <tr><th>주소</th><td>{{ b.juso_display or b.juso or '' }} {{ b.bunji1|bunji_pair(b.bunji2) }}</td></tr>
             <tr><th>건물주</th><td>{{ b.owner_nm or '없음' }}{% if b.owner_tel %} · {{ b.owner_tel|mask_phone }}{% else %} · 미등록{% endif %}</td></tr>
             <tr><th>관리형태</th><td>{{ b.mgmt_label or '없음' }}</td></tr>
             <tr><th>입금통장</th><td>{{ b.sukum_acct_label or '없음' }}</td></tr>
@@ -73,16 +104,67 @@
           <nav class="bldg-card-actions">
             <a href="{{ url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) }}">건물정보</a>
             <a href="{{ url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) }}">세입자정보</a>
-            <a href="{{ url_for('vacancies', bunji1=b.bunji1, bunji2=b.bunji2, only_empty=0) }}">건물주요현황</a>
+            <a href="{{ url_for('vacancies', bunji1=b.bunji1, bunji2=b.bunji2, view='rooms') }}">건물주요현황</a>
             <a href="{{ url_for('misu', bunji1=b.bunji1, bunji2=b.bunji2, nav_from='base') }}">수금 현황</a>
           </nav>
         </div>
       </div>
     </article>
     {% endfor %}
+    </div>
     {% else %}
     <p class="empty">{% if q %}검색 결과가 없습니다.{% else %}등록된 건물이 없습니다.{% endif %}</p>
     {% endif %}
+
   </div>
 </div>
+<script>
+(function () {
+  var list = document.querySelector('.bldg-card-list');
+  if (!list) return;
+  function restorePlace(card) {
+    var marker = card._bldgNext;
+    if (marker && marker.parentNode === list) list.insertBefore(card, marker);
+    else if (card._bldgMoved) list.appendChild(card);
+    card._bldgNext = null;
+    card._bldgMoved = false;
+  }
+  function setOpen(card, open) {
+    card.classList.toggle('is-open', open);
+    var label = open ? '접기' : '펼치기';
+    card.querySelectorAll('.bldg-card-illust').forEach(function (el) {
+      el.setAttribute('aria-expanded', open ? 'true' : 'false');
+      el.setAttribute('title', label);
+    });
+    if (open) {
+      if (!card._bldgMoved) {
+        card._bldgNext = card.nextElementSibling;
+        card._bldgMoved = true;
+      }
+      list.insertBefore(card, list.firstChild);
+      card.scrollIntoView({ block: 'nearest' });
+    } else {
+      restorePlace(card);
+    }
+  }
+  list.addEventListener('click', function (e) {
+    var handle = e.target.closest('.bldg-card-illust');
+    if (!handle || !list.contains(handle)) return;
+    var card = handle.closest('.bldg-card');
+    if (!card) return;
+    var open = !card.classList.contains('is-open');
+    list.querySelectorAll('.bldg-card.is-open').forEach(function (other) {
+      if (other !== card) setOpen(other, false);
+    });
+    setOpen(card, open);
+  });
+  list.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var handle = e.target.closest('.bldg-card-illust');
+    if (!handle) return;
+    e.preventDefault();
+    handle.click();
+  });
+})();
+</script>
 {% endblock %}

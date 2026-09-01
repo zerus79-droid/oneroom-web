@@ -13,11 +13,18 @@
     </span>
   </div>
   <div class="legacy-sukum-body">
-  {% if floor_map %}<section class="floor-map room-list-map"><div class="floor-map-title">층별 호실 현황 <span class="floor-map-legend"><i class="room-dot occupied"></i> 입주 <i class="room-dot vacant"></i> 공실</span></div>{% for floor, rows in floor_map %}{% for row in rows %}<div class="floor-row"><div class="floor-rooms">{% for h, occ in row %}<span class="room-cell {% if occ %}occupied{% else %}vacant{% endif %}"><i class="room-dot"></i><span>{{ h }}</span></span>{% endfor %}</div></div>{% endfor %}{% endfor %}</section>{% endif %}
-  {% set pager_endpoint = 'building_rooms' %}
-  {% set pager_label = '호수 내역 페이지' %}
-  {% set pager_query = {'bunji1': building.bunji1, 'bunji2': building.bunji2} %}
-  {% include '_pager.html' %}
+  {% if floor_map %}<section class="floor-map room-list-map"><div class="floor-map-title">층별 호실 현황 <span class="floor-map-legend"><i class="room-dot occupied"></i> 입주 <i class="room-dot vacant"></i> 공실</span></div>{% for floor, rows in floor_map %}{% for row in rows %}<div class="floor-row"><div class="floor-rooms">{% for h, occ in row %}<span class="room-cell {% if occ in ('occupied', 'checkout-pending') %}occupied{% else %}vacant{% endif %}"><i class="room-dot {% if occ in ('occupied', 'checkout-pending') %}occupied{% else %}vacant{% endif %}"></i><span>{{ h }}</span></span>{% endfor %}</div></div>{% endfor %}{% endfor %}</section>{% endif %}
+  <div class="panel-section-lab">
+    호수 목록
+    <span class="muted">
+      {% if pager %}{{ pager.total }}건{% elif rooms %}{{ rooms|length }}건{% endif %}
+      {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+    </span>
+    {% set pager_endpoint = 'building_rooms' %}
+    {% set pager_label = '호수 내역 페이지' %}
+    {% set pager_query = {'bunji1': building.bunji1, 'bunji2': building.bunji2} %}
+    {% include '_pager.html' %}
+  </div>
   {% if rooms %}
   <table class="legacy-grid">
     <thead>

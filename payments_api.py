@@ -115,7 +115,7 @@ def api_building():
             room = db.query_one(
                 """
                 SELECT hosu FROM bd03_m
-                WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
+                WHERE bunji1=%s AND bunji2=%s AND hosu_norm=%s
                 """,
                 (bunji1, bunji2, resolved),
             )
@@ -279,7 +279,7 @@ def api_payments_delete():
                          WHERE sukum_dt >= %s AND sukum_dt < %s + INTERVAL 1 DAY
                            AND sukum_seq=%s
                            AND bunji1=%s AND bunji2=%s
-                           AND UPPER(TRIM(hosu))=%s
+                           AND hosu_norm=%s
                            AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
                         """,
                         (

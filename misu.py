@@ -36,31 +36,37 @@ def _months_sql(dt_col="d.ipju_dt"):
     )
 
 
-def _paid_join_sql(as_of_s, dache_from=None):
-    """수금 합계 조인. 인덱스가 타게 hosu/순번은 그대로 붙인다."""
+def _paid_join_sql(as_of_s, dache_from=None, bunji1=None, bunji2=None):
+    """수금 합계 조인. 건물 키가 있으면 그 건물만 집계해서 전체 수금 스캔을 피한다."""
+    extra = []
     if dache_from:
         dache_sum = (
             "SUM(CASE WHEN sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY) "
             "THEN COALESCE(su_dache_amt,0) ELSE 0 END)"
         )
-        extra = [dache_from, as_of_s]
+        extra.extend([dache_from, as_of_s])
     else:
         dache_sum = "SUM(COALESCE(su_dache_amt,0))"
-        extra = []
+    extra.append(as_of_s)
+    building_sql = ""
+    if bunji1 and bunji2:
+        building_sql = "AND bunji1=%s AND bunji2=%s"
+        extra.extend([bunji1, bunji2])
     sql = f"""
         LEFT JOIN (
-            SELECT bunji1, bunji2, hosu, ipju_seq,
+            SELECT bunji1, bunji2, hosu_norm, ipju_seq,
                    SUM(COALESCE(su_sil_amt,0)) AS paid,
                    {dache_sum} AS paid_dache
             FROM sukum01
             WHERE sukum_char='01'
               AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
               AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-            GROUP BY bunji1, bunji2, hosu, ipju_seq
+              {building_sql}
+            GROUP BY bunji1, bunji2, hosu_norm, ipju_seq
         ) p ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2
-           AND p.hosu=d.hosu AND p.ipju_seq=d.ipju_seq
+           AND p.hosu_norm=d.hosu_norm AND p.ipju_seq=d.ipju_seq
     """
-    return sql, extra + [as_of_s]
+    return sql, extra
 
 
 def _misu_amt_sql():
@@ -74,7 +80,7 @@ def _misu_amt_sql():
 
 
 def _building_inner_sql(bunji1, bunji2, as_of_s, dache_from=None):
-    paid_sql, paid_args = _paid_join_sql(as_of_s, dache_from)
+    paid_sql, paid_args = _paid_join_sql(as_of_s, dache_from, bunji1, bunji2)
     months = _months_sql("d.ipju_dt")
     misu = _misu_amt_sql()
     sql = f"""
@@ -91,7 +97,7 @@ def _building_inner_sql(bunji1, bunji2, as_of_s, dache_from=None):
                COALESCE(p.paid_dache, 0) AS paid_dache
         FROM bd03_m m
         LEFT JOIN bd03_det d
-          ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND d.hosu=m.hosu
+          ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND d.hosu_norm=m.hosu_norm
          AND {_CURRENT_TENANT_SQL}
          AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))
         {paid_sql}
@@ -103,7 +109,7 @@ def _building_inner_sql(bunji1, bunji2, as_of_s, dache_from=None):
 
 
 def _tenant_inner_sql(bunji1, bunji2, hosu, name, as_of_s, dache_from=None):
-    paid_sql, paid_args = _paid_join_sql(as_of_s, dache_from)
+    paid_sql, paid_args = _paid_join_sql(as_of_s, dache_from, bunji1, bunji2)
     months = _months_sql("d.ipju_dt")
     misu = _misu_amt_sql()
     where = [_CURRENT_TENANT_SQL]
@@ -115,7 +121,7 @@ def _tenant_inner_sql(bunji1, bunji2, hosu, name, as_of_s, dache_from=None):
         where.append("d.bunji2=%s")
         args.append(bunji2)
     if hosu:
-        where.append("d.hosu=%s")
+        where.append("d.hosu_norm=%s")
         args.append(hosu)
     if name:
         where.append("d.ipju_nm LIKE %s")

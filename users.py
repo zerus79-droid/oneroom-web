@@ -10,7 +10,7 @@ from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
-from utils import login_required, require_admin
+from utils import building_dong, clean_building_juso, login_required, require_admin, sort_dong_labels
 
 _SABUN_RE = re.compile(r"^[0-9A-Za-z가-힣]+$")
 
@@ -252,6 +252,17 @@ def _render_users_page(form):
     buildings = db.query(
         "SELECT bunji1, bunji2, juso FROM bd01 ORDER BY bunji1, bunji2",
         apply_building_access=False,
+    ) or []
+    grouped = {}
+    for b in buildings:
+        b["juso_display"] = clean_building_juso(b.get("juso"))
+        dong = building_dong(b.get("juso"))
+        b["dong_label"] = dong
+        grouped.setdefault(dong, []).append(b)
+    folder_groups = [{"label": "전체", "count": len(buildings)}]
+    folder_groups.extend(
+        {"label": label, "count": len(grouped[label]), "buildings": grouped[label]}
+        for label in sort_dong_labels(grouped)
     )
     return render_template(
         "users.html",
@@ -259,6 +270,7 @@ def _render_users_page(form):
         users=_user_rows(),
         grade_options=GRADE_OPTIONS,
         buildings=buildings,
+        folder_groups=folder_groups,
     )
 
 

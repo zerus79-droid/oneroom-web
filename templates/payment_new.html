@@ -5,15 +5,13 @@
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
     <span class="caption-title">수금 등록</span>
-    <span class="caption-actions">
-      <a class="btn secondary" href="{{ url_for('payments_import') }}">입금파일 등록</a>
-    </span>
   </div>
   <div class="legacy-sukum-body xp-form">
   <form method="post" id="payment-form" autocomplete="off" data-skip-addr-check="1">
     <input type="hidden" name="manage_desc" value="">
 
-    {# 레거시 XP 창과 동일한 3열 배치: 수금일자/순번/입주일 → 번지/성명/보증금 → 호수/연락/예치금 → (빈칸)/(빈칸)/월관 #}
+    {# 레거시 XP 창과 동일한 3열 배치: 수금일자/순번/입주일 → 번지/성명/보증금 → 호수/연락/예치금 → (빈칸)/(빈칸)/월관
+       입금파일 등록은 입주일·보증금 오른쪽 2칸 버튼 #}
     <div class="xp-grid xp-grid-3 xp-key-end">
       <div class="xp-field">
         <label class="ls-lab star">수금일자</label>
@@ -41,6 +39,11 @@
       <div class="xp-field">
         <label class="ls-lab">입주일</label>
         <input type="text" id="ipju_dt_view" class="ls-ro ls-box" readonly tabindex="-1" value="" placeholder="—">
+      </div>
+      <div class="pay-import-btn">
+        <div class="filter-bar-btns">
+          <a class="btn" href="{{ url_for('payments_import') }}">입금파일 등록</a>
+        </div>
       </div>
 
       <div class="xp-field">
@@ -172,17 +175,20 @@
 
   <div class="panel-section-lab">
     오늘 등록한 수금 내역
-    <span class="muted">{{ pager.total if pager else (recent_payments|length if recent_payments else 0) }}건</span>
+    <span class="muted">
+      {{ pager.total if pager else (recent_payments|length if recent_payments else 0) }}건
+      {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+    </span>
+    {% set pager_endpoint = 'payment_new' %}
+    {% set pager_label = '오늘 등록 수금 페이지' %}
+    {% set pager_query = {
+      'bunji1': form.bunji1|bunji if form.bunji1 else none,
+      'bunji2': form.bunji2|bunji if form.bunji2 else none,
+      'hosu': form.hosu or none,
+      'ipju_seq': form.ipju_seq or none
+    } %}
+    {% include '_pager.html' %}
   </div>
-  {% set pager_endpoint = 'payment_new' %}
-  {% set pager_label = '오늘 등록 수금 페이지' %}
-  {% set pager_query = {
-    'bunji1': form.bunji1|bunji if form.bunji1 else none,
-    'bunji2': form.bunji2|bunji if form.bunji2 else none,
-    'hosu': form.hosu or none,
-    'ipju_seq': form.ipju_seq or none
-  } %}
-  {% include '_pager.html' %}
   <div class="panel-table-wrap table-scroll">
   {% if recent_payments is defined and recent_payments %}
   <table class="legacy-grid">

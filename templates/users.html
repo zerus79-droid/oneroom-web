@@ -53,10 +53,28 @@
       <div class="ls-val building-assignment-value" style="align-items:flex-start;flex-direction:column;width:100%">
         {% if buildings %}
         <input type="search" id="building-search" class="ls-box" placeholder="건물 주소 또는 번지 검색" autocomplete="off" style="display:block;width:100%;box-sizing:border-box;margin-bottom:8px">
-        <div class="tenant-status-row" style="display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px 12px;min-height:28px">
-          {% for b in buildings %}
+        {% if folder_groups is defined %}
+        <nav class="building-folder-tabs user-building-folders" aria-label="행정동별 건물 폴더">
+          {% for folder in folder_groups %}
+          <button type="button" class="building-folder-tab" data-dong="{{ folder.label }}" aria-expanded="false">
+            <span>{{ folder.label }}</span><small>{{ folder.count }}</small>
+          </button>
+          {% endfor %}
+        </nav>
+        {% endif %}
+        <div class="user-building-groups" id="user-building-groups">
+          {% for folder in folder_groups if folder.label != '전체' %}
+          {% for b in folder.buildings %}
           {% set key = (b.bunji1|string) ~ '|' ~ (b.bunji2|string) %}
-          <label class="tenant-status-opt building-option" data-building-text="{{ ((b.juso or '') ~ ' ' ~ b.bunji1 ~ '-' ~ b.bunji2)|lower }}"><input type="checkbox" name="buildings" value="{{ key }}" {% if key in form.buildings %}checked{% endif %}><span>{{ b.juso or (b.bunji1 ~ '-' ~ b.bunji2) }}</span></label>
+          {% set bunji = b.bunji1|bunji_pair(b.bunji2) %}
+          <label class="user-building-chip building-option"
+                 data-dong="{{ folder.label }}"
+                 data-building-text="{{ ((b.dong_label or folder.label) ~ ' ' ~ (b.juso_display or b.juso or '') ~ ' ' ~ bunji)|lower }}">
+            <input type="checkbox" name="buildings" value="{{ key }}"
+                   {% if key in form.buildings %}checked{% endif %}>
+            <span>{{ bunji }}</span>
+          </label>
+          {% endfor %}
           {% endfor %}
         </div>
         {% else %}<span class="muted">등록된 건물이 없습니다.</span>{% endif %}
@@ -155,14 +173,37 @@
     });
   }
   var buildingSearch = document.getElementById('building-search');
-  if (buildingSearch) {
-    buildingSearch.addEventListener('input', function () {
-      var q = String(buildingSearch.value || '').toLowerCase().trim();
-      document.querySelectorAll('.building-option').forEach(function (el) {
-        el.style.display = !q || (el.getAttribute('data-building-text') || '').indexOf(q) >= 0 ? '' : 'none';
-      });
+  var folderTabs = document.querySelectorAll('.user-building-folders .building-folder-tab');
+  var groupsWrap = document.getElementById('user-building-groups');
+  var selectedDong = '';
+  function applyBuildingFilter() {
+    var q = buildingSearch ? String(buildingSearch.value || '').toLowerCase().trim() : '';
+    var open = !!selectedDong || !!q;
+    if (groupsWrap) groupsWrap.classList.toggle('is-open', open);
+    document.querySelectorAll('#user-building-groups .building-option').forEach(function (el) {
+      var groupDong = el.getAttribute('data-dong') || '';
+      var groupOk = !selectedDong || selectedDong === '전체' || groupDong === selectedDong;
+      var textOk = !q || (el.getAttribute('data-building-text') || '').indexOf(q) >= 0;
+      el.style.display = open && groupOk && textOk ? '' : 'none';
     });
   }
+  folderTabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var dong = tab.getAttribute('data-dong') || '';
+      if (selectedDong === dong) selectedDong = '';
+      else selectedDong = dong;
+      folderTabs.forEach(function (other) {
+        var on = other === tab && !!selectedDong;
+        other.classList.toggle('is-active', on);
+        other.setAttribute('aria-expanded', on ? 'true' : 'false');
+      });
+      applyBuildingFilter();
+    });
+  });
+  if (buildingSearch) {
+    buildingSearch.addEventListener('input', applyBuildingFilter);
+  }
+  applyBuildingFilter();
 })();
 </script>
 {% endblock %}
