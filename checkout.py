@@ -303,9 +303,10 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         FROM sukum01
         WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+          AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
         ORDER BY sukum_dt, sukum_seq
         """,
-        (b1, b2, hosu, seq),
+        (b1, b2, hosu, seq, out_d),
     )
     pay_list = []
     sukum_tot = 0
@@ -986,6 +987,16 @@ def checkout():
         f["out_dt"] = today
     data = None
     if f["bunji1"] and f["bunji2"] and f["hosu"]:
+        if not f["ipju_seq"]:
+            current = db.query_one(
+                f"""SELECT ipju_seq FROM bd03_det
+                    WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
+                      AND {_CURRENT_TENANT_SQL.replace('d.', '')}
+                    ORDER BY CAST(ipju_seq AS UNSIGNED) DESC LIMIT 1""",
+                (f["bunji1"], f["bunji2"], f["hosu"]),
+            )
+            if current:
+                f["ipju_seq"] = str(current.get("ipju_seq") or "")
         if f["ipju_seq"]:
             has_extra_args = any(
                 name in request.args

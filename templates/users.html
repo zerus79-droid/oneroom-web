@@ -52,7 +52,7 @@
       <label class="ls-lab">담당 건물</label>
       <div class="ls-val building-assignment-value" style="align-items:flex-start;flex-direction:column;width:100%">
         {% if buildings %}
-        <input type="search" id="building-search" class="ls-box" placeholder="건물 주소 또는 번지 검색" autocomplete="off" style="display:block;width:100%;box-sizing:border-box;margin-bottom:8px">
+        <input type="search" id="building-search" class="ls-box" placeholder="건물 주소 또는 번지 검색" autocomplete="off" style="display:block;width:100%;box-sizing:border-box;margin-bottom:0">
         {% if folder_groups is defined %}
         <nav class="building-folder-tabs user-building-folders" aria-label="행정동별 건물 폴더">
           {% for folder in folder_groups %}

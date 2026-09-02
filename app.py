@@ -1,6 +1,8 @@
 import logging
 import os
 import time
+from datetime import date, datetime
+from calendar import monthrange
 from collections import defaultdict
 from flask import (
     flash,
@@ -24,7 +26,11 @@ from utils import (
     mask_jumin,
     mask_phone,
     money,
+    months_elapsed,
+    to_int_amt,
 )
+
+_CURRENT_TENANT_SQL = "(d.out_dt IS NULL OR d.out_dt < '1000-01-01')"
 
 _LOGIN_MAX_FAILURES = 5
 _LOGIN_LOCK_SECONDS = 600
@@ -131,8 +137,37 @@ def index():
 @app.route("/home")
 @login_required
 def home():
-    """홈: 메뉴 + 자주 쓰는 등록 바로가기."""
-    return render_template("home.html")
+    """홈: 메뉴 + 실제 DB 기반 요약 통계."""
+    stats = {"building_total": 0, "room_total": 0, "occupied_total": 0,
+             "vacant_total": 0, "occ_pct": 0, "vac_pct": 0, "misu_total": 0}
+    try:
+        totals = db.query_one(f"""SELECT
+            (SELECT COUNT(*) FROM bd03_m) AS room_total,
+            (SELECT COUNT(*) FROM bd03_det d WHERE {_CURRENT_TENANT_SQL}) AS occupied_total,
+            (SELECT COUNT(*) FROM bd01) AS building_total""") or {}
+        room = int(totals.get("room_total") or 0)
+        occupied = int(totals.get("occupied_total") or 0)
+        stats.update(building_total=int(totals.get("building_total") or 0), room_total=room,
+                     occupied_total=occupied, vacant_total=max(0, room - occupied))
+        if room:
+            stats["occ_pct"] = round(occupied * 100 / room)
+            stats["vac_pct"] = 100 - stats["occ_pct"]
+        as_of = date.today().replace(day=monthrange(date.today().year, date.today().month)[1])
+        rows = db.query(f"""SELECT d.ipju_dt, d.rent_amt, d.manage_amt, COALESCE(p.paid,0) paid
+          FROM bd03_det d LEFT JOIN (SELECT bunji1,bunji2,hosu,ipju_seq,SUM(COALESCE(su_sil_amt,0)) paid
+          FROM sukum01 WHERE sukum_char='01' AND (del_yn IS NULL OR del_yn IN ('N',''))
+          AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY) GROUP BY bunji1,bunji2,hosu,ipju_seq) p
+          ON p.bunji1=d.bunji1 AND p.bunji2=d.bunji2 AND UPPER(TRIM(p.hosu))=UPPER(TRIM(d.hosu)) AND p.ipju_seq=d.ipju_seq
+          WHERE {_CURRENT_TENANT_SQL} AND (d.ipju_dt IS NULL OR d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY))""", [as_of.isoformat(), as_of.isoformat()])
+        for row in rows:
+            if row.get("ipju_dt"):
+                dt = row["ipju_dt"] if not isinstance(row["ipju_dt"], str) else datetime.strptime(row["ipju_dt"][:10], "%Y-%m-%d").date()
+                if to_int_amt(row.get("rent_amt")) + to_int_amt(row.get("manage_amt")):
+                    if max(0, (to_int_amt(row.get("rent_amt")) + to_int_amt(row.get("manage_amt"))) * months_elapsed(dt, as_of) - to_int_amt(row.get("paid"))) > 0:
+                        stats["misu_total"] += 1
+    except Exception as exc:
+        app.logger.error("[Home Stats Error] %s", exc)
+    return render_template("home.html", stats=stats)
 
 
 @app.route("/login", methods=["GET", "POST"])

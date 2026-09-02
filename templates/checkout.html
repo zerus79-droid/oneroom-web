@@ -302,6 +302,12 @@
       var dd = String(n.getDate()).padStart(2, '0');
       return yy + '-' + mm + '-' + dd;
     }
+    d.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== 'NumpadEnter' && e.keyCode !== 13) return;
+      e.preventDefault();
+      var b1 = document.getElementById('bunji1');
+      if (b1) { b1.focus(); if (typeof b1.select === 'function') b1.select(); }
+    });
     if (todayBtn) {
       todayBtn.addEventListener('click', function (e) {
         e.preventDefault();
