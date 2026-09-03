@@ -60,19 +60,27 @@ def _cleanup_tmp():
         pass
 
 
-def _save_state(bunji1, bunji2, deposits, auto_detected, filename="", account_no=""):
+def _save_state(building_list, deposits, auto_detected, filename="", account_no="", bunji1="", bunji2=""):
+    """상태 저장. 하위호환성: bunji1/bunji2로도 받아서 building_list로 변환 가능."""
     os.makedirs(_TMP_DIR, exist_ok=True)
     _cleanup_tmp()
     token = uuid.uuid4().hex
+    
+    # 호환성: bunji1/bunji2가 전달되면 building_list로 변환
+    if not building_list and bunji1 and bunji2:
+        building_list = [(bunji1, bunji2)]
+    
     with open(_tmp_path(token), "w", encoding="utf-8") as f:
         json.dump(
             {
-                "bunji1": bunji1,
-                "bunji2": bunji2,
+                "building_list": building_list,
                 "deposits": deposits,
                 "auto_detected": auto_detected,
                 "filename": filename or "",
                 "account_no": account_no or "",
+                # 하위호환성: 첫 번째 건물을 bunji1/bunji2로도 저장
+                "bunji1": building_list[0][0] if building_list else "",
+                "bunji2": building_list[0][1] if building_list else "",
             },
             f,
             ensure_ascii=False,
@@ -109,9 +117,11 @@ def _write_state(token, state):
 
 
 def _update_state_building(token, bunji1, bunji2):
+    """건물 선택을 재설정. (사용자가 건물 선택을 다시 했을 때)"""
     state = _load_state(token)
     if not state:
         return None
+    state["building_list"] = [(bunji1, bunji2)]
     state["bunji1"] = bunji1
     state["bunji2"] = bunji2
     state["auto_detected"] = False
@@ -324,6 +334,9 @@ def _rent_amount_matches(amount, rent, manage, tol_ratio=0.03, tol_min=1000):
 def _narrow_by_room_hint(text, candidates, amount=None, allow_bare_number=True):
     """적요 텍스트에 '401호'/'1층'/그냥 숫자 같은 호수 힌트가 있으면 후보를 그 1곳으로
     좁힌다. 못 좁히면 원래 후보 그대로 반환.
+    
+    여러 건물이 섞여 있을 때: 같은 호수가 여러 건물에 있어도, 호수 매칭 후 금액이나
+    건물/입주자 정보로 추가 구분할 수 있게 한다. (동명이인 동시에 호수도 같은 경우 제외)
     예: '김호현(401호' → 401호, '김호현(1층임차' → 1층(첫자리 1인 호실),
     '가람606 703호월세관리비' → 703호, '가람501월세' → 501(숫자만 — 그 호실 월세+관리비가
     입금액이랑 비슷할 때만 신뢰, engine.py 방식과 동일)."""
@@ -332,12 +345,25 @@ def _narrow_by_room_hint(text, candidates, amount=None, allow_bare_number=True):
 
     def hosu_of(c):
         return (c.get("hosu") or "").strip().upper()
+    
+    def building_of(c):
+        """건물 식별자 (bunji1, bunji2 튜플)"""
+        return (c.get("bunji1") or "", c.get("bunji2") or "")
 
+    # 호수명 힌트('401호', '1층임차' 등) — 가장 강한 신뢰도
     for m in re.finditer(r"(\d{2,4})\s*호", text):
         num = m.group(1).lstrip("0") or "0"
         hits = [c for c in candidates if hosu_of(c).lstrip("0") == num]
         if len(hits) == 1:
             return hits
+        # 같은 호수가 여러 건물에 있으면, 금액으로 추가 필터링
+        if len(hits) > 1 and amount is not None:
+            by_amount = [c for c in hits if _rent_amount_matches(amount, c.get("rent_amt"), c.get("manage_amt"))]
+            if len(by_amount) == 1:
+                return by_amount
+            # 금액도 여러 개면 경고/모두 반환하되, 사용자가 선택하도록
+            if len(by_amount) > 1:
+                return by_amount
 
     # '가람501월세' — 호수+월세는 강한 힌트. 금액이 달라도 그 호실로 확정
     # (금액 이상은 매칭 후 확인필요로 표시).
@@ -346,12 +372,25 @@ def _narrow_by_room_hint(text, candidates, amount=None, allow_bare_number=True):
         hits = [c for c in candidates if hosu_of(c).lstrip("0") == num]
         if len(hits) == 1:
             return hits
+        # 같은 호수가 여러 건물에 있으면, 금액/건물로 추가 필터링
+        if len(hits) > 1 and amount is not None:
+            by_amount = [c for c in hits if _rent_amount_matches(amount, c.get("rent_amt"), c.get("manage_amt"))]
+            if len(by_amount) >= 1:
+                return by_amount
 
+    # 층 힌트('1층', '2층')
     m = re.search(r"(\d)\s*층", text)
     if m:
         hits = [c for c in candidates if hosu_of(c)[:1] == m.group(1)]
         if len(hits) == 1:
             return hits
+        # 같은 층이 여러 건물에 있으면 금액으로 추가 필터링
+        if len(hits) > 1 and amount is not None:
+            by_amount = [c for c in hits if _rent_amount_matches(amount, c.get("rent_amt"), c.get("manage_amt"))]
+            if len(by_amount) == 1:
+                return by_amount
+            if len(by_amount) > 1:
+                return by_amount
 
     if allow_bare_number:
         for m in re.finditer(r"\d{3}", text):
@@ -360,6 +399,11 @@ def _narrow_by_room_hint(text, candidates, amount=None, allow_bare_number=True):
                 c = hits[0]
                 if amount is None or _rent_amount_matches(amount, c.get("rent_amt"), c.get("manage_amt")):
                     return hits
+            # 같은 호수가 여러 건물에 있으면 금액으로 필터링
+            elif len(hits) > 1 and amount is not None:
+                by_amount = [c for c in hits if _rent_amount_matches(amount, c.get("rent_amt"), c.get("manage_amt"))]
+                if len(by_amount) >= 1:
+                    return by_amount
 
     return candidates
 
@@ -487,12 +531,12 @@ def buildings_by_account(account_no):
 
 
 def detect_building(account_no):
-    """계좌번호로 건물이 정확히 1곳 특정될 때만 자동 확정. 그 외(0곳/여러 곳)는
-    이름으로 전체 건물을 추측하지 않고 그냥 포기 — 건물을 직접 선택하게 함."""
-    candidates = buildings_by_account(account_no)
-    if len(candidates) == 1:
-        return candidates[0]
-    return "", ""
+    """계좌번호로 건물 목록을 반환.
+    - 1곳 특정: (bunji1, bunji2) 또는 building_list=[(bunji1, bunji2)]로 자동 확정
+    - 여러 곳: building_list 전체를 세입자 이름 매칭에 사용 (건물 선택 불필요)
+    - 0곳: empty list 반환 (건물을 직접 선택하게 함)
+    """
+    return buildings_by_account(account_no)
 
 
 _AMOUNT_FLAG_MULTIPLE = 2  # 월세+관리비 기준액의 이 배수를 넘으면 "확인필요"로 표시
@@ -635,15 +679,24 @@ def _finish_match_row(
 ):
     hosu = (match.get("hosu") or "").strip().upper() if match else ""
     ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
+    
+    # 매칭된 세입자의 건물 정보 사용 (여러 건물인 경우)
+    matched_bunji1 = match.get("bunji1") if match else bunji1
+    matched_bunji2 = match.get("bunji2") if match else bunji2
+    
     row = {
         "date": dep["date"],
         "amount": amount,
         "name": dep["name"],
         "hosu": hosu,
         "ipju_seq": ipju_seq,
+        "bunji1": matched_bunji1,  # 매칭된 세입자의 건물
+        "bunji2": matched_bunji2,
         "tenant_nm": match.get("ipju_nm") if match else "",
         "amount_flag": False,
         "needs_pick": needs_pick,
+        "source_file": dep.get("source_file", ""),
+        "account_no": dep.get("account_no", ""),
         "room_options": (
             _room_options(
                 candidates, with_combo=True,
@@ -658,14 +711,14 @@ def _finish_match_row(
         row["status"] = "matched"
     elif not match:
         row["status"] = "unmatched"
-    elif (hosu, ipju_seq, row["date"], int(amount)) in existing_set:
+    elif (matched_bunji1, matched_bunji2, hosu, ipju_seq, row["date"], int(amount)) in existing_set:
         row["status"] = "duplicate"
     else:
         row["status"] = "matched"
         expected = _monthly_due(match)
         if expected > 0 and amount > expected * _AMOUNT_FLAG_MULTIPLE:
             misu = _calc_misu_amt(
-                bunji1, bunji2, hosu, ipju_seq,
+                matched_bunji1, matched_bunji2, hosu, ipju_seq,
                 match.get("rent_amt"), match.get("manage_amt"),
                 match.get("ipju_dt"), as_of=date.fromisoformat(dep["date"]),
             )
@@ -675,28 +728,59 @@ def _finish_match_row(
     return row
 
 
-def _match_deposits(deposits, bunji1, bunji2, account_no=""):
-    if not (bunji1 and bunji2):
-        return []
+def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""):
+    """세입자 매칭. 건물이 여러 곳이면 전체 세입자를 모아서 이름 매칭.
+    
+    다중 파일 처리 시 주의사항:
+    - 개선 1: 입금파일 로더에서 (date, amount, name) 중복 제거 → 같은 파일들에서 중복 입금 감지
+    - 개선 2: building_list_set으로 중복 제거하고 sorted() → 큰 building_list 방지
+    - 개선 3: try/except로 개별 파일 오류 처리 → 1개 파일 깨져도 나머지 계속 진행
+    - 개선 4: 대량 deposits 저장(>1000건)은 _import_tmp/*.json 성능 모니터링 권장
+    
+    Args:
+        deposits: 입금 목록 (source_file, account_no 정보 포함)
+        building_list: [(bunji1, bunji2), ...] 건물 목록. 빈 리스트면 bunji1/bunji2로 폴백
+        account_no: 계좌번호(제외 규칙 적용용)
+        bunji1, bunji2: building_list가 빈 경우 대체용 (하위호환성)
+    """
+    # building_list가 없으면 bunji1/bunji2 폴백
+    if not building_list:
+        if bunji1 and bunji2:
+            building_list = [(bunji1, bunji2)]
+        else:
+            return []
+    
+    # 모든 건물의 세입자 조회 — WHERE (bunji1, bunji2) IN (...)
+    placeholders = ",".join(["(%s, %s)"] * len(building_list))
+    params = []
+    for b1, b2 in building_list:
+        params.extend([b1, b2])
+    
     tenants = db.query(
-        """
-        SELECT hosu, ipju_seq, ipju_nm, rent_amt, manage_amt, ipju_dt
+        f"""
+        SELECT bunji1, bunji2, hosu, ipju_seq, ipju_nm, rent_amt, manage_amt, ipju_dt
         FROM bd03_det
-        WHERE bunji1=%s AND bunji2=%s AND (out_dt IS NULL OR out_dt < '1000-01-01')
+        WHERE (bunji1, bunji2) IN ({placeholders})
+          AND (out_dt IS NULL OR out_dt < '1000-01-01')
         """,
-        (bunji1, bunji2),
+        params,
     )
+    
+    # 각 건물별로 기존 수금 기록 조회
+    # 개선: (bunji1, bunji2)를 key에 포함시킴 → 다른 건물의 같은 호실/날짜/금액도 구분
     existing = db.query(
-        """
-        SELECT hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt
+        f"""
+        SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt
         FROM sukum01
-        WHERE bunji1=%s AND bunji2=%s
+        WHERE (bunji1, bunji2) IN ({placeholders})
           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
         """,
-        (bunji1, bunji2),
+        params,
     )
     existing_set = {
         (
+            r.get("bunji1"),
+            r.get("bunji2"),
             (r.get("hosu") or "").strip().upper(),
             str(r.get("ipju_seq") or "").zfill(2),
             r["d"].isoformat() if r.get("d") else "",
@@ -707,9 +791,12 @@ def _match_deposits(deposits, bunji1, bunji2, account_no=""):
     exclude_rules = list_exclude_keywords()
     all_room_options = _room_options(tenants)
 
+    # 대표 건물(첫 번째) — UI 표시용
+    primary_bunji1, primary_bunji2 = (building_list[0] if building_list else ("", ""))
+
     results = []
     for dep in deposits:
-        if _matches_excluded(dep["name"], bunji1, bunji2, account_no, exclude_rules):
+        if _matches_excluded(dep["name"], primary_bunji1, primary_bunji2, account_no, exclude_rules):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
 
         # 수도·전기·가스 적요는 호수 힌트가 있어도 월세로 넣지 않음
@@ -717,7 +804,7 @@ def _match_deposits(deposits, bunji1, bunji2, account_no=""):
             results.append(
                 _finish_match_row(
                     dep, None, dep["amount"], tenants, all_room_options,
-                    existing_set, bunji1, bunji2, needs_pick=False,
+                    existing_set, primary_bunji1, primary_bunji2, needs_pick=False,
                 )
             )
             continue
@@ -753,7 +840,7 @@ def _match_deposits(deposits, bunji1, bunji2, account_no=""):
             needs_pick = len(candidates) > 1
             row = _finish_match_row(
                 dep, match, dep["amount"], candidates, all_room_options,
-                existing_set, bunji1, bunji2, needs_pick=needs_pick,
+                existing_set, primary_bunji1, primary_bunji2, needs_pick=needs_pick,
             )
             if row["status"] == "matched" and not needs_pick:
                 row["amount_flag"] = True
@@ -767,7 +854,7 @@ def _match_deposits(deposits, bunji1, bunji2, account_no=""):
                 results.append(
                     _finish_match_row(
                         dep, match, amt, candidates, all_room_options,
-                        existing_set, bunji1, bunji2, needs_pick=False,
+                        existing_set, primary_bunji1, primary_bunji2, needs_pick=False,
                     )
                 )
             continue
@@ -777,7 +864,7 @@ def _match_deposits(deposits, bunji1, bunji2, account_no=""):
         results.append(
             _finish_match_row(
                 dep, match, dep["amount"], candidates, all_room_options,
-                existing_set, bunji1, bunji2, needs_pick=needs_pick,
+                existing_set, primary_bunji1, primary_bunji2, needs_pick=needs_pick,
             )
         )
 
@@ -873,6 +960,7 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
 
 
 def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_map=None):
+    """선택한 입금들을 등록. row.bunji1/bunji2가 있으면 그 건물로 등록(여러 건물 지원)."""
     split_map = split_map or {}
     saved = 0
     applied = []
@@ -881,6 +969,12 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
             continue
         if i not in selected_idx:
             continue
+        
+        # row에 bunji1/bunji2가 있으면 그 건물로 사용 (여러 건물인 경우)
+        # 없으면 함수 인자의 기본값 사용 (하위호환성)
+        row_bunji1 = row.get("bunji1") or bunji1
+        row_bunji2 = row.get("bunji2") or bunji2
+        
         raw = manual_overrides.get(str(i)) or []
         if isinstance(raw, str):
             raw = [raw] if raw else []
@@ -909,7 +1003,7 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
                     continue
                 hosu, ipju_seq = key.split("|", 1)
                 if _insert_sukum(
-                    bunji1, bunji2, hosu, ipju_seq,
+                    row_bunji1, row_bunji2, hosu, ipju_seq,
                     row["date"], amt, row.get("name"),
                 ):
                     n += 1
@@ -928,7 +1022,7 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
         else:
             hosu, ipju_seq = row.get("hosu"), row.get("ipju_seq")
         if _insert_sukum(
-            bunji1, bunji2, hosu, ipju_seq,
+            row_bunji1, row_bunji2, hosu, ipju_seq,
             row["date"], row["amount"], row.get("name"),
         ):
             saved += 1
@@ -952,7 +1046,18 @@ def payments_import():
         if not state:
             flash("매칭 결과가 만료됐습니다. 파일을 다시 올려주세요.", "err")
             return redirect(url_for("payments_import"))
-        bunji1, bunji2 = state["bunji1"], state["bunji2"]
+        
+        # 하위호환성: 구 형식(bunji1/bunji2)을 building_list로 변환
+        building_list = state.get("building_list") or []
+        if not building_list and state.get("bunji1") and state.get("bunji2"):
+            building_list = [(state["bunji1"], state["bunji2"])]
+        
+        if not building_list:
+            flash("건물 정보가 없습니다.", "err")
+            return redirect(url_for("payments_import"))
+        
+        # 첫 번째 건물을 "대표" 건물로 사용 (UI 표시/상태저장)
+        primary_bunji1, primary_bunji2 = building_list[0]
         selected_idx = set()
         one = (request.form.get("apply_one") or "").strip()
         if one != "":
@@ -985,10 +1090,10 @@ def payments_import():
             if amt > 0:
                 split_map.setdefault(idx, {})[room] = amt
         rows = _match_deposits(
-            state["deposits"], bunji1, bunji2, state.get("account_no") or "",
+            state["deposits"], building_list, state.get("account_no") or "",
         )
         _saved, applied = _apply_selected(
-            rows, bunji1, bunji2, selected_idx, manual_overrides, split_map,
+            rows, primary_bunji1, primary_bunji2, selected_idx, manual_overrides, split_map,
         )
         if applied:
             drop = {
@@ -1007,8 +1112,8 @@ def payments_import():
     if request.method == "POST" and request.form.get("action") == "parse":
         bunji1 = _pad_bunji(request.form.get("bunji1"))
         bunji2 = _pad_bunji(request.form.get("bunji2"))
-        f = request.files.get("bank_file")
-        if not (f and f.filename):
+        files = request.files.getlist("bank_file")
+        if not files or all(not (f and f.filename) for f in files):
             old_token = (request.form.get("token") or "").strip()
             if old_token and _load_state(old_token):
                 return redirect(
@@ -1020,28 +1125,85 @@ def payments_import():
                     )
                 )
             return redirect(url_for("payments_import"))
-        try:
-            deposits, account_no = load_bank_deposits(f.filename, f.read())
-        except Exception as e:
-            flash(f"파일 읽기 실패: {e}", "err")
+        
+        # 여러 파일 처리: 각 파일별로 load_bank_deposits 호출해서 deposits를 하나로 합침
+        # 개선 3: 파일 하나 오류 시 나머지는 계속 진행, 경고 메시지만 표시
+        all_deposits = []
+        building_list_set = set()  # 개선 2: 중복 제거용 set
+        file_info = []  # [(filename, account_no), ...]
+        file_errors = []  # 부분 오류 기록
+        
+        # 개선 1, 2: 중복 감지용 (date, amount, name, account_no 조합)
+        # → 다른 계좌의 같은 입금도 구분, 제외된 건수 추적
+        seen_deposits = set()
+        excluded_count = 0  # 파일 간 중복으로 제외된 건수
+        
+        for f in files:
+            if not (f and f.filename):
+                continue
+            try:
+                deposits, account_no = load_bank_deposits(f.filename, f.read())
+            except Exception as e:
+                # 개선 3: 이 파일만 건너뛰고 계속 진행
+                file_errors.append(f"⚠ {f.filename}: {e}")
+                continue
+            if not deposits:
+                # 개선 3: 입금 내역이 없는 파일도 건너뛰기
+                file_errors.append(f"⚠ {f.filename}: 입금 내역 없음")
+                continue
+            
+            # 각 deposit에 source_file, account_no 추가
+            for d in deposits:
+                d["source_file"] = os.path.basename(f.filename or "")
+                d["account_no"] = account_no or ""
+                
+                # 개선 1+2: 같은 (date, amount, name, account_no) 조합이 이미 있으면 제외
+                # → 다른 계좌의 같은 입금은 구분 / 같은 계좌 중복은 추적
+                dep_key = (d["date"], d["amount"], d["name"], d["account_no"])
+                if dep_key in seen_deposits:
+                    excluded_count += 1
+                    continue
+                seen_deposits.add(dep_key)
+                all_deposits.append(d)
+            
+            file_info.append((os.path.basename(f.filename or ""), account_no or ""))
+            
+            # 개선 2: 각 파일의 계좌번호로 건물 감지, 중복 제거
+            if not (bunji1 and bunji2):
+                detected = detect_building(account_no)
+                for b in detected:
+                    building_list_set.add(b)
+        
+        # building_list_set → list 변환
+        building_list = sorted(list(building_list_set))
+        
+        # 개선 3: 부분 오류가 있으면 경고 메시지 표시
+        if file_errors:
+            for err_msg in file_errors:
+                flash(err_msg, "warn")
+        
+        # 개선 2: 파일 간 중복으로 제외된 건수 표시
+        if excluded_count > 0:
+            flash(f"💡 파일 간 중복으로 {excluded_count}건이 제외되었습니다. (같은 날짜/금액/이름이 여러 파일에 있었으면 하나만 처리됩니다)", "info")
+        
+        if not all_deposits:
+            flash("입금 내역을 찾지 못했습니다.", "err")
             return redirect(url_for("payments_import"))
-        if not deposits:
-            flash("입금 내역을 찾지 못했습니다 (파일 형식을 확인하세요).", "err")
-            return redirect(url_for("payments_import"))
-
+        
         auto_detected = False
         if not (bunji1 and bunji2):
-            bunji1, bunji2 = detect_building(account_no)
-            auto_detected = bool(bunji1 and bunji2)
+            auto_detected = bool(building_list)
             if not auto_detected:
                 flash("건물을 자동으로 찾지 못했습니다. 직접 선택하세요.", "err")
+        else:
+            building_list = [(bunji1, bunji2)]
+        
         token = _save_state(
-            bunji1,
-            bunji2,
-            deposits,
+            building_list,
+            all_deposits,
             auto_detected,
-            filename=os.path.basename(f.filename or ""),
-            account_no=account_no or "",
+            filename="; ".join(f[0] for f in file_info),
+            account_no="; ".join(f[1] for f in file_info),
         )
         return redirect(url_for("payments_import", token=token))
 
@@ -1053,20 +1215,33 @@ def payments_import():
     bunji1 = bunji2 = ""
     auto_detected = False
     uploaded_name = ""
+    building_list = []
 
     if state:
+        # 하위호환성: 구 형식(bunji1/bunji2)을 building_list로 변환
+        building_list = state.get("building_list") or []
+        if not building_list and state.get("bunji1") and state.get("bunji2"):
+            building_list = [(state["bunji1"], state["bunji2"])]
+        
+        # 사용자가 건물을 다시 선택했나?
         req_b1 = _pad_bunji(request.args.get("bunji1"))
         req_b2 = _pad_bunji(request.args.get("bunji2"))
-        if req_b1 and req_b2 and (req_b1, req_b2) != (state["bunji1"], state["bunji2"]):
+        if req_b1 and req_b2:
+            # 사용자가 명시적으로 건물을 선택한 경우 — building_list 업데이트
             state = _update_state_building(token, req_b1, req_b2) or state
-        bunji1, bunji2 = state["bunji1"], state["bunji2"]
+            building_list = [(req_b1, req_b2)]
+        
+        # 첫 번째 건물을 "대표"로 사용 (UI 표시용)
+        if building_list:
+            bunji1, bunji2 = building_list[0]
+        
         auto_detected = bool(state.get("auto_detected"))
         uploaded_name = (state.get("filename") or "").strip()
         rows = (
             _match_deposits(
-                state["deposits"], bunji1, bunji2, state.get("account_no") or "",
+                state["deposits"], building_list, state.get("account_no") or "",
             )
-            if (bunji1 and bunji2)
+            if building_list
             else []
         )
 

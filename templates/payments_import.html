@@ -36,7 +36,7 @@
           <div class="xp-field xp-field-wide">
             <label class="ls-lab">입금파일</label>
             <label class="ls-box file-pick">
-              <input type="file" name="bank_file" id="bank_file" accept=".xls,.xlsx,.xlsm" class="file-pick-input">
+              <input type="file" name="bank_file" id="bank_file" accept=".xls,.xlsx,.xlsm" class="file-pick-input" multiple>
               <span class="file-pick-btn">파일 선택</span>
               <span class="file-pick-name" id="bank_file_name" data-kept="{{ uploaded_name or '' }}">{{ uploaded_name or '선택된 파일 없음' }}</span>
             </label>
@@ -107,6 +107,7 @@
               <th class="tc">매칭 호실</th>
               <th class="tc">세입자</th>
               <th class="tc">적요(입금자명)</th>
+              <th class="tc">파일/계좌</th>
               <th class="tc">입금액</th>
               <th class="tc">제외</th>
             </tr>
@@ -151,6 +152,9 @@
               </td>
               <td>{{ r.tenant_nm or '' }}</td>
               <td>{{ r.name }}</td>
+              <td class="tc" style="font-size:0.9em;">
+                {% if r.source_file %}{{ r.source_file }}<br/>{{ r.account_no }}{% else %}-{% endif %}
+              </td>
               <td class="tc">
                 {{ r.amount|money }}
                 {% if r.needs_pick %}
