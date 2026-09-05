@@ -1,0 +1,2 @@
+{"timestamp": "2026-09-03T06:43:36.087814", "level": "INFO", "logger": "oneroom.app", "message": "Test app log entry"}
+{"timestamp": "2026-09-04T02:38:54.301975", "level": "WARNING", "logger": "oneroom.app", "message": "[404] GET /.well-known/appspecific/com.chrome.devtools.json not found"}

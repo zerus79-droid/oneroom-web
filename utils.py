@@ -2,24 +2,99 @@
 
 app.py 전역에서 Jinja 필터·라우트 보호용으로 재사용되는, 특정 도메인에
 종속되지 않은 순수 헬퍼 함수들을 모아둔 모듈입니다.
+
+섹션:
+1. 상수 및 전역 변수
+2. DB 헬퍼 함수
+3. 포맷/마스킹 함수
+4. 계산 함수
+5. 권한 데코레이터
+6. 페이징 함수
 """
 from calendar import monthrange
 from datetime import datetime, date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-from functools import wraps
+from functools import wraps, lru_cache
 from fractions import Fraction
 import re
+import time
 
 from flask import redirect, session, url_for
 
 import db
 
+# =============================================================================
+# 1. 상수 및 전역 변수
+# =============================================================================
+
 
 # 현재 입주 중: out_dt 없음 또는 레거시 무효 날짜 (여러 화면에서 공통 사용)
 CURRENT_TENANT_SQL = "(d.out_dt IS NULL OR d.out_dt < '1000-01-01')"
 
-# bd03_det에 계약구분(월세/반전세/전세)을 추가할 때 한 번만 스키마를 보정한다.
+# 건물 정보 캐시 (번지1, 번지2 -> 건물명/소유자 매핑)
+_BUILDING_CACHE = {}
+_BUILDING_CACHE_TIME = 0
+_BUILDING_CACHE_TTL = 300  # 5분
+
+# 계약구분 컬럼 준비 상태 캐시
 _TENANT_LEASE_GB_READY = False
+
+# 페이징 상수
+PAGE_SIZE = 20  # 페이지당 건수
+PAGE_BLOCK_SIZE = 6  # 페이지 블록 크기
+
+# 기타 상수
+BUNJI_WIDTH = 4  # 번지 DB 저장 형식 자릿수
+HOSU_LENGTH = 3  # 호실 최대 길이
+IPJU_SEQ_LENGTH = 2  # 입주 순번 자릿수
+
+# =============================================================================
+# 2. DB 헬퍼 함수
+# =============================================================================
+
+def hash_password(password):
+    """비밀번호를 bcrypt로 해시화한다."""
+    import bcrypt
+    if isinstance(password, str):
+        password = password.encode('utf-8')
+    return bcrypt.hashpw(password, bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password, hashed):
+    """비밀번호를 해시와 비교한다."""
+    import bcrypt
+    if isinstance(password, str):
+        password = password.encode('utf-8')
+    if isinstance(hashed, str):
+        hashed = hashed.encode('utf-8')
+    return bcrypt.checkpw(password, hashed)
+
+
+def _get_building_cache():
+    """건물 정보 캐시를 가져오거나 갱신한다."""
+    global _BUILDING_CACHE, _BUILDING_CACHE_TIME
+    now = time.time()
+    if now - _BUILDING_CACHE_TIME > _BUILDING_CACHE_TTL or not _BUILDING_CACHE:
+        try:
+            rows = db.query("SELECT bunji1, bunji2, juso, owner_nm FROM bd01")
+            _BUILDING_CACHE = {}
+            for r in rows or []:
+                key = (r.get('bunji1'), r.get('bunji2'))
+                _BUILDING_CACHE[key] = {
+                    'juso': (r.get('juso') or "").strip(),
+                    'owner_nm': (r.get('owner_nm') or "").strip()
+                }
+            _BUILDING_CACHE_TIME = now
+        except Exception as e:
+            import logging
+            logging.warning(f"[Building Cache] 캐시 갱신 실패: {e}")
+            # 캐시 실패해도 빈 딕셔너리로 계속
+    return _BUILDING_CACHE
+
+
+def _get_all_buildings():
+    """모든 건물의 번지 정보를 캐시해서 반환한다."""
+    cache = _get_building_cache()
+    return [(b1, b2) for b1, b2 in cache.keys()]
 
 
 def table_columns(table_name):
@@ -28,6 +103,10 @@ def table_columns(table_name):
         raise ValueError("invalid table name")
     return {r.get("Field") for r in (db.query(f"SHOW COLUMNS FROM {table_name}") or [])}
 
+
+# =============================================================================
+# 3. 포맷/마스킹 함수
+# =============================================================================
 
 def ensure_tenant_lease_gb():
     """입주 이력에 계약구분 컬럼을 준비한다.
@@ -46,13 +125,27 @@ def ensure_tenant_lease_gb():
             db.execute(
                 "ALTER TABLE bd03_det ADD COLUMN lease_gb CHAR(1) NOT NULL DEFAULT 'W'"
             )
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning(f"[Schema] lease_gb 컬럼 추가 실패 (이미 존재하거나 권한 없음): {e}")
             # 이미 컬럼이 있거나 레거시 DB에서 ALTER 권한이 없는 경우에도 조회는 계속한다.
             pass
+    # 반전세(B) → 월세(W) 마이그레이션
+    try:
+        migrated = db.execute(
+            """UPDATE bd03_det SET lease_gb='W' WHERE lease_gb='B'"""
+        )
+        if migrated and migrated > 0:
+            import logging
+            logging.info(f"[Schema] 반전세(B) → 월세(W) 마이그레이션 완료: {migrated}건")
+    except Exception as e:
+        import logging
+        logging.warning(f"[Schema] 반전세 마이그레이션 실패: {e}")
+    
     try:
         need = db.query_one(
             """SELECT 1 AS ok FROM bd03_det
-               WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','B','J')
+               WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','J')
                LIMIT 1"""
         )
         if need:
@@ -61,12 +154,32 @@ def ensure_tenant_lease_gb():
             db.execute(
                 """UPDATE bd03_det
                    SET lease_gb='W'
-                 WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','B','J')"""
+                 WHERE lease_gb IS NULL OR lease_gb NOT IN ('W','J')"""
             )
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.warning(f"[Schema] lease_gb 데이터 정리 실패: {e}")
     _TENANT_LEASE_GB_READY = True
 
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("sabun"):
+            return redirect(url_for("login"))
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+# =============================================================================
+# 4. 계산 함수
+# =============================================================================
+
+
+# =============================================================================
+# 5. 권한 데코레이터
+# =============================================================================
 
 def login_required(fn):
     @wraps(fn)
@@ -105,7 +218,18 @@ def require_write_access(fn):
             return redirect(url_for("login"))
         grade = (session.get("grade") or "").strip().upper()
         if grade == "C":
-            from flask import flash
+            from flask import flash, request
+            # 보안 로깅: 조회 전용 계정의 쓰기 시도
+            try:
+                from logs_handler import log_security_event
+                log_security_event(
+                    'permission_denied',
+                    user_id=session.get('sabun'),
+                    ip_address=request.remote_addr,
+                    details=f"Read-only account attempted write operation on {request.endpoint}"
+                )
+            except (ImportError, Exception):
+                pass
             flash("조회 전용 계정은 수정할 수 없습니다.", "err")
             return redirect(url_for("home"))
         return fn(*args, **kwargs)
@@ -120,12 +244,27 @@ def require_admin(fn):
             return redirect(url_for("login"))
         grade = (session.get("grade") or "").strip().upper()
         if grade not in ("U", "A"):
-            from flask import flash
+            from flask import flash, request
+            # 보안 로깅: 관리자가 아닌 사용자의 관리 기능 시도
+            try:
+                from logs_handler import log_security_event
+                log_security_event(
+                    'permission_denied',
+                    user_id=session.get('sabun'),
+                    ip_address=request.remote_addr,
+                    details=f"Non-admin user attempted admin operation on {request.endpoint}"
+                )
+            except (ImportError, Exception):
+                pass
             flash("관리자 권한이 필요합니다.", "err")
             return redirect(url_for("home"))
         return fn(*args, **kwargs)
     return wrapper
 
+
+# =============================================================================
+# 6. 포맷/마스킹 함수
+# =============================================================================
 
 def money(v):
     """모든 금액 표시 공통: 천 단위 콤마. 예: 250000 -> 250,000"""
@@ -267,7 +406,7 @@ def clamp_date_str(s):
     return f"{y:04d}-{mo:02d}-{d:02d}"
 
 
-def pad_bunji(v, width=4):
+def pad_bunji(v, width=BUNJI_WIDTH):
     """번지(주소) 문자열을 DB 저장 형식인 4자리 숫자로 맞춤. 예: '88' -> '0088'"""
     s = re.sub(r"\D", "", (v or "").strip())
     if not s:
@@ -299,17 +438,14 @@ def parse_bunji_input(raw, bunji1="", bunji2=""):
             digits = re.sub(r"\D", "", s)
             matched = False
             if digits:
-                # 등록 건물: 앞0 제거한 주소+주소2 와 일치하는 항목 찾기
-                try:
-                    rows = db.query("SELECT bunji1, bunji2 FROM bd01")
-                except Exception:
-                    rows = []
-                for r in rows or []:
-                    key = f"{fmt_bunji(r.get('bunji1'))}{fmt_bunji(r.get('bunji2'))}"
-                    key_pad = f"{pad_bunji(r.get('bunji1'))}{pad_bunji(r.get('bunji2'))}"
+                # 등록 건물: 앞0 제거한 주소+주소2 와 일치하는 항목 찾기 (캐시 사용)
+                buildings = _get_all_buildings()
+                for b1, b2 in buildings:
+                    key = f"{fmt_bunji(b1)}{fmt_bunji(b2)}"
+                    key_pad = f"{pad_bunji(b1)}{pad_bunji(b2)}"
                     if digits == key or digits == key_pad or digits.lstrip("0") == key.lstrip("0"):
-                        bunji1 = r.get("bunji1") or ""
-                        bunji2 = r.get("bunji2") or ""
+                        bunji1 = b1 or ""
+                        bunji2 = b2 or ""
                         matched = True
                         break
             if not matched:
@@ -329,13 +465,12 @@ def building_label(bunji1, bunji2):
     """화면에 건물명만 표시 (주소 접두어 없음)."""
     if not bunji1 or not bunji2:
         return ""
-    b = db.query_one(
-        "SELECT juso, owner_nm FROM bd01 WHERE bunji1=%s AND bunji2=%s",
-        (bunji1, bunji2),
-    )
-    if not b:
+    cache = _get_building_cache()
+    key = (bunji1, bunji2)
+    building = cache.get(key)
+    if not building:
         return "미등록 주소"
-    name = (b.get("juso") or "").strip() or (b.get("owner_nm") or "").strip()
+    name = building.get('juso') or building.get('owner_nm') or ""
     return name or "이름 없음"
 
 
@@ -374,7 +509,42 @@ def months_elapsed(ipju_dt, as_of=None):
     return max(0, m)
 
 
-def ensure_contract_terms_history():
+def ensure_login_attempts_table():
+    """로그인 시도 추적 테이블을 생성한다."""
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS login_attempts (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          ip_address VARCHAR(45) NOT NULL,
+          sabun VARCHAR(20),
+          attempt_time DATETIME NOT NULL,
+          success BOOLEAN NOT NULL DEFAULT FALSE,
+          PRIMARY KEY (id),
+          KEY idx_ip_time (ip_address, attempt_time),
+          KEY idx_sabun_time (sabun, attempt_time)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+
+def record_login_attempt(ip_address, sabun, success):
+    """로그인 시도를 기록한다."""
+    ensure_login_attempts_table()
+    db.execute(
+        """INSERT INTO login_attempts (ip_address, sabun, attempt_time, success)
+           VALUES (%s, %s, NOW(), %s)""",
+        (ip_address, sabun, success)
+    )
+
+def get_recent_failed_attempts(ip_address, sabun, minutes=10):
+    """최근 실패한 로그인 시도 횟수를 반환한다."""
+    ensure_login_attempts_table()
+    row = db.query_one(
+        """SELECT COUNT(*) AS count FROM login_attempts
+           WHERE ip_address=%s AND sabun=%s AND success=FALSE
+           AND attempt_time > DATE_SUB(NOW(), INTERVAL %s MINUTE)""",
+        (ip_address, sabun, minutes)
+    )
+    return int((row or {}).get("count") or 0)
     """계약금액 변경이력 테이블. 기존 입주 폼 배치를 바꾸지 않고 수정 저장 시 기록한다."""
     db.execute(
         """
@@ -490,7 +660,9 @@ def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
                ORDER BY effective_dt,hist_id""",
             (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
         )
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.warning(f"[Contract Period] 계약 이력 조회 실패: {e}")
         rows = []
     terms = [(ipju_dt, to_int_amt(rent_amt), to_int_amt(manage_amt))]
     for r in rows or []:
@@ -880,8 +1052,7 @@ def buildings_and_rooms():
 
 
 # 목록 화면 공통. 화면마다 다시 짜지 말고 paginate / make_pager + templates/_pager.html
-PAGE_SIZE = 20
-PAGE_BLOCK_SIZE = 6
+# 상수는 상단에 이미 정의됨
 
 
 def parse_page(value=None):

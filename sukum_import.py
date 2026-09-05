@@ -28,6 +28,85 @@ from utils import (
     pad_bunji as _pad_bunji,
     parse_page as _parse_page,
     require_write_access,
+)
+
+# 파일 업로드 보안 설정
+ALLOWED_EXTENSIONS = {'.xls', '.xlsx'}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Excel 파일 매직 넘버 (파일 시작 바이트로 검증)
+EXCEL_MAGIC_NUMBERS = {
+    b'\xd0\xcf\x11\xe0',  # XLS (OLE2)
+    b'PK\x03\x04',         # XLSX (ZIP)
+}
+
+
+def validate_file_upload(file):
+    """파일 업로드 보안 검증.
+    
+    파일 크기, 확장자, 파일명, MIME 타입, 매직 넘버를 검증합니다.
+    """
+    if not file or not file.filename:
+        return False, "파일이 선택되지 않았습니다."
+    
+    # 파일 크기 확인
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    
+    if file_size > MAX_FILE_SIZE:
+        return False, f"파일 크기가 너무 큽니다. 최대 {MAX_FILE_SIZE // (1024*1024)}MB 허용."
+    
+    if file_size == 0:
+        return False, "빈 파일입니다."
+    
+    # 파일 확장자 확인
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        return False, f"허용되지 않는 파일 형식입니다. 허용: {', '.join(ALLOWED_EXTENSIONS)}"
+    
+    # 파일명 검증 (악성 파일명 방지)
+    if not re.match(r'^[a-zA-Z0-9._\-가-힣\s]+$', file.filename):
+        return False, "파일명에 허용되지 않는 문자가 포함되어 있습니다."
+    
+    # MIME 타입 검증
+    mime_type = file.content_type or ""
+    if not any(allowed in mime_type for allowed in ['spreadsheet', 'sheet', 'excel', 'ms-excel']):
+        # MIME 타입이 없거나 다른 경우, 매직 넘버로 추가 검증
+        file.seek(0)
+        header = file.read(4)
+        file.seek(0)
+        
+        if not any(header.startswith(magic) for magic in EXCEL_MAGIC_NUMBERS):
+            return False, "유효한 Excel 파일이 아닙니다. 파일 형식을 확인하세요."
+    
+    # 파일을 올바르게 읽을 수 있는지 검증
+    try:
+        file.seek(0)
+        if file_ext == '.xlsx':
+            # XLSX 파일 검증
+            from openpyxl import load_workbook
+            wb = load_workbook(file, read_only=True, data_only=True)
+            if not wb.sheetnames:
+                return False, "Excel 파일에 시트가 없습니다."
+            wb.close()
+        elif file_ext == '.xls':
+            # XLS 파일 검증
+            if xlrd:
+                file.seek(0)
+                wb = xlrd.open_workbook(file_contents=file.read())
+                if wb.nsheets == 0:
+                    return False, "Excel 파일에 시트가 없습니다."
+            else:
+                return False, "XLS 파일 지원이 설정되지 않았습니다. XLSX 파일을 사용하세요."
+        file.seek(0)
+    except Exception as e:
+        return False, f"파일을 읽을 수 없습니다. 올바른 Excel 파일인지 확인하세요: {str(e)[:100]}"
+    
+    return True, None
+
+
+from utils import (
     table_columns as _table_columns,
 )
 
@@ -1020,9 +1099,38 @@ def payments_import():
                     )
                 )
             return redirect(url_for("payments_import"))
+        
+        # 파일 업로드 보안 검증
+        is_valid, error_msg = validate_file_upload(f)
+        if not is_valid:
+            # 파일 검증 실패 보안 로깅
+            try:
+                from logs_handler import log_security_event
+                log_security_event(
+                    'file_upload_invalid',
+                    user_id=session.get('sabun'),
+                    ip_address=request.remote_addr,
+                    details=f"Invalid file upload attempt: {error_msg}"
+                )
+            except (ImportError, Exception):
+                pass
+            flash(error_msg, "err")
+            return redirect(url_for("payments_import"))
+        
         try:
             deposits, account_no = load_bank_deposits(f.filename, f.read())
         except Exception as e:
+            # 파일 읽기 실패 보안 로깅
+            try:
+                from logs_handler import log_security_event, app_logger
+                log_security_event(
+                    'file_processing_error',
+                    user_id=session.get('sabun'),
+                    ip_address=request.remote_addr,
+                    details=f"Error reading file {f.filename}: {str(e)[:100]}"
+                )
+            except (ImportError, Exception):
+                pass
             flash(f"파일 읽기 실패: {e}", "err")
             return redirect(url_for("payments_import"))
         if not deposits:

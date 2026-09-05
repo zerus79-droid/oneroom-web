@@ -9,7 +9,8 @@ from threading import Lock
 from flask import flash, redirect, render_template, request, session, url_for
 
 import db
-from app_instance import app
+from app_instance import app, cache
+from query_cache import CACHE_TIMEOUT_BUILDING, CACHE_TIMEOUT_ROOM, invalidate_building_cache
 from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
     account_digits as _account_digits,
@@ -358,14 +359,27 @@ def _load_buildings_by_keys(keys):
     return [by_key[key] for key in keys if key in by_key]
 
 
+def _building_cache_key():
+    """쿼리 파라미터를 포함하는 캐시 키 생성 함수"""
+    q = request.args.get('q', '')
+    page = request.args.get('page', '')
+    dong = request.args.get('dong', '')
+    select = request.args.get('select', '')
+    next_mode = request.args.get('next', '')
+    return f"buildings_{q}_{page}_{dong}_{select}_{next_mode}"
+
+
 @app.route("/buildings")
 @login_required
+@cache.cached(timeout=CACHE_TIMEOUT_BUILDING, key_prefix=_building_cache_key)
 def buildings():
     """기초 내역 관리 · 건물 내역 조회 (목록)
     ?next=rooms 이면 카드에서 호수 내역으로 이동
+    ?select=1 이면 건물 선택 모드 (입주 이력 등록에서 번지 선택용)
     """
     _ensure_g_cost_cols()
     next_mode = (request.args.get("next") or "").strip()
+    select_mode = request.args.get("select") == "1"
     q = (request.args.get("q") or "").strip()
     # 폴더 탭용으로 주소만 읽고, 카드/호실 지도는 현재 페이지 건물만 읽는다.
     slim_cols = "bunji1, bunji2, juso, owner_nm" if q else "bunji1, bunji2, juso"
@@ -425,6 +439,64 @@ def buildings():
             f = "지하" if h.upper().startswith("B") else (int(d[:-2] or 0) if len(d) >= 3 else 0)
             floor_map.setdefault(f, []).append((h, room.get("room_state") or "vacant"))
         r["floor_map"] = [(f, ([rooms] if len(rooms) <= 5 else [rooms[i:i + ((len(rooms) + 1) // 2)] for i in range(0, len(rooms), (len(rooms) + 1) // 2)])) for f, rooms in sorted(floor_map.items(), key=lambda x: (isinstance(x[0], str), -(x[0] if isinstance(x[0], int) else 0)))]
+    
+    # 전체 통계 (vacancies 페이지와 동일한 KPI)
+    totals = db.query_one(
+        f"""
+        SELECT
+          (SELECT COUNT(*) FROM bd03_m) AS room_total,
+          (SELECT COUNT(*) FROM bd03_m m
+            WHERE EXISTS (
+              SELECT 1 FROM bd03_det d
+              WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+                AND d.hosu_norm=m.hosu_norm
+                AND {_CURRENT_TENANT_SQL}
+            )) AS occupied_total,
+          (SELECT COUNT(*) FROM bd01) AS building_total
+        """
+    )
+    room_total = int((totals or {}).get("room_total") or 0)
+    occupied_total = int((totals or {}).get("occupied_total") or 0)
+    vacant_total = max(0, room_total - occupied_total)
+    
+    # 공실 있는 건물 계산
+    building_rows = db.query(
+        f"""
+        SELECT b.bunji1, b.bunji2, b.juso, b.owner_nm,
+               COALESCE(m.room_cnt, 0) AS room_cnt,
+               COALESCE(d.occupied_cnt, 0) AS occupied_cnt
+        FROM bd01 b
+        LEFT JOIN (
+            SELECT bunji1, bunji2, COUNT(*) AS room_cnt
+            FROM bd03_m
+            GROUP BY bunji1, bunji2
+        ) m ON m.bunji1=b.bunji1 AND m.bunji2=b.bunji2
+        LEFT JOIN (
+            SELECT m.bunji1, m.bunji2, COUNT(*) AS occupied_cnt
+            FROM bd03_m m
+            WHERE EXISTS (
+                  SELECT 1 FROM bd03_det d
+                  WHERE d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+                    AND d.hosu_norm=m.hosu_norm
+                    AND {_CURRENT_TENANT_SQL}
+                )
+            GROUP BY m.bunji1, m.bunji2
+        ) d ON d.bunji1=b.bunji1 AND d.bunji2=b.bunji2
+        ORDER BY b.bunji1, b.bunji2
+        """
+    )
+    buildings_with_vacancy = sum(
+        1 for b in building_rows if int(b.get("room_cnt") or 0) - int(b.get("occupied_cnt") or 0) > 0
+    )
+    
+    stats = {
+        "building_total": int((totals or {}).get("building_total") or 0),
+        "room_total": room_total,
+        "occupied_total": occupied_total,
+        "vacant_total": vacant_total,
+        "buildings_with_vacancy": buildings_with_vacancy,
+    }
+    
     return render_template(
         "buildings.html",
         buildings=visible_rows,
@@ -434,12 +506,25 @@ def buildings():
         selected_dong=selected_dong,
         pager=pager,
         next_mode=next_mode,
+        select_mode=select_mode,
         q=q,
+        stats=stats,
     )
+
+
+def _vacancies_cache_key():
+    """vacancies 페이지의 view 파라미터를 포함한 캐시 키"""
+    bunji1 = request.args.get('bunji1', '')
+    bunji2 = request.args.get('bunji2', '')
+    q = request.args.get('q', '')
+    view = request.args.get('view', '')
+    page = request.args.get('page', '')
+    return f"vacancies_{bunji1}_{bunji2}_{q}_{view}_{page}"
 
 
 @app.route("/vacancies")
 @login_required
+@cache.cached(timeout=CACHE_TIMEOUT_ROOM, key_prefix=_vacancies_cache_key)
 def vacancies():
     """기초 내역 관리 · 공실 현황 조회
 
@@ -799,6 +884,8 @@ def building_new():
                     data["uid"],
                 ),
             )
+            # 캐시 무효화
+            invalidate_building_cache(cache, data["bunji1"], data["bunji2"])
         except Exception as e:
             flash(f"등록 실패: {e}", "err")
             return render_template(
@@ -986,6 +1073,7 @@ def _get_rooms_bulk(building_keys):
 
 @app.route("/building/<bunji1>/<bunji2>")
 @login_required
+@cache.cached(timeout=CACHE_TIMEOUT_BUILDING)
 def building_detail(bunji1, bunji2):
     """기초 내역 관리 · 건물 내역 (건물 정보만)"""
     b = _get_building_or_redirect(bunji1, bunji2)
@@ -1009,6 +1097,7 @@ def building_detail(bunji1, bunji2):
 
 @app.route("/building/<bunji1>/<bunji2>/rooms")
 @login_required
+@cache.cached(timeout=CACHE_TIMEOUT_ROOM)
 def building_rooms(bunji1, bunji2):
     """호수별 상세 내역 (호수 내역 조회) — 건물 카드 숨김"""
     b = _get_building_or_redirect(bunji1, bunji2)
@@ -1115,6 +1204,8 @@ def room_new(bunji1, bunji2):
                     session.get("sabun") or "",
                 ),
             )
+            # 캐시 무효화
+            invalidate_building_cache(cache, bunji1, bunji2)
         except Exception as e:
             flash(f"호수 등록 실패: {e}", "err")
             return render_template(
@@ -1155,6 +1246,8 @@ def room_delete(bunji1, bunji2, hosu):
             (bunji1, bunji2, hosu),
         )
         if n:
+            # 캐시 무효화
+            invalidate_building_cache(cache, bunji1, bunji2)
             flash(f"호수 {hosu} 가 삭제되었습니다.", "ok")
         else:
             flash("삭제할 호수를 찾을 수 없습니다.", "err")
@@ -1387,6 +1480,8 @@ def building_edit(bunji1, bunji2):
                     bunji2,
                 ),
             )
+            # 캐시 무효화
+            invalidate_building_cache(cache, bunji1, bunji2)
         except Exception as e:
             flash(f"수정 실패: {e}", "err")
             return render_template(

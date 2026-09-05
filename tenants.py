@@ -226,7 +226,7 @@ def _form_from_tenant_request(src):
     form["manage_amt"] = (src.get("manage_amt") or "0").replace(",", "").strip() or "0"
     form["yechi_amt"] = (src.get("yechi_amt") or "0").replace(",", "").strip() or "0"
     lease = (src.get("lease_gb") or "W").strip().upper()
-    form["lease_gb"] = lease if lease in ("W", "B", "J") else "W"
+    form["lease_gb"] = lease if lease in ("W", "J") else "W"
     nap = (src.get("napbu_gb") or "B").strip().upper()
     form["napbu_gb"] = nap if nap in ("A", "B") else "B"
     form["mode"] = (src.get("mode") or "new").strip() or "new"
@@ -368,7 +368,7 @@ def _parse_tenant_amounts(form):
     except ValueError:
         return "금액은 숫자로 입력하세요.", {}, None
     lease_gb = (form.get("lease_gb") or "W").strip().upper()
-    if lease_gb not in ("W", "B", "J"):
+    if lease_gb not in ("W", "J"):
         lease_gb = "W"
     # 전세는 임대료가 없는 계약으로 저장한다. 관리비가 있으면 manage에 입력한다.
     if lease_gb == "J":
@@ -744,6 +744,14 @@ def api_tenant_load():
     if not row:
         # 이력 없음 → 신규. 요청 순번이 다음(max+1)보다 크면 다음 순번으로 보정
         use_seq, did_clamp = _clamp_new_ipju_seq(bunji1, bunji2, hosu, seq or next_s)
+        
+        # 현세입자 정보 조회 (있으면 그 폼 데이터, 없으면 null)
+        current_tenant = None
+        if cur_s:
+            current_row = _lookup_tenant_row(bunji1, bunji2, hosu, cur_s)
+            if current_row:
+                current_tenant = _tenant_form_from_row(current_row)
+        
         return jsonify(
             {
                 "ok": False,
@@ -755,6 +763,7 @@ def api_tenant_load():
                 "bunji1": bunji1,
                 "bunji2": bunji2,
                 "hosu": hosu,
+                "current_tenant": current_tenant,
             }
         )
     form = _tenant_form_from_row(row)

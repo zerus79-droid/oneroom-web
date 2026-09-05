@@ -11,6 +11,7 @@ temp_probe.py
 sinbee_mariadb.sql
 _import_tmp/
 backups/
+*.zip
 
 # Imported tenant spreadsheets can contain personal information.
-zipsa_sample_*.xlsx
+*.xlsx

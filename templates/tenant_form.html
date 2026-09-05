@@ -2,6 +2,27 @@
 {% block title %}입주 이력 등록 · 주택관리 시스템{% endblock %}
 {% block content %}
 
+{# 건물 선택 모달 #}
+<div id="building-select-modal" class="modal-overlay" aria-hidden="true" style="display: none;">
+  <div class="modal-dialog" role="dialog" aria-label="건물 선택">
+    <div class="modal-header">
+      <h2>건물 선택</h2>
+      <button type="button" class="modal-close" id="modal-close-btn" aria-label="닫기">×</button>
+    </div>
+    <div class="modal-search">
+      <form id="building-modal-search-form" class="building-modal-filter">
+        <input type="hidden" name="select" value="1">
+        <input type="text" id="modal-search-q" name="q" placeholder="검색어 입력 (건물주소, 번지 등)" autocomplete="off" class="modal-search-input">
+        <button type="submit" class="modal-search-btn">검색</button>
+        <button type="button" id="modal-search-reset-btn" class="modal-search-reset">초기화</button>
+      </form>
+    </div>
+    <div class="modal-body" id="building-modal-content">
+      <!-- 건물 목록이 여기 로드됨 -->
+    </div>
+  </div>
+</div>
+
 {# 레거시 「입주 이력 등록」 창 (AnyDesk/XP 스타일) #}
 {% set ts = form.tenant_status or 'new' %}
 {% set ts_label = '신규' if ts == 'new' else ('퇴실자' if ts == 'past' else '현세입자') %}
@@ -159,7 +180,6 @@
           <label class="ls-lab tri">계약구분</label>
           <select name="lease_gb" id="lease_gb" class="ls-select">
             <option value="W" {% if form.lease_gb == 'W' %}selected{% endif %}>월세</option>
-            <option value="B" {% if form.lease_gb == 'B' %}selected{% endif %}>반전세</option>
             <option value="J" {% if form.lease_gb == 'J' %}selected{% endif %}>전세</option>
           </select>
         </div>
@@ -167,7 +187,7 @@
       </div>
     </fieldset>
 
-    <p class="tenant-past-hint muted" id="tenant-past-hint"{% if ts != 'past' %} hidden{% endif %}>
+    <p class="hint-box" id="tenant-past-hint"{% if ts != 'past' %} hidden{% endif %}>
       ※ 퇴실자 이력은 <strong>조회 전용</strong>입니다. 내용은 수정·저장·삭제할 수 없습니다.
       (주소·호수·순번으로 다른 이력 이동은 가능)
     </p>
@@ -729,6 +749,7 @@ window.onTenantDeleteClick = function (e) {
   // 보증금 ↔ 예치금: 입력 쪽만 활성, 반대쪽 비활성
   var bojungEl = document.getElementById('bojung_amt');
   var yechiEl = document.getElementById('yechi_amt');
+  var leaseGbEl = document.getElementById('lease_gb');
   function clearMoneyField(el) {
     if (!el) return;
     el.value = '';
@@ -785,6 +806,28 @@ window.onTenantDeleteClick = function (e) {
       setMoneyDisabled(yechiEl, false);
     }
   }
+  
+  /** 보증금 기준으로 전세(J) 옵션 활성/비활성 제어
+      보증금 < 1000만원이면 전세 옵션 disabled, 현재 선택되면 월세로 변경 */
+  function updateLeaseGbByBojung() {
+    if (!bojungEl || !leaseGbEl) return;
+    var bojungManwon = parseInt(bojungEl.dataset.manwon || '0', 10);
+    var jeonsaeOption = leaseGbEl.querySelector('option[value="J"]');
+    if (!jeonsaeOption) return;
+    
+    if (bojungManwon < 1000) {
+      // 보증금 1000만원 미만: 전세 옵션 비활성화
+      jeonsaeOption.disabled = true;
+      // 현재 전세가 선택되어 있으면 월세로 자동 변경
+      if (leaseGbEl.value === 'J') {
+        leaseGbEl.value = 'W';
+      }
+    } else {
+      // 보증금 1000만원 이상: 전세 옵션 활성화
+      jeonsaeOption.disabled = false;
+    }
+  }
+  
   // 비활성 필드 클릭 시 안내
   function onDisabledMoneyClick(e) {
     var el = e.currentTarget;
@@ -799,7 +842,10 @@ window.onTenantDeleteClick = function (e) {
   if (bojungEl) {
     ['keydown', 'blur', 'paste', 'input'].forEach(function (ev) {
       bojungEl.addEventListener(ev, function () {
-        setTimeout(function () { enforceBojungYechiExclusive('bojung'); }, 0);
+        setTimeout(function () { 
+          enforceBojungYechiExclusive('bojung');
+          updateLeaseGbByBojung();
+        }, 0);
       });
     });
     bojungEl.addEventListener('mousedown', onDisabledMoneyClick);
@@ -814,6 +860,7 @@ window.onTenantDeleteClick = function (e) {
   }
   // 초기 상태 (로드된 값 기준)
   enforceBojungYechiExclusive('');
+  updateLeaseGbByBojung();
 
   // 저장: 원 단위 숫자 + 보증금/예치금 검사
   form.addEventListener('submit', function (e) {
@@ -996,6 +1043,9 @@ window.onTenantDeleteClick = function (e) {
     });
     if (modeEl) modeEl.value = f.mode || 'edit';
     setTenantStatus(f.tenant_status || 'current', f.out_dt || '');
+    if (typeof updateLeaseGbByBojung === 'function') {
+      updateLeaseGbByBojung();
+    }
     lastRoomKey = roomKey();
   }
 
@@ -1239,9 +1289,194 @@ window.onTenantDeleteClick = function (e) {
     });
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 건물 선택 모달
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  var buildingModal = document.getElementById('building-select-modal');
+  var buildingModalContent = document.getElementById('building-modal-content');
+  var buildingModalSearchForm = document.getElementById('building-modal-search-form');
+  var currentModalQuery = '';
+  var currentModalPage = 1;
+  
+  function loadBuildingListInModal(query, page) {
+    if (!buildingModalContent) return;
+    
+    query = query || currentModalQuery;
+    page = page || 1;
+    currentModalQuery = query;
+    currentModalPage = page;
+    
+    var url = '{{ url_for("buildings", select="1") }}';
+    var params = [];
+    if (query) {
+      params.push('q=' + encodeURIComponent(query));
+    }
+    if (page && page > 1) {
+      params.push('page=' + page);
+    }
+    // 캐시 무효화: 타임스탬프 추가
+    params.push('_t=' + Date.now());
+    
+    if (params.length > 0) {
+      // url_for에서 이미 ?select=1이 포함되어 있으므로 &를 사용
+      url += '&' + params.join('&');
+    }
+    
+    console.log('[Modal Search] Loading URL:', url);
+    fetch(url, { credentials: 'same-origin' })
+      .then(r => r.text())
+      .then(html => {
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        // .bldg-card-list와 .panel-section-lab (페이징 정보) 추출
+        var sectionLab = doc.querySelector('.panel-section-lab');
+        var buildingList = doc.querySelector('.bldg-card-list');
+        console.log('[Modal Search] Found:', { sectionLab: !!sectionLab, buildingList: !!buildingList });
+        if (buildingList && buildingModalContent) {
+          var content = '';
+          if (sectionLab) {
+            // .panel-section-lab class 유지 (CSS 적용용)
+            content += sectionLab.outerHTML;
+          }
+          content += buildingList.outerHTML;
+          buildingModalContent.innerHTML = content;
+          setupModalBuildingCards();
+          setupModalPaging();
+        }
+      })
+      .catch(err => console.error('건물 목록 로드 오류:', err));
+  }
+  
+  function setupModalPaging() {
+    // 모달 내 페이징 링크 클릭 처리
+    var pagingLinks = buildingModalContent ? buildingModalContent.querySelectorAll('.pager a') : [];
+    pagingLinks.forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        var href = link.getAttribute('href');
+        if (!href) return;
+        
+        // URL에서 page 파라미터 추출
+        var pageMatch = href.match(/[?&]page=(\d+)/);
+        var page = pageMatch ? parseInt(pageMatch[1]) : 1;
+        
+        // URL에서 q 파라미터 추출 (검색어)
+        var qMatch = href.match(/[?&]q=([^&]+)/);
+        var query = qMatch ? decodeURIComponent(qMatch[1]) : '';
+        
+        loadBuildingListInModal(query, page);
+      });
+    });
+  }
+  
+  function openBuildingModal() {
+    if (!buildingModal) return;
+    buildingModal.style.display = 'flex';
+    buildingModal.setAttribute('aria-hidden', 'false');
+    
+    // 모달 열 때마다 쿼리와 페이지 초기화
+    currentModalQuery = '';
+    currentModalPage = 1;
+    document.getElementById('modal-search-q').value = '';
+    
+    // 초기 목록 로드
+    loadBuildingListInModal('', 1);
+  }
+  
+  function closeBuildsModal() {
+    if (buildingModal) {
+      buildingModal.style.display = 'none';
+      buildingModal.setAttribute('aria-hidden', 'true');
+    }
+  }
+  
+  // 모달 닫기 버튼 클릭 처리
+  var modalCloseBtn = document.getElementById('modal-close-btn');
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener('click', closeBuildsModal);
+  }
+  
+  function setupModalBuildingCards() {
+    var cards = buildingModalContent ? buildingModalContent.querySelectorAll('.bldg-card.is-selectable') : [];
+    cards.forEach(function (card) {
+      card.addEventListener('click', function (e) {
+        if (e.target.closest('nav.bldg-card-actions')) return;
+        var bunji1 = card.getAttribute('data-bunji1') || '';
+        var bunji2 = card.getAttribute('data-bunji2') || '';
+        setBuilding(bunji1, bunji2);
+        closeBuildsModal();
+      });
+    });
+  }
+  
+  // 모달 바깥 클릭 시 닫기
+  if (buildingModal) {
+    buildingModal.addEventListener('click', function (e) {
+      if (e.target === buildingModal) {
+        closeBuildsModal();
+      }
+    });
+  }
+  
+  // ▼▼▼ 모달 검색 폼 이벤트 - 전역에서 한 번만 등록 ▼▼▼
+  if (buildingModalSearchForm) {
+    buildingModalSearchForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var query = document.getElementById('modal-search-q').value.trim();
+      console.log('[Modal Search] Form submitted, query:', query);
+      loadBuildingListInModal(query, 1);
+    });
+    
+    var resetBtn = document.getElementById('modal-search-reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        document.getElementById('modal-search-q').value = '';
+        console.log('[Modal Search] Reset clicked');
+        loadBuildingListInModal('', 1);
+      });
+    }
+  }
+  // ▲▲▲ 모달 검색 폼 이벤트 종료 ▲▲▲
+  
+  // "주소 찾기" 버튼
   document.getElementById('btn_find_bunji').addEventListener('click', function () {
-    window.location.href = '{{ url_for("buildings") }}';
+    openBuildingModal();
   });
+  
+  // 건물이 선택되면 호출되는 함수
+  window.setBuilding = function(bunji1, bunji2) {
+    var b1 = document.getElementById('bunji1');
+    var b2 = document.getElementById('bunji2');
+    if (b1 && b2) {
+      b1.value = bunji1 || '';
+      b2.value = bunji2 || '';
+      // 건물명 표시 갱신 (다시 로드)
+      var buildingHint = document.getElementById('building-hint');
+      if (buildingHint) {
+        buildingHint.hidden = false;
+        buildingHint.textContent = '건물 정보 로드 중...';
+      }
+      // /api/building으로 건물명 조회
+      if (bunji1 && bunji2) {
+        fetch('{{ url_for("api_building") }}?bunji1=' + encodeURIComponent(bunji1) + '&bunji2=' + encodeURIComponent(bunji2))
+          .then(r => r.json())
+          .then(data => {
+            if (buildingHint && data.found && data.juso) {
+              buildingHint.hidden = false;
+              buildingHint.innerHTML = '<strong>' + (data.juso || '이름 없음').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</strong>';
+            }
+          })
+          .catch(err => {
+            console.error('건물 로드 오류:', err);
+            if (buildingHint) buildingHint.hidden = true;
+          });
+      }
+      // 포커스를 호수로 이동
+      var hosuEl = document.getElementById('hosu');
+      if (hosuEl) setTimeout(() => hosuEl.focus(), 100);
+    }
+  };
 
   // 오늘 / 달력
   var cal = document.getElementById('ipju_cal');

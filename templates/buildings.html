@@ -1,12 +1,38 @@
 {% extends "base.html" %}
-{% block title %}{% if next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %} · 주택관리 시스템{% endblock %}
+{% block title %}{% if select_mode %}건물 선택{% elif next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %} · 주택관리 시스템{% endblock %}
 {% block content %}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">{% if next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %}</span>
+    <span class="caption-title">{% if select_mode %}건물 선택{% elif next_mode=='rooms' %}호수 내역 조회{% else %}건물 내역 조회{% endif %}</span>
     {% if building_total is defined %}<span class="muted">{{ building_total }}건{% if selected_dong != '전체' %} · {{ selected_dong }} {{ selected_total }}건{% endif %}</span>{% endif %}
   </div>
   <div class="legacy-sukum-body">
+    {# KPI 요약 #}
+    {% if stats is defined %}
+    <div class="vacancy-stats">
+      <a href="{{ url_for('buildings') }}" class="dash-kpi kpi-building is-active">
+        <div class="dash-kpi-lab">전체 건물</div>
+        <div class="dash-kpi-circle st-navy">{{ stats.building_total }}</div>
+      </a>
+      <a href="{{ url_for('vacancies', view='rooms') }}" class="dash-kpi kpi-rooms">
+        <div class="dash-kpi-lab">전체 호수</div>
+        <div class="dash-kpi-circle st-info">{{ stats.room_total }}</div>
+      </a>
+      <a href="{{ url_for('vacancies', view='occupied') }}" class="dash-kpi kpi-occupied">
+        <div class="dash-kpi-lab">현재 입주</div>
+        <div class="dash-kpi-circle st-paid">{{ stats.occupied_total }}</div>
+      </a>
+      <a href="{{ url_for('vacancies', view='vacant') }}" class="dash-kpi kpi-vacant">
+        <div class="dash-kpi-lab">공실</div>
+        <div class="dash-kpi-circle st-empty">{{ stats.vacant_total }}</div>
+      </a>
+      <a href="{{ url_for('vacancies', view='vacancy_buildings') }}" class="dash-kpi kpi-vacancy-buildings">
+        <div class="dash-kpi-lab">공실 있는 건물</div>
+        <div class="dash-kpi-circle st-wait">{{ stats.buildings_with_vacancy }}</div>
+      </a>
+    </div>
+    {% endif %}
+
     <form class="filter-bar" method="get" action="{{ url_for('buildings') }}">
       <div class="filter-bar-fields">
         {% if next_mode=='rooms' %}<input type="hidden" name="next" value="rooms">{% endif %}
@@ -20,8 +46,8 @@
       </div>
       <div class="filter-bar-btns filter-bar-btns-single">
         <button type="submit" class="btn">검색</button>
-        <a class="btn" href="{{ url_for('buildings', next='rooms') if next_mode=='rooms' else url_for('buildings') }}">초기화</a>
-        {% if next_mode!='rooms' %}
+        <a class="btn" href="{{ url_for('buildings', next='rooms') if next_mode=='rooms' else (url_for('buildings', select='1') if select_mode else url_for('buildings')) }}">초기화</a>
+        {% if not select_mode and next_mode!='rooms' %}
         <a class="btn btn-accent" href="{{ url_for('building_new') }}">신규등록</a>
         {% endif %}
       </div>
@@ -41,11 +67,13 @@
 
     {% if buildings %}
     <div class="panel-section-lab">
-      {% if next_mode=='rooms' %}호수 내역{% else %}건물 목록{% endif %}
-      <span class="muted">
-        {{ selected_total if selected_dong != '전체' else building_total }}건
-        {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
-      </span>
+      <div class="panel-section-lab-info">
+        <span>{% if next_mode=='rooms' %}호수 내역{% else %}건물 목록{% endif %}</span>
+        <span class="muted">
+          {{ selected_total if selected_dong != '전체' else building_total }}건
+          {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+        </span>
+      </div>
       {% set pager_endpoint = 'buildings' %}
       {% set pager_label = '건물 목록 페이지' %}
       {% set pager_query = {'q': q or none, 'dong': selected_dong or none, 'next': next_mode or none} %}
@@ -54,10 +82,15 @@
     <div class="bldg-card-list">
     {% for b in buildings %}
     {% set href = url_for('building_rooms', bunji1=b.bunji1, bunji2=b.bunji2) if next_mode=='rooms' else url_for('building_detail', bunji1=b.bunji1, bunji2=b.bunji2) %}
-    <article class="bldg-card">
+    <article class="bldg-card{% if select_mode %} is-selectable{% endif %}" 
+             {% if select_mode %}data-bunji1="{{ b.bunji1 }}" data-bunji2="{{ b.bunji2 }}" role="button" tabindex="0" title="선택하려면 클릭"{% endif %}>
       <div class="bldg-card-body">
         <div class="bldg-card-left">
+          {% if select_mode %}
+          <div class="bldg-card-title bldg-card-title-left">{{ b.juso_display or b.juso or '이름 없음' }} [{{ b.bunji1|bunji_pair(b.bunji2) }}]</div>
+          {% else %}
           <a class="bldg-card-title bldg-card-title-left" href="{{ href }}">{{ b.juso_display or b.juso or '이름 없음' }} [{{ b.bunji1|bunji_pair(b.bunji2) }}]</a>
+          {% endif %}
           <div class="bldg-card-count {% if b.mgmt_gb == 'G' %}is-general{% else %}is-responsible{% endif %}">총 {{ b.room_cnt }}호수</div>
           <div class="bldg-card-illust-row">
             <div class="bldg-card-illust" role="button" tabindex="0" aria-expanded="false" title="건물 정보 펼치기">
@@ -164,6 +197,35 @@
     if (!handle) return;
     e.preventDefault();
     handle.click();
+  });
+  
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 건물 선택 모드: 카드 클릭 → 부모 창에 번지값 전달 (팝업 + 모달 모두 지원)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  var selectableCards = list ? list.querySelectorAll('.bldg-card.is-selectable') : [];
+  selectableCards.forEach(function (card) {
+    card.addEventListener('click', function (e) {
+      if (e.target.closest('nav.bldg-card-actions')) return;  // 액션 링크는 무시
+      var bunji1 = card.getAttribute('data-bunji1') || '';
+      var bunji2 = card.getAttribute('data-bunji2') || '';
+      // 팝업 창일 경우
+      if (window.opener && typeof window.opener.setBuilding === 'function') {
+        window.opener.setBuilding(bunji1, bunji2);
+        window.close();
+      }
+      // 모달일 경우 (parent = tenant_form.html)
+      else if (parent !== window && typeof parent.setBuilding === 'function') {
+        parent.setBuilding(bunji1, bunji2);
+        if (typeof parent.closeBuildsModal === 'function') {
+          parent.closeBuildsModal();
+        }
+      }
+    });
+    card.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      card.click();
+    });
   });
 })();
 </script>

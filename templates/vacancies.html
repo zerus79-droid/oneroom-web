@@ -14,7 +14,7 @@
 
     {# KPI 요약 #}
     <div class="vacancy-stats">
-      <a href="{{ url_for('vacancies', view='buildings') }}" class="dash-kpi kpi-building{% if stats.view == 'buildings' %} is-active{% endif %}">
+      <a href="{{ url_for('buildings') }}" class="dash-kpi kpi-building">
         <div class="dash-kpi-lab">전체 건물</div>
         <div class="dash-kpi-circle st-navy">{{ stats.building_total }}</div>
       </a>
