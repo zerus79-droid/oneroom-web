@@ -1146,6 +1146,7 @@ def _finish_match_row(
         "source_file": dep.get("source_file", ""),
         "account_no": dep.get("account_no", ""),
         "dep_id": dep.get("dep_id", ""),
+        "manual_room": dep.get("_manual_room", ""),
         "room_options": (
             _room_options(
                 candidates, with_combo=True,
@@ -1317,14 +1318,22 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         # 수동매칭 규칙 / 이번 세션 선택 우선
         forced = None
         pick = manual_picks.get(dep.get("dep_id") or "")
-        if isinstance(pick, dict) and pick.get("room") and "|" in pick.get("room"):
-            ph, ps = pick["room"].split("|", 1)
-            forced = _tenant_by_keys(
-                scope_tenants,
+        if isinstance(pick, dict) and pick.get("room") and "|" in str(pick.get("room")):
+            dep = dict(dep)
+            dep["_manual_room"] = pick.get("room")
+            forced = _tenant_by_room_key(
+                scope_tenants or tenants,
+                pick.get("room"),
                 pick.get("bunji1") or scope_primary_b1,
                 pick.get("bunji2") or scope_primary_b2,
-                ph, ps,
             )
+            if forced is None and scope_tenants is not tenants:
+                forced = _tenant_by_room_key(
+                    tenants,
+                    pick.get("room"),
+                    pick.get("bunji1") or scope_primary_b1,
+                    pick.get("bunji2") or scope_primary_b2,
+                )
         if forced is None:
             rule = _find_match_rule(dep.get("name") or "", dep.get("account_no") or "", match_rules)
             if rule:
@@ -1478,6 +1487,49 @@ def _hosu_sort_key(t):
         return (2, 0, h)
 
 
+def _parse_room_key(key):
+    """호실 키 파싱. 신형식 bunji1|bunji2|hosu|seq 또는 구형식 hosu|seq."""
+    parts = [p for p in str(key or "").split("|") if p is not None]
+    if len(parts) >= 4:
+        return (
+            _pad_bunji(parts[0]),
+            _pad_bunji(parts[1]),
+            (parts[2] or "").strip().upper(),
+            str(parts[3] or "").zfill(2),
+        )
+    if len(parts) == 2:
+        return (
+            "",
+            "",
+            (parts[0] or "").strip().upper(),
+            str(parts[1] or "").zfill(2),
+        )
+    return "", "", "", ""
+
+
+def _tenant_by_room_key(tenants, key, fallback_b1="", fallback_b2=""):
+    b1, b2, hosu, ipju_seq = _parse_room_key(key)
+    if not hosu:
+        return None
+    if not b1:
+        b1, b2 = _pad_bunji(fallback_b1), _pad_bunji(fallback_b2)
+    if b1 and b2:
+        hit = _tenant_by_keys(tenants, b1, b2, hosu, ipju_seq)
+        if hit:
+            return hit
+    # bunji 없거나 실패 시 호실+순번만으로 (유일이면)
+    hits = []
+    for trow in tenants or []:
+        if (trow.get("hosu") or "").strip().upper() != hosu:
+            continue
+        if str(trow.get("ipju_seq") or "").zfill(2) != ipju_seq:
+            continue
+        hits.append(trow)
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
 def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
     opts = []
     tenants = sorted(tenants, key=_hosu_sort_key)
@@ -1494,8 +1546,11 @@ def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
                 t.get("rent_amt"), t.get("manage_amt"),
                 t.get("ipju_dt"), as_of=as_of,
             )
+        b1 = _pad_bunji(t.get("bunji1"))
+        b2 = _pad_bunji(t.get("bunji2"))
+        # value: bunji1|bunji2|hosu|ipju_seq (다중 건물에서 수동선택 유지용)
         opts.append({
-            "value": f"{h}|{seq}",
+            "value": f"{b1}|{b2}|{h}|{seq}",
             "label": f"{h}호 {nm}".strip(),
             "misu": misu,
             "due": _monthly_due(t),
@@ -1591,9 +1646,10 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
             for key, amt in parts.items():
                 if "|" not in key:
                     continue
-                hosu, ipju_seq = key.split("|", 1)
+                pb1, pb2, hosu, ipju_seq = _parse_room_key(key)
+                use_b1, use_b2 = (pb1 or row_bunji1), (pb2 or row_bunji2)
                 if _insert_sukum(
-                    row_bunji1, row_bunji2, hosu, ipju_seq,
+                    use_b1, use_b2, hosu, ipju_seq,
                     row["date"], amt, row.get("name"), pay_kind=pay_kind,
                 ):
                     n += 1
@@ -1608,7 +1664,9 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
                 seen.add(v)
                 picks.append(v)
         if len(picks) == 1:
-            hosu, ipju_seq = picks[0].split("|", 1)
+            pb1, pb2, hosu, ipju_seq = _parse_room_key(picks[0])
+            if pb1 and pb2:
+                row_bunji1, row_bunji2 = pb1, pb2
         else:
             hosu, ipju_seq = row.get("hosu"), row.get("ipju_seq")
         if _insert_sukum(
@@ -1707,11 +1765,16 @@ def payments_import():
                 continue
             pick = (vals[0] if vals else "") or ""
             if pick and "|" in pick and pick != "ALL":
-                hosu, ipju_seq = pick.split("|", 1)
+                b1, b2, hosu, ipju_seq = _parse_room_key(pick)
+                if not b1:
+                    b1 = _pad_bunji(rows[idx].get("bunji1") or primary_bunji1)
+                    b2 = _pad_bunji(rows[idx].get("bunji2") or primary_bunji2)
+                    # 구형식 키면 bunji 붙여 정규화
+                    pick = f"{b1}|{b2}|{hosu}|{ipju_seq}"
                 manual_picks[dep_id] = {
                     "room": pick,
-                    "bunji1": rows[idx].get("bunji1") or primary_bunji1,
-                    "bunji2": rows[idx].get("bunji2") or primary_bunji2,
+                    "bunji1": b1,
+                    "bunji2": b2,
                     "hosu": hosu,
                     "ipju_seq": ipju_seq,
                 }
@@ -1740,16 +1803,18 @@ def payments_import():
                     raw = [raw] if raw else []
                 pick = next((v for v in raw if v and "|" in v and v != "ALL"), "")
                 if pick:
-                    hosu, ipju_seq = pick.split("|", 1)
+                    b1, b2, hosu, ipju_seq = _parse_room_key(pick)
                 else:
+                    b1 = _pad_bunji(row.get("bunji1") or primary_bunji1)
+                    b2 = _pad_bunji(row.get("bunji2") or primary_bunji2)
                     hosu, ipju_seq = row.get("hosu") or "", row.get("ipju_seq") or ""
+                if not b1:
+                    b1 = _pad_bunji(row.get("bunji1") or primary_bunji1)
+                    b2 = _pad_bunji(row.get("bunji2") or primary_bunji2)
                 if hosu and (pick or row.get("needs_pick") or row.get("amount_flag") or row.get("status") == "unmatched"):
                     add_match_rule(
                         row.get("name") or "",
-                        row.get("bunji1") or primary_bunji1,
-                        row.get("bunji2") or primary_bunji2,
-                        hosu,
-                        ipju_seq,
+                        b1, b2, hosu, ipju_seq,
                         row.get("account_no") or "",
                     )
 

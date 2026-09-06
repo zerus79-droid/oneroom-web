@@ -99,6 +99,16 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
   min-width: 12em;
   max-width: 22em;
 }
+.match-result-lab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.match-result-lab .btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
 </style>
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
@@ -208,12 +218,12 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
         {% if not bunji1 %}<span class="st-badge overdue">주소를 선택하세요</span>{% endif %}
         {% endif %}
       </div>
-      <div class="filter-bar-btns filter-bar-btns-single">
-        <button type="submit" class="btn" form="apply-form">일괄반영</button>
-      </div>
     </form>
 
-    <div class="panel-section-lab">매칭 결과 <span class="muted">{{ rows|length }}건</span></div>
+    <div class="panel-section-lab match-result-lab">
+      <span>매칭 결과 <span class="muted">{{ rows|length }}건</span></span>
+      <button type="submit" class="btn" form="apply-form">일괄반영</button>
+    </div>
     <form method="post" id="exclude-quick-form" action="{{ url_for('payments_import_exclude') }}" style="display:none">
       <input type="hidden" name="action" value="exclude_add">
       <input type="hidden" name="token" value="{{ token }}">
@@ -246,7 +256,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
             {% for r in rows %}
             {% set row_i = loop.index0 %}
             {% set needs_dropdown = r.status=='unmatched' or (r.status=='matched' and r.amount_flag) %}
-            {% set current_value = (r.hosu + '|' + r.ipju_seq) if r.hosu else '' %}
+            {% set current_value = (r.manual_room if r.manual_room else ((r.bunji1 ~ '|' ~ r.bunji2 ~ '|' ~ r.hosu ~ '|' ~ r.ipju_seq) if r.hosu and r.bunji1 else ((r.hosu ~ '|' ~ r.ipju_seq) if r.hosu else ''))) %}
             <tr class="import-row import-{{ r.status }}">
               <td class="tc">
                 <input type="checkbox" name="apply_idx" value="{{ row_i }}"
@@ -270,14 +280,14 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
                 <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
                   <option value="">호실 선택</option>
                   {% for opt in r.room_options %}
-                  <option value="{{ opt.value }}">{{ opt.label }}</option>
+                  <option value="{{ opt.value }}" {% if opt.value==current_value or (current_value and opt.value.endswith(current_value)) or (r.hosu and opt.value.endswith(r.hosu ~ '|' ~ r.ipju_seq)) %}selected{% endif %}>{{ opt.label }}</option>
                   {% endfor %}
                 </select>
                 {% elif needs_dropdown %}
                 <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
                   <option value="">호실 선택{% if current_value %} (지금: {{ r.hosu }}호 {{ r.tenant_nm }}){% endif %}</option>
                   {% for opt in r.room_options %}
-                  <option value="{{ opt.value }}" {% if opt.value==current_value %}selected{% endif %}>{{ opt.label }}</option>
+                  <option value="{{ opt.value }}" {% if opt.value==current_value or (current_value and opt.value.endswith(current_value)) or (r.hosu and opt.value.endswith(r.hosu ~ '|' ~ r.ipju_seq)) %}selected{% endif %}>{{ opt.label }}</option>
                   {% endfor %}
                 </select>
                 {% else %}
@@ -310,7 +320,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
                 {% if r.needs_pick %}
                 <div class="split-amts" id="split-amts-{{ row_i }}" data-total="{{ r.amount }}" hidden>
                   {% for opt in r.room_options if opt.value != 'ALL' %}
-                  <label>{{ opt.value.split('|')[0] }}
+                  <label>{{ opt.value.split('|')[2] if opt.value.split('|')|length > 2 else opt.value.split('|')[0] }}
                     <input type="text" name="split_{{ row_i }}_{{ opt.value }}" class="money-input" inputmode="numeric" autocomplete="off"
                            data-misu="{{ opt.misu or 0 }}" data-due="{{ opt.due or 0 }}"
                            placeholder="{{ (opt.misu or 0)|money }}">
