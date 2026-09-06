@@ -16,24 +16,25 @@
           <div class="xp-field xp-field-wide">
             <label class="ls-lab">주　　소</label>
             {% if address_locked %}
-            <input type="text" class="ls-select" value="{{ building_label }}" disabled title="자동 감지된 건물">
-            <span class="muted">자동 감지됨</span>
+            <input type="text" class="ls-select" value="{{ building_display }}" disabled title="감지된 건물">
+            <span class="muted">{% if auto_detected %}자동 감지됨{% else %}선택됨{% endif %}</span>
             {% else %}
-            <select name="bunji1_bunji2" class="ls-select" onchange="
-              var v=this.value.split('|');
-              this.form.bunji1.value=v[0]||'';
-              this.form.bunji2.value=v[1]||'';
-            ">
-              <option value="">자동 감지 (선택 안 하면 파일에서 이름으로 찾음)</option>
-              {% for b in buildings %}
-              <option value="{{ b.bunji1 }}|{{ b.bunji2 }}" {% if b.bunji1==bunji1 and b.bunji2==bunji2 %}selected{% endif %}>
-                {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
-              </option>
-              {% endfor %}
-            </select>
-            {% if building_label %}
-            <span class="muted">{{ building_label }}{% if auto_detected %} (자동 감지됨){% endif %}</span>
-            {% endif %}
+            <input type="text" class="ls-select" value="자동 감지 (파일에서 건물 찾음)" disabled>
+            <details class="addr-pick" style="margin-top:4px;">
+              <summary class="muted" style="cursor:pointer;">주소 직접 고르기</summary>
+              <select name="bunji1_bunji2" class="ls-select" style="margin-top:4px;" onchange="
+                var v=this.value.split('|');
+                this.form.bunji1.value=v[0]||'';
+                this.form.bunji2.value=v[1]||'';
+              ">
+                <option value="">자동 감지</option>
+                {% for b in buildings %}
+                <option value="{{ b.bunji1 }}|{{ b.bunji2 }}" {% if b.bunji1==bunji1 and b.bunji2==bunji2 %}selected{% endif %}>
+                  {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
+                </option>
+                {% endfor %}
+              </select>
+            </details>
             {% endif %}
             <input type="hidden" name="bunji1" value="{{ bunji1 }}">
             <input type="hidden" name="bunji2" value="{{ bunji2 }}">
@@ -68,8 +69,23 @@
           <div class="xp-field">
             <label class="ls-lab">주소 확인</label>
             {% if address_locked %}
-            <input type="text" class="ls-select" value="{{ building_label }}" disabled title="자동 감지된 건물">
-            <span class="muted">자동 감지됨</span>
+            <input type="text" class="ls-select" value="{{ building_display }}" disabled title="감지된 건물">
+            <span class="muted">{% if auto_detected %}자동 감지됨{% else %}선택됨{% endif %}</span>
+            <details class="addr-pick" style="margin-top:4px;">
+              <summary class="muted" style="cursor:pointer;">주소 변경</summary>
+              <select name="bunji1_bunji2" class="ls-select" style="margin-top:4px;" onchange="
+                var v=this.value.split('|');
+                this.form.bunji1.value=v[0]||'';
+                this.form.bunji2.value=v[1]||'';
+              ">
+                {% for b in buildings %}
+                <option value="{{ b.bunji1 }}|{{ b.bunji2 }}" {% if b.bunji1==bunji1 and b.bunji2==bunji2 %}selected{% endif %}>
+                  {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
+                </option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn secondary" style="margin-top:4px;">주소선택</button>
+            </details>
             {% else %}
             <select name="bunji1_bunji2" class="ls-select" {% if not bunji1 %}autofocus{% endif %} onchange="
               var v=this.value.split('|');

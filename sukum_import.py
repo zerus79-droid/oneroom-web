@@ -1684,14 +1684,26 @@ def payments_import():
         )
 
     building_label = _building_label(bunji1, bunji2) if bunji1 and bunji2 else ""
-    # 자동 감지 + 건물 1곳이면 주소 드롭다운 숨기고 건물명만 표시
-    address_locked = bool(auto_detected and building_label and len(building_list) == 1)
+    # 매칭 결과가 있고 건물이 정해졌으면 전체 드롭다운 대신 한 줄만 표시
+    labels = []
+    for b1, b2 in (building_list or []):
+        lab = _building_label(b1, b2)
+        if lab and lab not in labels:
+            labels.append(lab)
+    if len(labels) == 1:
+        building_display = labels[0]
+    elif len(labels) > 1:
+        building_display = f"{labels[0]} 외 {len(labels) - 1}곳"
+    else:
+        building_display = building_label
+    address_locked = bool(rows is not None and building_list and building_display)
     return render_template(
         "payments_import.html",
         buildings=buildings,
         bunji1=bunji1,
         bunji2=bunji2,
         building_label=building_label,
+        building_display=building_display,
         auto_detected=auto_detected,
         address_locked=address_locked,
         rows=rows,
