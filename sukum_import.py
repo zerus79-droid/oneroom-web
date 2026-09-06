@@ -910,14 +910,13 @@ def _deposit_is_excluded(name, building_list, dep_account_no, rules):
 def buildings_by_account(account_no):
     """계좌번호(숫자만)를 쓰는 건물 목록. 책임관리는 여러 건물이 같은(관리사무소) 통장을
     같이 쓰는 게 정상이라 0곳/1곳/여러 곳 다 나올 수 있음."""
-    acct = _account_digits(account_no or "")
-    if not acct:
+    if not account_no:
         return []
     rows = db.query("SELECT bunji1, bunji2, bank_cd FROM bd01 WHERE bank_cd IS NOT NULL AND bank_cd<>''")
     return [
         (r["bunji1"], r["bunji2"])
         for r in rows
-        if _account_digits(r.get("bank_cd")) == acct
+        if _account_digits(r.get("bank_cd")) == account_no
     ]
 
 
@@ -1114,7 +1113,7 @@ def _try_split_lump(candidates, amount):
 
 def _finish_match_row(
     dep, match, amount, candidates, all_room_options,
-    existing_set, bunji1, bunji2, needs_pick, existing_import_set=None,
+    existing_set, bunji1, bunji2, needs_pick,
 ):
     hosu = (match.get("hosu") or "").strip().upper() if match else ""
     ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
@@ -1158,18 +1157,12 @@ def _finish_match_row(
             else (all_room_options if not match else [])
         ),
     }
-    import_key = (row["date"], int(amount), dep.get("name") or "")
-    already_imported = bool(existing_import_set and import_key in existing_import_set)
-    if needs_pick and not already_imported:
+    if needs_pick:
         row["status"] = "matched"
-    elif already_imported or (
-        match
-        and (matched_bunji1, matched_bunji2, hosu, ipju_seq, row["date"], int(amount))
-        in existing_set
-    ):
-        row["status"] = "duplicate"
     elif not match:
         row["status"] = "unmatched"
+    elif (matched_bunji1, matched_bunji2, hosu, ipju_seq, row["date"], int(amount)) in existing_set:
+        row["status"] = "duplicate"
     else:
         row["status"] = "matched"
         expected = _monthly_due(match)
@@ -1202,7 +1195,7 @@ def _finish_match_row(
     return row
 
 
-def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2="", manual_picks=None, auto_detected=False):
+def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2="", manual_picks=None):
     """세입자 매칭.
 
     우선순위: 입금 계좌번호 → 건물(bank_cd) 한정 후, 그 안에서 이름/호수 매칭.
@@ -1228,30 +1221,14 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             return []
 
     # JSON 상태 복원 시 [(b1,b2)]가 [[b1,b2]]로 올 수 있음 → 전부 튜플로 정규화
-    # JSON 복원 시 list→tuple만 맞추고, DB 조회 키는 원본 유지(제로패딩하면 CHAR 매칭이 깨질 수 있음)
     building_list = [
         (b[0], b[1]) if not isinstance(b, tuple) else b
         for b in building_list
-        if b and len(b) >= 2 and b[0] and b[1]
+        if b and len(b) >= 2
     ]
-    # 패딩 기준으로 중복 제거하되, SQL용 값은 첫 원본을 유지
-    dedup = {}
-    for b1, b2 in building_list:
-        dedup.setdefault((_pad_bunji(b1), _pad_bunji(b2)), (b1, b2))
-    building_list = sorted(dedup.values(), key=lambda b: (_pad_bunji(b[0]), _pad_bunji(b[1])))
     if not building_list:
         return []
-
-    # 자동감지면 입금 계좌에 묶인 건물을 모두 포함 (한 통장·여러 건물)
-    if auto_detected:
-        seen = {(_pad_bunji(b1), _pad_bunji(b2)): (b1, b2) for b1, b2 in building_list}
-        for dep in deposits or []:
-            for b1, b2 in buildings_by_account(dep.get("account_no") or ""):
-                key = (_pad_bunji(b1), _pad_bunji(b2))
-                if key[0] and key[1] and key not in seen:
-                    seen[key] = (b1, b2)
-        building_list = sorted(seen.values(), key=lambda b: (_pad_bunji(b[0]), _pad_bunji(b[1])))
-
+    
     # 모든 건물의 세입자 조회 — WHERE (bunji1, bunji2) IN (...)
     placeholders = ",".join(["(%s, %s)"] * len(building_list))
     params = []
@@ -1270,27 +1247,15 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
     
     # 각 건물별로 기존 수금 기록 조회
     # 개선: (bunji1, bunji2)를 key에 포함시킴 → 다른 건물의 같은 호실/날짜/금액도 구분
-    try:
-        existing = db.query(
-            f"""
-            SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt, manage_desc
-            FROM sukum01
-            WHERE (bunji1, bunji2) IN ({placeholders})
-              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-            """,
-            params,
-        )
-    except Exception:
-        # manage_desc 조회 실패해도 매칭은 진행
-        existing = db.query(
-            f"""
-            SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt
-            FROM sukum01
-            WHERE (bunji1, bunji2) IN ({placeholders})
-              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-            """,
-            params,
-        )
+    existing = db.query(
+        f"""
+        SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt
+        FROM sukum01
+        WHERE (bunji1, bunji2) IN ({placeholders})
+          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+        """,
+        params,
+    )
     existing_set = {
         (
             r.get("bunji1"),
@@ -1302,23 +1267,6 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         )
         for r in existing
     }
-    # 입금파일로 이미 반영된 건 (호실 매칭 실패해도 날짜중복)
-    _import_desc_re = re.compile(r"입금파일\s*자동반영\s*\[[^\]]*\]\s*\((.*)\)\s*$")
-    existing_import_set = set()
-    for r in existing:
-        raw_d = r.get("d")
-        if hasattr(raw_d, "isoformat"):
-            d = raw_d.isoformat()
-        else:
-            d = str(raw_d or "")[:10]
-        try:
-            amt = int(r.get("su_sil_amt") or 0)
-        except (TypeError, ValueError):
-            continue
-        desc = (r.get("manage_desc") or "").strip()
-        m = _import_desc_re.search(desc)
-        if m:
-            existing_import_set.add((d, amt, (m.group(1) or "").strip()))
     exclude_rules = list_exclude_keywords()
     match_rules = list_match_rules()
     manual_picks = manual_picks or {}
@@ -1336,49 +1284,21 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         if not dep_acct:
             return tenants, list(building_list)
         if dep_acct not in _acct_buildings_cache:
-            # bd01/bd03 번지 자리수 차이를 흡수하도록 패딩 정규화
-            _acct_buildings_cache[dep_acct] = {
-                (_pad_bunji(b1), _pad_bunji(b2))
-                for b1, b2 in buildings_by_account(dep_acct)
-                if _pad_bunji(b1) and _pad_bunji(b2)
-            }
+            _acct_buildings_cache[dep_acct] = set(buildings_by_account(dep_acct))
         acct_buildings = _acct_buildings_cache[dep_acct]
         if not acct_buildings:
-            # 계좌로 건물을 못 좁혀도, 이미 고른 building_list 세입자로 매칭
-            # (여기 [] 주면 전원 미매칭 + 날짜중복만 만지다가 깨진 것처럼 보임)
-            return tenants, list(building_list)
-        padded_building_list = [
-            (_pad_bunji(b1), _pad_bunji(b2)) for b1, b2 in building_list
-        ]
-        scope_buildings = [b for b in padded_building_list if b in acct_buildings]
+            # 계좌는 있는데 등록 건물이 없으면 전체로 두지 않고 빈 범위(오매칭 방지)
+            return [], []
+        scope_buildings = [b for b in building_list if b in acct_buildings]
         if not scope_buildings:
-            # 계좌 건물이 building_list 밖이면, 로드된 세입자와 겹치는 것만
-            scope_set = set(acct_buildings)
-            scoped = [
-                trow for trow in tenants
-                if (_pad_bunji(trow.get("bunji1")), _pad_bunji(trow.get("bunji2"))) in scope_set
-            ]
-            if scoped:
-                return scoped, sorted({
-                    (_pad_bunji(t.get("bunji1")), _pad_bunji(t.get("bunji2")))
-                    for t in scoped
-                })
-            # 겹치는 세입자 없으면 building_list 전체로 폴백 (매칭 전멸 방지)
-            return tenants, list(building_list)
+            # building_list 밖 계좌 건물 — 로드된 세입자 중 계좌 건물만
+            scope_buildings = sorted(acct_buildings)
         scope_set = set(scope_buildings)
         scoped = [
             trow for trow in tenants
-            if (_pad_bunji(trow.get("bunji1")), _pad_bunji(trow.get("bunji2"))) in scope_set
+            if (trow.get("bunji1"), trow.get("bunji2")) in scope_set
         ]
-        # 패딩 불일치 등으로 스코프가 비면 전체 폴백
-        if not scoped:
-            return tenants, list(building_list)
-        # SQL/표시용 원본 bunji 유지
-        scope_buildings_orig = [
-            b for b in building_list
-            if (_pad_bunji(b[0]), _pad_bunji(b[1])) in scope_set
-        ] or list(building_list)
-        return scoped, scope_buildings_orig
+        return scoped, scope_buildings
 
     results = []
     for dep in deposits:
@@ -1386,13 +1306,9 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         scope_primary_b1, scope_primary_b2 = (
             scope_buildings[0] if scope_buildings else (primary_bunji1, primary_bunji2)
         )
-        # 계좌 범위 세입자가 비어도 미매칭 수동선택용으로 전체 호실 목록은 유지
-        if scope_tenants is tenants:
-            scope_room_options = all_room_options
-        elif scope_tenants:
-            scope_room_options = _room_options(scope_tenants)
-        else:
-            scope_room_options = all_room_options
+        scope_room_options = (
+            _room_options(scope_tenants) if scope_tenants is not tenants else all_room_options
+        )
 
         # Prefer per-deposit account_no over joined state account_no ("; "-joined).
         exclude_buildings = scope_buildings or building_list
@@ -1438,7 +1354,6 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                 _finish_match_row(
                     dep, forced, dep["amount"], [forced], scope_room_options,
                     existing_set, scope_primary_b1, scope_primary_b2, False,
-                    existing_import_set=existing_import_set,
                 )
             )
             continue
@@ -1514,7 +1429,6 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             row = _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
-                existing_import_set=existing_import_set,
             )
             if row["status"] == "matched" and not needs_pick:
                 row["amount_flag"] = True
@@ -1529,7 +1443,6 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                     _finish_match_row(
                         dep, match, amt, candidates, scope_room_options,
                         existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
-                        existing_import_set=existing_import_set,
                     )
                 )
             continue
@@ -1540,7 +1453,6 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
-                existing_import_set=existing_import_set,
             )
         )
 
@@ -1834,7 +1746,6 @@ def payments_import():
         rows = _match_deposits(
             state["deposits"], building_list, state.get("account_no") or "",
             manual_picks=manual_picks,
-            auto_detected=bool(state.get("auto_detected")),
         )
         pay_kinds = {}
         for k in request.form:
@@ -2108,7 +2019,6 @@ def payments_import():
             _match_deposits(
                 state["deposits"], building_list, state.get("account_no") or "",
                 manual_picks=state.get("manual_picks") or {},
-                auto_detected=bool(state.get("auto_detected")),
             )
             if building_list
             else []
