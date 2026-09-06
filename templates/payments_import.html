@@ -66,15 +66,22 @@ details.addr-pick-side {
 }
 details.addr-pick-side > summary {
   cursor: pointer;
-  color: #555;
   list-style: none;
   white-space: nowrap;
   user-select: none;
+  /* 입금파일(.ls-lab)과 동일 */
+  font-size: 0.9rem;
+  color: #1e293b;
+  font-weight: 700;
+  line-height: 1.2;
 }
 details.addr-pick-side > summary::-webkit-details-marker { display: none; }
 details.addr-pick-side > summary::after {
   content: " ▸";
-  font-size: 0.85em;
+  font-size: 1.35em;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: -0.05em;
 }
 details.addr-pick-side[open] > summary::after {
   content: " ◂";
