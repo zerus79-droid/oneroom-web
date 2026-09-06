@@ -256,18 +256,23 @@
   if (!inp || !form) return;
   function syncName() {
     if (!name) return;
-    name.textContent = (inp.files && inp.files[0] && inp.files[0].name)
-      ? inp.files[0].name
-      : (name.getAttribute('data-kept') || '선택된 파일 없음');
+    var files = inp.files;
+    if (files && files.length > 1) {
+      name.textContent = files[0].name + ' 외 ' + (files.length - 1) + '개';
+    } else if (files && files.length === 1) {
+      name.textContent = files[0].name;
+    } else {
+      name.textContent = name.getAttribute('data-kept') || '선택된 파일 없음';
+    }
   }
   form.addEventListener('submit', function (e) {
-    if (inp.files && inp.files[0]) return;
+    if (inp.files && inp.files.length > 0) return;
     e.preventDefault();
     inp.click();
   });
   inp.addEventListener('change', function () {
     syncName();
-    if (inp.files && inp.files[0]) HTMLFormElement.prototype.submit.call(form);
+    if (inp.files && inp.files.length > 0) HTMLFormElement.prototype.submit.call(form);
   });
 })();
 document.addEventListener('click', function (e) {
