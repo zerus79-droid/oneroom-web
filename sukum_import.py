@@ -694,6 +694,172 @@ def delete_exclude_keyword(keyword_id):
     db.execute("DELETE FROM sukum_import_exclude WHERE id=%s", (keyword_id,))
 
 
+_MATCH_RULE_READY = False
+
+
+def _ensure_match_rule_table():
+    """수동매칭(적요→호실) 저장 테이블. 없으면 생성."""
+    global _MATCH_RULE_READY
+    if _MATCH_RULE_READY:
+        return
+    try:
+        cols = _table_columns("sukum_import_match")
+    except Exception:
+        cols = set()
+    if not cols:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sukum_import_match (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              keyword VARCHAR(120) NOT NULL DEFAULT '',
+              bunji1 CHAR(4) NOT NULL DEFAULT '',
+              bunji2 CHAR(4) NOT NULL DEFAULT '',
+              hosu VARCHAR(16) NOT NULL DEFAULT '',
+              ipju_seq CHAR(2) NOT NULL DEFAULT '',
+              acct_no VARCHAR(32) NOT NULL DEFAULT '',
+              sys_dt DATETIME NULL,
+              uid VARCHAR(20) NOT NULL DEFAULT ''
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
+    _MATCH_RULE_READY = True
+
+
+def list_match_rules():
+    _ensure_match_rule_table()
+    rows = db.query(
+        """
+        SELECT m.id, m.keyword, m.bunji1, m.bunji2, m.hosu, m.ipju_seq, m.acct_no, b.juso
+        FROM sukum_import_match m
+        LEFT JOIN bd01 b ON b.bunji1=m.bunji1 AND b.bunji2=m.bunji2
+        ORDER BY m.keyword, m.bunji1, m.bunji2, m.hosu, m.id
+        """
+    ) or []
+    for r in rows:
+        r["bunji1"] = _pad_bunji(r.get("bunji1"))
+        r["bunji2"] = _pad_bunji(r.get("bunji2")) if r.get("bunji1") else ""
+        r["hosu"] = (r.get("hosu") or "").strip().upper()
+        r["ipju_seq"] = str(r.get("ipju_seq") or "").zfill(2)
+        r["acct_no"] = _account_digits(r.get("acct_no") or "")
+    return rows
+
+
+def add_match_rule(keyword, bunji1, bunji2, hosu, ipju_seq, acct_no=""):
+    _ensure_match_rule_table()
+    keyword = (keyword or "").strip()
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2) if bunji1 else ""
+    hosu = (hosu or "").strip().upper()
+    ipju_seq = str(ipju_seq or "").zfill(2)
+    acct_no = _account_digits(acct_no or "")
+    if not keyword or not bunji1 or not bunji2 or not hosu:
+        return
+    # 같은 적요+계좌면 갱신 (중복 방지)
+    existing = db.query_one(
+        """
+        SELECT id FROM sukum_import_match
+        WHERE keyword=%s AND acct_no=%s
+        LIMIT 1
+        """,
+        (keyword, acct_no),
+    )
+    if existing and existing.get("id"):
+        db.execute(
+            """
+            UPDATE sukum_import_match
+            SET bunji1=%s, bunji2=%s, hosu=%s, ipju_seq=%s, sys_dt=NOW(), uid=%s
+            WHERE id=%s
+            """,
+            (bunji1, bunji2, hosu, ipju_seq, session.get("sabun") or "", existing["id"]),
+        )
+        return
+    db.execute(
+        """
+        INSERT INTO sukum_import_match
+          (keyword, bunji1, bunji2, hosu, ipju_seq, acct_no, sys_dt, uid)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
+        """,
+        (keyword, bunji1, bunji2, hosu, ipju_seq, acct_no, session.get("sabun") or ""),
+    )
+
+
+def update_match_rule(rule_id, keyword, bunji1, bunji2, hosu, ipju_seq, acct_no=""):
+    _ensure_match_rule_table()
+    try:
+        rule_id = int(rule_id or 0)
+    except (TypeError, ValueError):
+        return
+    if rule_id <= 0:
+        return
+    keyword = (keyword or "").strip()
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2) if bunji1 else ""
+    hosu = (hosu or "").strip().upper()
+    ipju_seq = str(ipju_seq or "").zfill(2)
+    acct_no = _account_digits(acct_no or "")
+    if not keyword or not bunji1 or not hosu:
+        return
+    db.execute(
+        """
+        UPDATE sukum_import_match
+        SET keyword=%s, bunji1=%s, bunji2=%s, hosu=%s, ipju_seq=%s, acct_no=%s,
+            sys_dt=NOW(), uid=%s
+        WHERE id=%s
+        """,
+        (keyword, bunji1, bunji2, hosu, ipju_seq, acct_no, session.get("sabun") or "", rule_id),
+    )
+
+
+def delete_match_rule(rule_id):
+    _ensure_match_rule_table()
+    db.execute("DELETE FROM sukum_import_match WHERE id=%s", (rule_id,))
+
+
+def _find_match_rule(name, account_no, rules):
+    """적요 완전일치 우선, 없으면 포함 매칭. 계좌 조건 있으면 일치해야 함."""
+    name = (name or "").strip()
+    acct = _account_digits(account_no or "")
+    if not name:
+        return None
+    exact = []
+    partial = []
+    for r in rules or []:
+        kw = (r.get("keyword") or "").strip()
+        if not kw:
+            continue
+        racct = _account_digits(r.get("acct_no") or "")
+        if racct and racct != acct:
+            continue
+        if kw == name:
+            exact.append(r)
+        elif kw in name:
+            partial.append(r)
+    hits = exact or partial
+    if not hits:
+        return None
+    # 가장 긴 keyword 우선
+    hits.sort(key=lambda r: len(r.get("keyword") or ""), reverse=True)
+    return hits[0]
+
+
+def _tenant_by_keys(tenants, bunji1, bunji2, hosu, ipju_seq):
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2)
+    hosu = (hosu or "").strip().upper()
+    ipju_seq = str(ipju_seq or "").zfill(2)
+    for trow in tenants or []:
+        if _pad_bunji(trow.get("bunji1")) != bunji1:
+            continue
+        if _pad_bunji(trow.get("bunji2")) != bunji2:
+            continue
+        if (trow.get("hosu") or "").strip().upper() != hosu:
+            continue
+        if str(trow.get("ipju_seq") or "").zfill(2) != ipju_seq:
+            continue
+        return trow
+    return None
+
+
 def _matches_excluded(name, bunji1, bunji2, account_no, rules):
     """적요 글자 + (있으면) 주소 + (있으면) 계좌. 비어 있는 조건은 전체."""
     name = name or ""
@@ -1017,7 +1183,7 @@ def _finish_match_row(
     return row
 
 
-def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""):
+def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2="", manual_picks=None):
     """세입자 매칭.
 
     우선순위: 입금 계좌번호 → 건물(bank_cd) 한정 후, 그 안에서 이름/호수 매칭.
@@ -1090,6 +1256,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         for r in existing
     }
     exclude_rules = list_exclude_keywords()
+    match_rules = list_match_rules()
+    manual_picks = manual_picks or {}
     all_room_options = _room_options(tenants)
 
     # 대표 건물(첫 번째) — UI 표시용
@@ -1134,6 +1302,41 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         exclude_buildings = scope_buildings or building_list
         if _deposit_is_excluded(dep["name"], exclude_buildings, dep.get("account_no") or "", exclude_rules):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
+
+        # 수동매칭 규칙 / 이번 세션 선택 우선
+        forced = None
+        pick = manual_picks.get(dep.get("dep_id") or "")
+        if isinstance(pick, dict) and pick.get("room") and "|" in pick.get("room"):
+            ph, ps = pick["room"].split("|", 1)
+            forced = _tenant_by_keys(
+                scope_tenants,
+                pick.get("bunji1") or scope_primary_b1,
+                pick.get("bunji2") or scope_primary_b2,
+                ph, ps,
+            )
+        if forced is None:
+            rule = _find_match_rule(dep.get("name") or "", dep.get("account_no") or "", match_rules)
+            if rule:
+                forced = _tenant_by_keys(
+                    scope_tenants if scope_tenants else tenants,
+                    rule.get("bunji1"), rule.get("bunji2"),
+                    rule.get("hosu"), rule.get("ipju_seq"),
+                )
+                # 범위에 없으면 전체 tenants에서 재시도
+                if forced is None:
+                    forced = _tenant_by_keys(
+                        tenants,
+                        rule.get("bunji1"), rule.get("bunji2"),
+                        rule.get("hosu"), rule.get("ipju_seq"),
+                    )
+        if forced is not None:
+            results.append(
+                _finish_match_row(
+                    dep, forced, dep["amount"], [forced], scope_room_options,
+                    existing_set, scope_primary_b1, scope_primary_b2, False,
+                )
+            )
+            continue
 
         # 전기·대납·기타 적요도 호실 매칭은 하되, _finish_match_row에서 pay_kind=etc로 표시
         # 1) 호수에 붙은 이름('201호한명노')을 최우선 — 단, 계좌 건물 범위 안에서만
@@ -1470,15 +1673,42 @@ def payments_import():
             amt = _parse_amount(request.form.get(k))
             if amt > 0:
                 split_map.setdefault(idx, {})[room] = amt
+        manual_picks = dict(state.get("manual_picks") or {})
         rows = _match_deposits(
             state["deposits"], building_list, state.get("account_no") or "",
+            manual_picks=manual_picks,
         )
         pay_kinds = {}
         for k in request.form:
             if not k.startswith("pay_kind_"):
                 continue
             pay_kinds[k[len("pay_kind_"):]] = (request.form.get(k) or "rent").strip()
+        # 폼에 있는 수동 호실 선택을 세션에 남겨, 반영 후에도 풀리지 않게 함
+        for k, vals in manual_overrides.items():
+            try:
+                idx = int(k)
+            except (TypeError, ValueError):
+                continue
+            if idx < 0 or idx >= len(rows):
+                continue
+            dep_id = rows[idx].get("dep_id") or ""
+            if not dep_id:
+                continue
+            pick = (vals[0] if vals else "") or ""
+            if pick and "|" in pick and pick != "ALL":
+                hosu, ipju_seq = pick.split("|", 1)
+                manual_picks[dep_id] = {
+                    "room": pick,
+                    "bunji1": rows[idx].get("bunji1") or primary_bunji1,
+                    "bunji2": rows[idx].get("bunji2") or primary_bunji2,
+                    "hosu": hosu,
+                    "ipju_seq": ipju_seq,
+                }
+            elif dep_id in manual_picks and not pick:
+                manual_picks.pop(dep_id, None)
+        state["manual_picks"] = manual_picks
         if not selected_idx:
+            _write_state(token, state)
             flash("체크된 입금이 없습니다. 반영할 행을 선택한 뒤 다시 눌러주세요.", "err")
             return redirect(url_for("payments_import", token=token))
         _saved, applied = _apply_selected(
@@ -1486,35 +1716,37 @@ def payments_import():
             pay_kinds=pay_kinds,
         )
         if applied:
+            # 반영된 건만 dep_id로 제거 (다른 매칭 건은 유지)
             drop_ids = {rows[i].get("dep_id") for i in applied if rows[i].get("dep_id")}
-            drop_keys = {
-                (
-                    rows[i].get("date"),
-                    rows[i].get("name"),
-                    int(rows[i].get("amount") or 0),
-                    rows[i].get("account_no") or "",
-                    rows[i].get("source_file") or "",
-                )
-                for i in applied
-            }
-
-            def _keep_deposit(d):
-                did = d.get("dep_id") or ""
-                if did and did in drop_ids:
-                    return False
-                if not did:
-                    key = (
-                        d.get("date"),
-                        d.get("name"),
-                        int(d.get("amount") or 0),
-                        d.get("account_no") or "",
-                        d.get("source_file") or "",
+            for i in applied:
+                row = rows[i]
+                did = row.get("dep_id") or ""
+                if did:
+                    manual_picks.pop(did, None)
+                # 수동 호실(또는 확인필요에서 확정한 호실)이면 자동매칭 규칙 저장
+                raw = manual_overrides.get(str(i)) or []
+                if isinstance(raw, str):
+                    raw = [raw] if raw else []
+                pick = next((v for v in raw if v and "|" in v and v != "ALL"), "")
+                if pick:
+                    hosu, ipju_seq = pick.split("|", 1)
+                else:
+                    hosu, ipju_seq = row.get("hosu") or "", row.get("ipju_seq") or ""
+                if hosu and (pick or row.get("needs_pick") or row.get("amount_flag") or row.get("status") == "unmatched"):
+                    add_match_rule(
+                        row.get("name") or "",
+                        row.get("bunji1") or primary_bunji1,
+                        row.get("bunji2") or primary_bunji2,
+                        hosu,
+                        ipju_seq,
+                        row.get("account_no") or "",
                     )
-                    if key in drop_keys:
-                        return False
-                return True
 
-            state["deposits"] = [d for d in state["deposits"] if _keep_deposit(d)]
+            state["deposits"] = [
+                d for d in state["deposits"]
+                if (d.get("dep_id") or "") not in drop_ids
+            ]
+            state["manual_picks"] = manual_picks
             _write_state(token, state)
             flash(f"{len(applied)}건 반영했습니다.", "ok")
         elif one != "":
@@ -1710,6 +1942,7 @@ def payments_import():
         rows = (
             _match_deposits(
                 state["deposits"], building_list, state.get("account_no") or "",
+                manual_picks=state.get("manual_picks") or {},
             )
             if building_list
             else []
@@ -1808,6 +2041,79 @@ def payments_import_exclude():
     return render_template(
         "payments_import_exclude.html",
         exclude_keywords=page_rows,
+        buildings=buildings,
+        edit=edit,
+        pager=pager,
+        q=q,
+    )
+
+
+@app.route("/payments/import/matches", methods=["GET", "POST"])
+@login_required
+@require_write_access
+def payments_import_matches():
+    """수동매칭 규칙 관리 — 적요 글자 → 건물·호실. 다음 자동반영에 사용."""
+    return_token = request.form.get("token") or ""
+
+    def _back():
+        if return_token:
+            return redirect(url_for("payments_import", token=return_token))
+        return redirect(url_for("payments_import_matches"))
+
+    if request.method == "POST" and request.form.get("action") == "match_add":
+        add_match_rule(
+            request.form.get("keyword"),
+            request.form.get("bunji1"),
+            request.form.get("bunji2"),
+            request.form.get("hosu"),
+            request.form.get("ipju_seq"),
+            request.form.get("acct_no"),
+        )
+        return _back()
+    if request.method == "POST" and request.form.get("action") == "match_edit":
+        update_match_rule(
+            request.form.get("rule_id"),
+            request.form.get("keyword"),
+            request.form.get("bunji1"),
+            request.form.get("bunji2"),
+            request.form.get("hosu"),
+            request.form.get("ipju_seq"),
+            request.form.get("acct_no"),
+        )
+        return _back()
+    if request.method == "POST" and request.form.get("action") == "match_del":
+        try:
+            delete_match_rule(int(request.form.get("rule_id") or 0))
+        except ValueError:
+            pass
+        return _back()
+
+    buildings, rooms = _buildings_and_rooms()
+    rows = list_match_rules()
+    q = (request.args.get("q") or "").strip()
+    if q:
+        ql = q.lower()
+        def _blob(r):
+            return " ".join([
+                r.get("keyword") or "",
+                r.get("juso") or "",
+                r.get("hosu") or "",
+                r.get("acct_no") or "전체",
+                _fmt_bunji_pair(r.get("bunji1"), r.get("bunji2")) if r.get("bunji1") else "",
+            ]).lower()
+        rows = [r for r in rows if ql in _blob(r)]
+    pager = _make_pager(len(rows), _parse_page())
+    page_rows = rows[pager["offset"] : pager["offset"] + pager["per_page"]]
+    edit = None
+    try:
+        edit_id = int(request.args.get("edit_id") or 0)
+    except ValueError:
+        edit_id = 0
+    if edit_id:
+        edit = next((r for r in list_match_rules() if int(r.get("id") or 0) == edit_id), None)
+    return render_template(
+        "payments_import_matches.html",
+        match_rules=page_rows,
         buildings=buildings,
         edit=edit,
         pager=pager,
