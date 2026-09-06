@@ -37,6 +37,81 @@ except ImportError:  # pragma: no cover
     xlrd = None
 from openpyxl import load_workbook
 
+# 파일 업로드 보안 설정
+ALLOWED_EXTENSIONS = {'.xls', '.xlsx', '.xlsm'}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Excel 파일 매직 넘버 (파일 시작 바이트로 검증)
+EXCEL_MAGIC_NUMBERS = {
+    b'\xd0\xcf\x11\xe0',  # XLS (OLE2)
+    b'PK\x03\x04',         # XLSX (ZIP)
+}
+
+
+def validate_file_upload(file):
+    """파일 업로드 보안 검증.
+    
+    파일 크기, 확장자, 파일명, MIME 타입, 매직 넘버를 검증합니다.
+    """
+    if not file or not file.filename:
+        return False, "파일이 선택되지 않았습니다."
+    
+    # 파일 크기 확인
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    
+    if file_size > MAX_FILE_SIZE:
+        return False, f"파일 크기가 너무 큽니다. 최대 {MAX_FILE_SIZE // (1024*1024)}MB 허용."
+    
+    if file_size == 0:
+        return False, "빈 파일입니다."
+    
+    # 파일 확장자 확인
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        return False, f"허용되지 않는 파일 형식입니다. 허용: {', '.join(ALLOWED_EXTENSIONS)}"
+    
+    # 파일명 검증 (악성 파일명 방지)
+    if not re.match(r'^[a-zA-Z0-9._\-가-힣\s]+$', file.filename):
+        return False, "파일명에 허용되지 않는 문자가 포함되어 있습니다."
+    
+    # MIME 타입 검증
+    mime_type = file.content_type or ""
+    if not any(allowed in mime_type for allowed in ['spreadsheet', 'sheet', 'excel', 'ms-excel']):
+        # MIME 타입이 없거나 다른 경우, 매직 넘버로 추가 검증
+        file.seek(0)
+        header = file.read(4)
+        file.seek(0)
+        
+        if not any(header.startswith(magic) for magic in EXCEL_MAGIC_NUMBERS):
+            return False, "유효한 Excel 파일이 아닙니다. 파일 형식을 확인하세요."
+    
+    # 파일을 올바르게 읽을 수 있는지 검증
+    try:
+        file.seek(0)
+        if file_ext == '.xlsx':
+            # XLSX 파일 검증
+            from openpyxl import load_workbook
+            wb = load_workbook(file, read_only=True, data_only=True)
+            if not wb.sheetnames:
+                return False, "Excel 파일에 시트가 없습니다."
+            wb.close()
+        elif file_ext == '.xls':
+            # XLS 파일 검증
+            if xlrd:
+                file.seek(0)
+                wb = xlrd.open_workbook(file_contents=file.read())
+                if wb.nsheets == 0:
+                    return False, "Excel 파일에 시트가 없습니다."
+            else:
+                return False, "XLS 파일 지원이 설정되지 않았습니다. XLSX 파일을 사용하세요."
+        file.seek(0)
+    except Exception as e:
+        return False, f"파일을 읽을 수 없습니다. 올바른 Excel 파일인지 확인하세요: {str(e)[:100]}"
+    
+    return True, None
+
 # 매칭 결과(입금 목록)를 새로고침해도 다시 안 나오게 세션 쿠키 대신
 # 서버 임시 파일에 저장 (쿠키엔 담기엔 큼) — POST 응답을 바로 렌더하지 않고
 # GET으로 리다이렉트(PRG 패턴)해서 새로고침·뒤로가기로 인한 재제출을 막음
@@ -117,10 +192,15 @@ def _write_state(token, state):
 
 
 def _update_state_building(token, bunji1, bunji2):
-    """건물 선택을 재설정. (사용자가 건물 선택을 다시 했을 때)"""
+    """건물 선택을 재설정. (사용자가 건물 선택을 다시 했을 때)
+
+    Intentional: explicit address selection narrows matching to that one building
+    (building_list = [(bunji1, bunji2)]). Multi-building auto-detect is overridden.
+    """
     state = _load_state(token)
     if not state:
         return None
+    # Explicit user choice → match only this building (intentional narrow).
     state["building_list"] = [(bunji1, bunji2)]
     state["bunji1"] = bunji1
     state["bunji2"] = bunji2
@@ -517,6 +597,19 @@ def _matches_excluded(name, bunji1, bunji2, account_no, rules):
     return False
 
 
+
+def _deposit_is_excluded(name, building_list, dep_account_no, rules):
+    """입금 1건이 제외 규칙에 걸리는지 — 건물 목록 중 하나라도 매칭되면 제외.
+    계좌는 state에 합쳐 둔 joined account_no가 아니라 입금별 account_no를 쓴다."""
+    acct = dep_account_no or ""
+    if not building_list:
+        return _matches_excluded(name, "", "", acct, rules)
+    for b1, b2 in building_list:
+        if _matches_excluded(name, b1, b2, acct, rules):
+            return True
+    return False
+
+
 def buildings_by_account(account_no):
     """계좌번호(숫자만)를 쓰는 건물 목록. 책임관리는 여러 건물이 같은(관리사무소) 통장을
     같이 쓰는 게 정상이라 0곳/1곳/여러 곳 다 나올 수 있음."""
@@ -796,7 +889,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
 
     results = []
     for dep in deposits:
-        if _matches_excluded(dep["name"], primary_bunji1, primary_bunji2, account_no, exclude_rules):
+        # Prefer per-deposit account_no over joined state account_no ("; "-joined).
+        if _deposit_is_excluded(dep["name"], building_list, dep.get("account_no") or "", exclude_rules):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
 
         # 수도·전기·가스 적요는 호수 힌트가 있어도 월세로 넣지 않음
@@ -1141,10 +1235,35 @@ def payments_import():
         for f in files:
             if not (f and f.filename):
                 continue
+            # master 보안 검증: 파일별 크기/확장자/매직넘버 확인
+            is_valid, error_msg = validate_file_upload(f)
+            if not is_valid:
+                try:
+                    from logs_handler import log_security_event
+                    log_security_event(
+                        'file_upload_invalid',
+                        user_id=session.get('sabun'),
+                        ip_address=request.remote_addr,
+                        details=f"Invalid file upload attempt: {error_msg}",
+                    )
+                except (ImportError, Exception):
+                    pass
+                file_errors.append(f"⚠ {f.filename}: {error_msg}")
+                continue
             try:
                 deposits, account_no = load_bank_deposits(f.filename, f.read())
             except Exception as e:
                 # 개선 3: 이 파일만 건너뛰고 계속 진행
+                try:
+                    from logs_handler import log_security_event
+                    log_security_event(
+                        'file_processing_error',
+                        user_id=session.get('sabun'),
+                        ip_address=request.remote_addr,
+                        details=f"Error reading file {f.filename}: {str(e)[:100]}",
+                    )
+                except (ImportError, Exception):
+                    pass
                 file_errors.append(f"⚠ {f.filename}: {e}")
                 continue
             if not deposits:
@@ -1184,7 +1303,7 @@ def payments_import():
         
         # 개선 2: 파일 간 중복으로 제외된 건수 표시
         if excluded_count > 0:
-            flash(f"💡 파일 간 중복으로 {excluded_count}건이 제외되었습니다. (같은 날짜/금액/이름이 여러 파일에 있었으면 하나만 처리됩니다)", "info")
+            flash(f"💡 같은 계좌에서 날짜·금액·이름이 겹친 중복 {excluded_count}건을 제외했습니다. (계좌가 다르면 각각 유지됩니다)", "info")
         
         if not all_deposits:
             flash("입금 내역을 찾지 못했습니다.", "err")
@@ -1227,7 +1346,9 @@ def payments_import():
         req_b1 = _pad_bunji(request.args.get("bunji1"))
         req_b2 = _pad_bunji(request.args.get("bunji2"))
         if req_b1 and req_b2:
-            # 사용자가 명시적으로 건물을 선택한 경우 — building_list 업데이트
+            # Intentional: explicit address selection narrows matching to that one
+            # building (overrides multi-building auto-detect list).
+            # 사용자가 주소를 직접 고르면 그 건물만 매칭한다.
             state = _update_state_building(token, req_b1, req_b2) or state
             building_list = [(req_b1, req_b2)]
         
