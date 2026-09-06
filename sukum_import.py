@@ -1202,7 +1202,7 @@ def _finish_match_row(
     return row
 
 
-def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2="", manual_picks=None):
+def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2="", manual_picks=None, auto_detected=False):
     """세입자 매칭.
 
     우선순위: 입금 계좌번호 → 건물(bank_cd) 한정 후, 그 안에서 이름/호수 매칭.
@@ -1241,7 +1241,17 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
     building_list = sorted(dedup.values(), key=lambda b: (_pad_bunji(b[0]), _pad_bunji(b[1])))
     if not building_list:
         return []
-    
+
+    # 자동감지면 입금 계좌에 묶인 건물을 모두 포함 (한 통장·여러 건물)
+    if auto_detected:
+        seen = {(_pad_bunji(b1), _pad_bunji(b2)): (b1, b2) for b1, b2 in building_list}
+        for dep in deposits or []:
+            for b1, b2 in buildings_by_account(dep.get("account_no") or ""):
+                key = (_pad_bunji(b1), _pad_bunji(b2))
+                if key[0] and key[1] and key not in seen:
+                    seen[key] = (b1, b2)
+        building_list = sorted(seen.values(), key=lambda b: (_pad_bunji(b[0]), _pad_bunji(b[1])))
+
     # 모든 건물의 세입자 조회 — WHERE (bunji1, bunji2) IN (...)
     placeholders = ",".join(["(%s, %s)"] * len(building_list))
     params = []
@@ -1260,15 +1270,27 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
     
     # 각 건물별로 기존 수금 기록 조회
     # 개선: (bunji1, bunji2)를 key에 포함시킴 → 다른 건물의 같은 호실/날짜/금액도 구분
-    existing = db.query(
-        f"""
-        SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt, manage_desc
-        FROM sukum01
-        WHERE (bunji1, bunji2) IN ({placeholders})
-          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-        """,
-        params,
-    )
+    try:
+        existing = db.query(
+            f"""
+            SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt, manage_desc
+            FROM sukum01
+            WHERE (bunji1, bunji2) IN ({placeholders})
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+            """,
+            params,
+        )
+    except Exception:
+        # manage_desc 조회 실패해도 매칭은 진행
+        existing = db.query(
+            f"""
+            SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt
+            FROM sukum01
+            WHERE (bunji1, bunji2) IN ({placeholders})
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+            """,
+            params,
+        )
     existing_set = {
         (
             r.get("bunji1"),
@@ -1812,6 +1834,7 @@ def payments_import():
         rows = _match_deposits(
             state["deposits"], building_list, state.get("account_no") or "",
             manual_picks=manual_picks,
+            auto_detected=bool(state.get("auto_detected")),
         )
         pay_kinds = {}
         for k in request.form:
@@ -2085,6 +2108,7 @@ def payments_import():
             _match_deposits(
                 state["deposits"], building_list, state.get("account_no") or "",
                 manual_picks=state.get("manual_picks") or {},
+                auto_detected=bool(state.get("auto_detected")),
             )
             if building_list
             else []
