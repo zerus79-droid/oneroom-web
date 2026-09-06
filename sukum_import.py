@@ -798,6 +798,14 @@ def _finish_match_row(
     matched_bunji1 = match.get("bunji1") if match else bunji1
     matched_bunji2 = match.get("bunji2") if match else bunji2
     
+    # 계약 월세+관리비 (매칭된 호실 기준). 미매칭/복수호실 선택 전이면 0
+    contract_due = _monthly_due(match) if match else 0
+    building_nm = (
+        _building_label(matched_bunji1, matched_bunji2)
+        if matched_bunji1 and matched_bunji2
+        else ""
+    )
+
     row = {
         "date": dep["date"],
         "amount": amount,
@@ -806,6 +814,8 @@ def _finish_match_row(
         "ipju_seq": ipju_seq,
         "bunji1": matched_bunji1,  # 매칭된 세입자의 건물
         "bunji2": matched_bunji2,
+        "building_nm": building_nm,
+        "contract_due": contract_due,
         "tenant_nm": match.get("ipju_nm") if match else "",
         "amount_flag": False,
         "needs_pick": needs_pick,

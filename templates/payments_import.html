@@ -105,10 +105,12 @@
               <th class="tc"></th>
               <th class="tc">상태</th>
               <th class="tc">거래일</th>
+              <th class="tc">건물명</th>
               <th class="tc">매칭 호실</th>
               <th class="tc">세입자</th>
               <th class="tc">적요(입금자명)</th>
               <th class="tc">파일/계좌</th>
+              <th class="tc">계약액</th>
               <th class="tc">입금액</th>
               <th class="tc">제외</th>
             </tr>
@@ -132,6 +134,7 @@
                 {% else %}<span class="st-badge overdue">미매칭</span>{% endif %}
               </td>
               <td class="tc col-nowrap">{{ r.date }}</td>
+              <td class="tc col-nowrap" style="font-size:0.9em;">{{ r.building_nm or '-' }}</td>
               <td class="tc">
                 {% if r.needs_pick %}
                 <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
@@ -153,8 +156,16 @@
               </td>
               <td>{{ r.tenant_nm or '' }}</td>
               <td>{{ r.name }}</td>
-              <td class="tc" style="font-size:0.9em;">
-                {% if r.source_file %}{{ r.source_file }}<br/>{{ r.account_no }}{% else %}-{% endif %}
+              <td class="tc" style="font-size:0.9em;" title="{% if r.source_file %}{{ r.source_file }} / {{ r.account_no }}{% endif %}">
+                {% if r.source_file %}
+                  {% set fn = r.source_file|string %}
+                  {% set ac = (r.account_no or '')|string %}
+                  {{ fn[:8] }}{% if fn|length > 8 %}~{% endif %}<br/>
+                  {% if ac %}{{ ac[:8] }}{% if ac|length > 8 %}~{% endif %}{% else %}-{% endif %}
+                {% else %}-{% endif %}
+              </td>
+              <td class="tc">
+                {% if r.contract_due %}{{ r.contract_due|money }}{% else %}-{% endif %}
               </td>
               <td class="tc">
                 {{ r.amount|money }}
