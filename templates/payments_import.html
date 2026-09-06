@@ -110,6 +110,7 @@
               <th class="tc">적요(입금자명)</th>
               <th class="tc">파일/계좌</th>
               <th class="tc">계약액</th>
+              <th class="tc">구분</th>
               <th class="tc">입금액</th>
               <th class="tc">제외</th>
             </tr>
@@ -122,11 +123,13 @@
             <tr class="import-row import-{{ r.status }}">
               <td class="tc">
                 <input type="checkbox" name="apply_idx" value="{{ row_i }}"
-                       {% if r.status=='matched' and not r.amount_flag and not r.needs_pick %}checked
+                       {% if r.status=='matched' and not r.amount_flag and not r.needs_pick and r.pay_kind!='etc' and not r.suggest_etc %}checked
                        {% elif r.status=='duplicate' %}disabled{% endif %}>
               </td>
               <td class="tc">
                 {% if r.status=='matched' and r.needs_pick %}<span class="st-badge wait">확인필요(복수호실)</span>
+                {% elif r.status=='matched' and r.suggest_etc %}<span class="st-badge wait">확인필요(기타?)</span>
+                {% elif r.status=='matched' and r.pay_kind=='etc' %}<span class="st-badge wait">기타</span>
                 {% elif r.status=='matched' and r.amount_flag %}<span class="st-badge wait">확인필요</span>
                 {% elif r.status=='matched' %}<span class="st-badge paid">반영예정</span>
                 {% elif r.status=='duplicate' %}<span class="st-badge">날짜중복</span>
@@ -167,6 +170,14 @@
                 {% if r.contract_due %}{{ r.contract_due|money }}{% else %}-{% endif %}
               </td>
               <td class="tc">
+                {% if r.status!='duplicate' and (r.status=='matched' or r.hosu) %}
+                <select name="pay_kind_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;min-width:4.5em;">
+                  <option value="rent" {% if r.pay_kind!='etc' %}selected{% endif %}>월세</option>
+                  <option value="etc" {% if r.pay_kind=='etc' %}selected{% endif %}>기타</option>
+                </select>
+                {% else %}-{% endif %}
+              </td>
+              <td class="tc">
                 {{ r.amount|money }}
                 {% if r.needs_pick %}
                 <div class="split-amts" id="split-amts-{{ row_i }}" data-total="{{ r.amount }}" hidden>
@@ -182,7 +193,7 @@
               </td>
               <td class="tc">
                 {% if r.status!='duplicate' %}
-                <button type="submit" class="btn secondary apply-one-btn{% if r.status=='matched' and not r.amount_flag and not r.needs_pick %} is-on{% endif %}" form="apply-form" name="apply_one" value="{{ row_i }}">반영</button>
+                <button type="submit" class="btn secondary apply-one-btn{% if r.status=='matched' and not r.amount_flag and not r.needs_pick and r.pay_kind!='etc' and not r.suggest_etc %} is-on{% endif %}" form="apply-form" name="apply_one" value="{{ row_i }}">반영</button>
                 <span class="apply-err"{% if apply_err != (row_i|string) %} hidden{% endif %}>오류</span>
                 {% endif %}
                 {% if r.status=='unmatched' %}
