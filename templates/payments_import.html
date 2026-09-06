@@ -123,6 +123,7 @@
             <tr class="import-row import-{{ r.status }}">
               <td class="tc">
                 <input type="checkbox" name="apply_idx" value="{{ row_i }}"
+                       data-auto-check="{% if r.status=='matched' and not r.amount_flag and not r.needs_pick and r.pay_kind!='etc' and not r.suggest_etc %}1{% else %}0{% endif %}"
                        {% if r.status=='matched' and not r.amount_flag and not r.needs_pick and r.pay_kind!='etc' and not r.suggest_etc %}checked
                        {% elif r.status=='duplicate' %}disabled{% endif %}>
               </td>
@@ -393,9 +394,34 @@ document.addEventListener('change', function (e) {
   toggleSplit(t);
   var idx = t.name.slice(7);
   var rowCb = document.querySelector('input[name="apply_idx"][value="' + idx + '"]');
-  if (rowCb && !rowCb.disabled) rowCb.checked = !!t.value;
+  // 확인필요/기타 행은 호실 바꿔도 체크를 강제하지 않음 (일괄반영이 풀린 체크를 무시하는 것처럼 보이던 원인)
+  if (rowCb && !rowCb.disabled && rowCb.getAttribute('data-auto-check') === '1') {
+    rowCb.checked = !!t.value;
+  }
   syncApplyLight(idx);
   hideApplyErr(idx);
+});
+document.addEventListener('submit', function (e) {
+  var form = e.target;
+  if (!form || form.id !== 'apply-form') return;
+  var submitter = e.submitter;
+  // 행 "반영"은 apply_one만 보내므로, 체크 안 된 채면 막기
+  if (submitter && submitter.name === 'apply_one') {
+    var idx = submitter.value;
+    var rowCb = document.querySelector('input[name="apply_idx"][value="' + idx + '"]');
+    if (rowCb && !rowCb.checked) {
+      e.preventDefault();
+      alert('이 행을 체크한 뒤 반영해주세요.');
+      return;
+    }
+  }
+  if (!submitter || submitter.name !== 'apply_one') {
+    var any = form.querySelector('input[name="apply_idx"]:checked');
+    if (!any) {
+      e.preventDefault();
+      alert('체크된 입금이 없습니다.');
+    }
+  }
 });
 document.querySelectorAll('select[name^="manual_"]').forEach(function (sel) {
   toggleSplit(sel);

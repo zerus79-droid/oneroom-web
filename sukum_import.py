@@ -1433,19 +1433,24 @@ def payments_import():
         
         # 첫 번째 건물을 "대표" 건물로 사용 (UI 표시/상태저장)
         primary_bunji1, primary_bunji2 = building_list[0]
+        # 체크된 행만 반영. 행의 "반영"도 체크가 켜져 있어야 함.
+        checked_idx = set()
+        for v in request.form.getlist("apply_idx"):
+            try:
+                checked_idx.add(int(v))
+            except ValueError:
+                pass
         selected_idx = set()
         one = (request.form.get("apply_one") or "").strip()
         if one != "":
             try:
-                selected_idx.add(int(one))
+                idx = int(one)
+                if idx in checked_idx:
+                    selected_idx.add(idx)
             except ValueError:
                 pass
         else:
-            for v in request.form.getlist("apply_idx"):
-                try:
-                    selected_idx.add(int(v))
-                except ValueError:
-                    pass
+            selected_idx = set(checked_idx)
         manual_overrides = {}
         for k in request.form:
             if not k.startswith("manual_"):
@@ -1472,6 +1477,9 @@ def payments_import():
             if not k.startswith("pay_kind_"):
                 continue
             pay_kinds[k[len("pay_kind_"):]] = (request.form.get(k) or "rent").strip()
+        if not selected_idx:
+            flash("체크된 입금이 없습니다. 반영할 행을 선택한 뒤 다시 눌러주세요.", "err")
+            return redirect(url_for("payments_import", token=token))
         _saved, applied = _apply_selected(
             rows, primary_bunji1, primary_bunji2, selected_idx, manual_overrides, split_map,
             pay_kinds=pay_kinds,
@@ -1486,8 +1494,11 @@ def payments_import():
                 if (d["date"], d["name"], int(d["amount"])) not in drop
             ]
             _write_state(token, state)
-        if one != "" and not applied:
+            flash(f"{len(applied)}건 반영했습니다.", "ok")
+        elif one != "":
             return redirect(url_for("payments_import", token=token, err=one))
+        else:
+            flash("반영된 입금이 없습니다. 호실·구분을 확인해주세요.", "err")
         return redirect(url_for("payments_import", token=token))
 
     if request.method == "POST" and request.form.get("action") == "parse":
