@@ -21,9 +21,9 @@ def _init_pool():
         try:
             _pool = PooledDB(
                 creator=pymysql,
-                maxconnections=5,
-                mincached=2,
-                maxcached=2,
+                maxconnections=10,  # 동시 접속 증가 (5 -> 10)
+                mincached=3,       # 최소 캐시 연결 증가 (2 -> 3)
+                maxcached=5,       # 최대 캐시 연결 증가 (2 -> 5)
                 maxshared=0,
                 blocking=True,
                 host=config.DB_HOST,
@@ -63,6 +63,7 @@ def query(sql, args=None, *, apply_building_access=True):
                     from building_access import filter_query_rows
                     rows = filter_query_rows(rows)
                 except ImportError:
+                    # building_access 모듈이 없으면 건물 접근 제한 없이 모든 행 반환
                     pass
             return rows
     finally:

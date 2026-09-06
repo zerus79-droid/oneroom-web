@@ -9,7 +9,8 @@ from datetime import date, datetime
 from flask import jsonify, request, session
 
 import db
-from app_instance import app
+from app_instance import app, cache
+from query_cache import CACHE_TIMEOUT_BUILDING, CACHE_TIMEOUT_TENANT, invalidate_building_cache, invalidate_payment_cache
 from utils import (
     calc_misu_amt as _calc_misu_amt,
     calc_month_misu_amt as _calc_month_misu_amt,
@@ -147,6 +148,7 @@ def api_building():
 
 @app.route("/api/current_tenant")
 @login_required
+@cache.cached(timeout=CACHE_TIMEOUT_TENANT)
 def api_current_tenant():
     """수금 등록: 호실 입력 시 현재 입주 순번 조회"""
     bunji1, bunji2 = _parse_bunji_src(request.args)
@@ -297,6 +299,10 @@ def api_payments_delete():
                     errors.append(str(e))
 
         conn.commit()
+        
+        # 삭제 성공 시 캐시 무효화
+        if deleted > 0:
+            invalidate_payment_cache(cache, bunji1="" if items else items[0].get("bunji1"))
     except Exception as e:
         conn.rollback()
         return jsonify({"ok": False, "message": f"DB 오류: {str(e)}", "deleted": 0})

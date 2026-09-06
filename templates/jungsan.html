@@ -405,7 +405,16 @@ function restoreJungsanScroll() {
     burden.value = "O"; reason.value = ""; panel.classList.add("is-hidden");
   }
   document.getElementById("js-adjust-open").addEventListener("click", function () {
-    resetAdjustPanel(); panel.classList.remove("is-hidden"); tenant.focus();
+    if (panel.classList.contains("is-hidden")) {
+      // 패널이 숨겨져 있으면 펼침 (폼 초기화 후 열기)
+      adjustId.value = ""; tenant.value = ""; kind.value = ""; amount.value = "";
+      burden.value = "O"; reason.value = "";
+      panel.classList.remove("is-hidden");
+      tenant.focus();
+    } else {
+      // 패널이 보여지고 있으면 접힘
+      resetAdjustPanel();
+    }
   });
   document.getElementById("js-adjust-cancel").addEventListener("click", resetAdjustPanel);
   amount.addEventListener("input", function () { amount.value = formatAdjustAmount(amount.value); });

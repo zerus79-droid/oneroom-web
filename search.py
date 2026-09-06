@@ -5,12 +5,14 @@
 from flask import render_template, request
 
 import db
-from app_instance import app
+from app_instance import app, cache
+from query_cache import CACHE_TIMEOUT_LIST
 from utils import (
     login_required,
     make_pager as _make_pager,
     pad_bunji as _pad_bunji,
     parse_bunji_input as _parse_bunji_input,
+    resolve_hosu as _resolve_hosu,
     tenant_is_past_out as _tenant_is_past_out,
 )
 
@@ -28,7 +30,11 @@ def search():
             bunji1, bunji2 = _parse_bunji_input(bunji_legacy)
         except Exception:
             bunji1, bunji2 = "", ""
-    hosu = (request.args.get("hosu") or "").strip().upper()
+    hosu_raw = (request.args.get("hosu") or "").strip().upper()
+    if hosu_raw and bunji1 and bunji2:
+        hosu = _resolve_hosu(bunji1, bunji2, hosu_raw)
+    else:
+        hosu = hosu_raw.replace("ㅠ", "B")
     ipju_seq = (request.args.get("ipju_seq") or "").strip()
     tenant_status = (request.args.get("tenant_status") or "all").strip().lower()
     if tenant_status not in ("current", "past", "all"):
