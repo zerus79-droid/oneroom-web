@@ -287,6 +287,38 @@ def _parse_date_any(v):
         return None
 
 
+def _parse_dt_and_time(raw, xlrd_book=None):
+    """거래일시 → (date, 'HH:MM:SS'|''). 시분초 있으면 살린다."""
+    if xlrd_book is not None and isinstance(raw, float):
+        try:
+            tup = xlrd.xldate_as_tuple(raw, xlrd_book.datemode)
+            d = date(tup[0], tup[1], tup[2])
+            hh, mm, ss = int(tup[3]), int(tup[4]), int(tup[5])
+            t = f"{hh:02d}:{mm:02d}:{ss:02d}" if (hh or mm or ss) else ""
+            return d, t
+        except Exception:
+            pass
+    if isinstance(raw, datetime):
+        return raw.date(), raw.strftime("%H:%M:%S")
+    if isinstance(raw, date):
+        return raw, ""
+    s = str(raw or "").strip()
+    m = re.search(
+        r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:\s+|T)(\d{1,2}):(\d{2})(?::(\d{2}))?",
+        s,
+    )
+    if m:
+        try:
+            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            hh, mm = int(m.group(4)), int(m.group(5))
+            ss = int(m.group(6) or 0)
+            return d, f"{hh:02d}:{mm:02d}:{ss:02d}"
+        except ValueError:
+            pass
+    d = _parse_date_any(raw)
+    return (d, "") if d else (None, "")
+
+
 _ACCOUNT_NO_RE = re.compile(r"\d[\d\-]{7,}\d")
 
 
@@ -335,15 +367,7 @@ def _extract_deposits_from_rows(rows, xlrd_book=None):
         if col_dt >= len(row) or col_in >= len(row) or col_name >= len(row):
             continue
         raw_dt = row[col_dt]
-        d = None
-        if xlrd_book is not None and isinstance(raw_dt, float):
-            try:
-                t = xlrd.xldate_as_tuple(raw_dt, xlrd_book.datemode)
-                d = date(t[0], t[1], t[2])
-            except Exception:
-                d = None
-        if d is None:
-            d = _parse_date_any(raw_dt)
+        d, tm = _parse_dt_and_time(raw_dt, xlrd_book=xlrd_book)
         if not d:
             continue
         amount = _parse_amount(row[col_in])
@@ -352,7 +376,12 @@ def _extract_deposits_from_rows(rows, xlrd_book=None):
         name = str(row[col_name] or "").strip()
         if not name or "예금이자" in name:
             continue
-        deposits.append({"date": d.isoformat(), "amount": amount, "name": name})
+        deposits.append({
+            "date": d.isoformat(),
+            "time": tm,
+            "amount": amount,
+            "name": name,
+        })
     return deposits, account_no
 
 
@@ -1114,7 +1143,7 @@ def _try_split_lump(candidates, amount):
 
 def _finish_match_row(
     dep, match, amount, candidates, all_room_options,
-    existing_set, bunji1, bunji2, needs_pick, existing_import_set=None,
+    existing_set, bunji1, bunji2, needs_pick, existing_import_times=None,
 ):
     hosu = (match.get("hosu") or "").strip().upper() if match else ""
     ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
@@ -1133,6 +1162,7 @@ def _finish_match_row(
 
     row = {
         "date": dep["date"],
+        "time": dep.get("time") or "",
         "amount": amount,
         "name": dep["name"],
         "hosu": hosu,
@@ -1158,8 +1188,12 @@ def _finish_match_row(
             else (all_room_options if not match else [])
         ),
     }
-    import_key = (row["date"], int(amount), dep.get("name") or "")
-    already_imported = bool(existing_import_set and import_key in existing_import_set)
+    _nm = dep.get("name") or ""
+    _tm = (dep.get("time") or "").strip()
+    _ik = (row["date"], int(amount), _nm)
+    _times = (existing_import_times or {}).get(_ik) or set()
+    # 시각까지 같으면 중복. 예전에 시각 없이 저장된 적요("")도 동일 입금으로 본다.
+    already_imported = bool(_times) and (_tm in _times or "" in _times or not _tm)
     if needs_pick and not already_imported:
         row["status"] = "matched"  # 확인필요(복수호실) 등
     elif already_imported or (
@@ -1274,9 +1308,12 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         )
         for r in existing
     }
-    # 같은 파일 재업로드: 이미 입금파일로 반영된 적요면 호실 재매칭 실패해도 날짜중복
-    _import_desc_re = re.compile(r"입금파일\s*자동반영\s*\[[^\]]*\]\s*\((.*)\)\s*$")
-    existing_import_set = set()
+    # 같은 파일 재업로드: 적요의 이름+시각(@HH:MM:SS)으로 이미 반영 여부 판정
+    _import_desc_re = re.compile(
+        r"입금파일\s*자동반영\s*\[[^\]]*\]\s*\((.*?)\)\s*(?:@(\d{2}:\d{2}:\d{2}))?\s*$"
+    )
+    # (date, amount, name) -> set of times ("" = 예전 적요에 시각 없음)
+    existing_import_times = {}
     for r in existing:
         raw_d = r.get("d")
         d = raw_d.isoformat() if hasattr(raw_d, "isoformat") else str(raw_d or "")[:10]
@@ -1285,8 +1322,10 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         except (TypeError, ValueError):
             continue
         m = _import_desc_re.search((r.get("manage_desc") or "").strip())
-        if m:
-            existing_import_set.add((d, amt, (m.group(1) or "").strip()))
+        if not m:
+            continue
+        key = (d, amt, (m.group(1) or "").strip())
+        existing_import_times.setdefault(key, set()).add((m.group(2) or "").strip())
     exclude_rules = list_exclude_keywords()
     match_rules = list_match_rules()
     manual_picks = manual_picks or {}
@@ -1374,7 +1413,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                 _finish_match_row(
                     dep, forced, dep["amount"], [forced], scope_room_options,
                     existing_set, scope_primary_b1, scope_primary_b2, False,
-                    existing_import_set=existing_import_set,
+                    existing_import_times=existing_import_times,
                 )
             )
             continue
@@ -1450,7 +1489,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             row = _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
-                existing_import_set=existing_import_set,
+                existing_import_times=existing_import_times,
             )
             if row["status"] == "matched" and not needs_pick:
                 row["amount_flag"] = True
@@ -1465,7 +1504,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                     _finish_match_row(
                         dep, match, amt, candidates, scope_room_options,
                         existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
-                        existing_import_set=existing_import_set,
+                        existing_import_times=existing_import_times,
                     )
                 )
             continue
@@ -1476,7 +1515,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
-                existing_import_set=existing_import_set,
+                existing_import_times=existing_import_times,
             )
         )
 
@@ -1584,7 +1623,7 @@ def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
     return opts
 
 
-def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name, pay_kind="rent"):
+def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name, pay_kind="rent", time=""):
     hosu = (hosu or "").strip().upper()
     ipju_seq = str(ipju_seq or "").zfill(2)
     if not (hosu and ipju_seq) or int(amount or 0) <= 0:
@@ -1593,7 +1632,10 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name, pay_ki
     is_etc = (pay_kind or "rent") == "etc"
     sukum_char = _etc_sukum_char() if is_etc else "01"
     kind_label = "기타" if is_etc else "월세"
+    tm = (time or "").strip()
     desc = f"입금파일 자동반영 [{kind_label}] ({name or ''})"
+    if tm:
+        desc = f"{desc} @{tm}"
     db.execute(
         """
         INSERT INTO sukum01 (
@@ -1937,7 +1979,7 @@ def payments_import():
                 
                 # 개선 1+2: 같은 (date, amount, name, account_no) 조합이 이미 있으면 제외
                 # → 다른 계좌의 같은 입금은 구분 / 같은 계좌 중복은 추적
-                dep_key = (d["date"], d["amount"], d["name"], d["account_no"])
+                dep_key = (d["date"], d.get("time") or "", d["amount"], d["name"], d["account_no"])
                 if dep_key in seen_deposits:
                     excluded_count += 1
                     continue
