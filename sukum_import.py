@@ -1939,6 +1939,17 @@ def payments_import():
     if request.method == "POST" and request.form.get("action") == "parse":
         bunji1 = _pad_bunji(request.form.get("bunji1"))
         bunji2 = _pad_bunji(request.form.get("bunji2"))
+        # 이전 자동감지 결과의 대표 bunji가 폼에 남아 재업로드되면 building_list가
+        # 한 채로 줄어 다른 계좌 건물 세입자/호실 옵션이 비게 됨 → 무시하고 재감지
+        _prev_tok = (request.form.get("token") or "").strip()
+        if bunji1 and bunji2 and _prev_tok:
+            _prev = _load_state(_prev_tok)
+            if _prev and _prev.get("auto_detected"):
+                _pbl = _prev.get("building_list") or []
+                if len(_pbl) > 1:
+                    _p0 = _pbl[0]
+                    if (_pad_bunji(_p0[0]), _pad_bunji(_p0[1])) == (bunji1, bunji2):
+                        bunji1 = bunji2 = ""
         files = request.files.getlist("bank_file")
         if not files or all(not (f and f.filename) for f in files):
             old_token = (request.form.get("token") or "").strip()

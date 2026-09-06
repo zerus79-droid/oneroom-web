@@ -198,8 +198,9 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
               </details>
             </div>
             {% endif %}
-            <input type="hidden" name="bunji1" value="{{ bunji1 }}">
-            <input type="hidden" name="bunji2" value="{{ bunji2 }}">
+            {# 자동감지 시 대표 bunji를 재업로드에 실으면 한 건물로 좁혀져 다른 건물 호실 목록이 빔 #}
+            <input type="hidden" name="bunji1" value="{% if auto_detected %}{% else %}{{ bunji1 }}{% endif %}">
+            <input type="hidden" name="bunji2" value="{% if auto_detected %}{% else %}{{ bunji2 }}{% endif %}">
           </div>
           <div class="xp-field xp-field-wide">
             <label class="ls-lab">입금파일</label>
