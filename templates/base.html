@@ -1794,6 +1794,7 @@
     for (var i = 0; i < msgs.length; i++) {
       var m = (msgs[i] && msgs[i][1]) ? String(msgs[i][1]) : '';
       if (!m || m.indexOf('신규 입력 모드') === 0) continue;
+      if (text.indexOf(m) !== -1) continue;  // 같은 문구 중복 표시 방지
       text.push(m);
     }
     if (!text.length) return;
