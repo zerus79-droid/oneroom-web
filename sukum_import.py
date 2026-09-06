@@ -910,13 +910,14 @@ def _deposit_is_excluded(name, building_list, dep_account_no, rules):
 def buildings_by_account(account_no):
     """계좌번호(숫자만)를 쓰는 건물 목록. 책임관리는 여러 건물이 같은(관리사무소) 통장을
     같이 쓰는 게 정상이라 0곳/1곳/여러 곳 다 나올 수 있음."""
-    if not account_no:
+    acct = _account_digits(account_no or "")
+    if not acct:
         return []
     rows = db.query("SELECT bunji1, bunji2, bank_cd FROM bd01 WHERE bank_cd IS NOT NULL AND bank_cd<>''")
     return [
         (r["bunji1"], r["bunji2"])
         for r in rows
-        if _account_digits(r.get("bank_cd")) == account_no
+        if _account_digits(r.get("bank_cd")) == acct
     ]
 
 
@@ -1227,14 +1228,17 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             return []
 
     # JSON 상태 복원 시 [(b1,b2)]가 [[b1,b2]]로 올 수 있음 → 전부 튜플로 정규화
+    # JSON 복원 시 list→tuple만 맞추고, DB 조회 키는 원본 유지(제로패딩하면 CHAR 매칭이 깨질 수 있음)
     building_list = [
-        (_pad_bunji(b[0]), _pad_bunji(b[1])) if not isinstance(b, tuple) else (_pad_bunji(b[0]), _pad_bunji(b[1]))
+        (b[0], b[1]) if not isinstance(b, tuple) else b
         for b in building_list
-        if b and len(b) >= 2
+        if b and len(b) >= 2 and b[0] and b[1]
     ]
-    building_list = [(b1, b2) for b1, b2 in building_list if b1 and b2]
-    # 중복 제거(패딩 후)
-    building_list = sorted(set(building_list))
+    # 패딩 기준으로 중복 제거하되, SQL용 값은 첫 원본을 유지
+    dedup = {}
+    for b1, b2 in building_list:
+        dedup.setdefault((_pad_bunji(b1), _pad_bunji(b2)), (b1, b2))
+    building_list = sorted(dedup.values(), key=lambda b: (_pad_bunji(b[0]), _pad_bunji(b[1])))
     if not building_list:
         return []
     
@@ -1318,21 +1322,41 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             }
         acct_buildings = _acct_buildings_cache[dep_acct]
         if not acct_buildings:
-            # 자동매칭 후보만 비움. 건물 목록은 유지 → 미매칭 호실 선택은 가능
-            return [], list(building_list)
+            # 계좌로 건물을 못 좁혀도, 이미 고른 building_list 세입자로 매칭
+            # (여기 [] 주면 전원 미매칭 + 날짜중복만 만지다가 깨진 것처럼 보임)
+            return tenants, list(building_list)
         padded_building_list = [
             (_pad_bunji(b1), _pad_bunji(b2)) for b1, b2 in building_list
         ]
         scope_buildings = [b for b in padded_building_list if b in acct_buildings]
         if not scope_buildings:
-            # building_list 밖 계좌 건물 — 로드된 세입자 중 계좌 건물만
-            scope_buildings = sorted(acct_buildings)
+            # 계좌 건물이 building_list 밖이면, 로드된 세입자와 겹치는 것만
+            scope_set = set(acct_buildings)
+            scoped = [
+                trow for trow in tenants
+                if (_pad_bunji(trow.get("bunji1")), _pad_bunji(trow.get("bunji2"))) in scope_set
+            ]
+            if scoped:
+                return scoped, sorted({
+                    (_pad_bunji(t.get("bunji1")), _pad_bunji(t.get("bunji2")))
+                    for t in scoped
+                })
+            # 겹치는 세입자 없으면 building_list 전체로 폴백 (매칭 전멸 방지)
+            return tenants, list(building_list)
         scope_set = set(scope_buildings)
         scoped = [
             trow for trow in tenants
             if (_pad_bunji(trow.get("bunji1")), _pad_bunji(trow.get("bunji2"))) in scope_set
         ]
-        return scoped, scope_buildings
+        # 패딩 불일치 등으로 스코프가 비면 전체 폴백
+        if not scoped:
+            return tenants, list(building_list)
+        # SQL/표시용 원본 bunji 유지
+        scope_buildings_orig = [
+            b for b in building_list
+            if (_pad_bunji(b[0]), _pad_bunji(b[1])) in scope_set
+        ] or list(building_list)
+        return scoped, scope_buildings_orig
 
     results = []
     for dep in deposits:
