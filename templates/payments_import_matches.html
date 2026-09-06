@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}수동매칭 · 주택관리 시스템{% endblock %}
+{% block content %}
+<div class="legacy-sukum-panel card">
+  <div class="legacy-sukum-caption">
+    <span class="caption-title">수동매칭{% if edit %} (수정){% endif %}</span>
+  </div>
+  <div class="legacy-sukum-body xp-form">
+    <form method="post" class="filter-bar" autocomplete="off">
+      <input type="hidden" name="action" value="{{ 'match_edit' if edit else 'match_add' }}">
+      {% if edit %}<input type="hidden" name="rule_id" value="{{ edit.id }}">{% endif %}
+      <input type="hidden" name="bunji1" id="m_bunji1" value="{{ edit.bunji1 if edit else '' }}">
+      <input type="hidden" name="bunji2" id="m_bunji2" value="{{ edit.bunji2 if edit else '' }}">
+      <div class="filter-bar-fields">
+        <div class="xp-grid">
+          <div class="xp-field xp-field-wide">
+            <label class="ls-lab">적요글자</label>
+            <input type="text" name="keyword" class="ls-box" value="{{ edit.keyword if edit else '' }}"
+                   placeholder="입금 적요 (예: 풍요202호월세)" required autocomplete="off">
+          </div>
+          <div class="xp-field xp-field-wide">
+            <label class="ls-lab">주소</label>
+            <select class="ls-select" required onchange="
+              var v=this.value.split('|');
+              document.getElementById('m_bunji1').value=v[0]||'';
+              document.getElementById('m_bunji2').value=v[1]||'';
+            ">
+              <option value="">건물 선택</option>
+              {% for b in buildings %}
+              <option value="{{ b.bunji1 }}|{{ b.bunji2 }}"
+                      {% if edit and edit.bunji1 == b.bunji1 and edit.bunji2 == b.bunji2 %}selected{% endif %}>
+                {{ b.juso }} ({{ b.bunji1|bunji }}-{{ b.bunji2|bunji }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="xp-field">
+            <label class="ls-lab">호실</label>
+            <input type="text" name="hosu" class="ls-box" value="{{ edit.hosu if edit else '' }}"
+                   placeholder="예: 202" required autocomplete="off">
+          </div>
+          <div class="xp-field">
+            <label class="ls-lab">입주순번</label>
+            <input type="text" name="ipju_seq" class="ls-box" value="{{ edit.ipju_seq if edit else '01' }}"
+                   placeholder="01" inputmode="numeric" autocomplete="off">
+          </div>
+          <div class="xp-field">
+            <label class="ls-lab">계좌번호</label>
+            <input type="text" name="acct_no" class="ls-box" value="{{ edit.acct_no if edit else '' }}"
+                   placeholder="비우면 전체 계좌" inputmode="numeric" autocomplete="off">
+          </div>
+        </div>
+      </div>
+      <div class="filter-bar-btns">
+        <button type="submit" class="btn">{{ '저장' if edit else '매칭 추가' }}</button>
+        <a class="btn" href="{{ url_for('payments_import') }}">파일등록</a>
+        {% if edit %}
+        <a class="btn" href="{{ url_for('payments_import_matches') }}">취소</a>
+        {% endif %}
+      </div>
+    </form>
+
+    <p class="empty hint-box">입금파일에서 호실을 수동으로 고른 뒤 반영하면 여기에 자동 등록됩니다. 같은 적요가 다시 올라오면 이 호실로 자동 매칭합니다.</p>
+
+    <div class="panel-section-lab">
+      등록된 수동매칭
+      <span class="muted">
+        {{ pager.total if pager else match_rules|length }}건
+        {% if pager and pager.total_pages %} · {{ pager.page }}/{{ pager.total_pages }}{% endif %}
+      </span>
+      {% set pager_endpoint = 'payments_import_matches' %}
+      {% set pager_label = '수동매칭 페이지' %}
+      {% set pager_query = {'q': q or none} %}
+      {% include '_pager.html' %}
+    </div>
+    <form method="get" class="ls-row" style="margin:0 0 8px" autocomplete="off">
+      <label class="ls-lab" for="match-list-q">검색</label>
+      <div class="ls-val">
+        <input type="search" name="q" id="match-list-q" class="ls-box"
+               value="{{ q or '' }}" placeholder="적요 · 주소 · 호실 · 계좌" autocomplete="off">
+      </div>
+    </form>
+    <div class="panel-table-wrap table-scroll">
+      {% if match_rules %}
+      <table class="legacy-grid" id="match-list-table">
+        <thead>
+          <tr>
+            <th class="tc">적요글자</th>
+            <th class="tc">주소</th>
+            <th class="tc">호실</th>
+            <th class="tc">계좌</th>
+            <th class="tc">처리</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in match_rules %}
+          <tr class="click-row" title="수정"
+              onclick="location.href='{{ url_for('payments_import_matches', edit_id=r.id, q=q or none) }}'">
+            <td>{{ r.keyword or '—' }}</td>
+            <td class="tc col-nowrap">
+              {% if r.bunji1 %}
+              {{ r.juso or '' }} {{ r.bunji1|bunji_pair(r.bunji2) }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="tc col-nowrap">{{ r.hosu }}{% if r.ipju_seq %} ({{ r.ipju_seq }}){% endif %}</td>
+            <td class="tc col-nowrap">{{ r.acct_no or '전체' }}</td>
+            <td class="tc" onclick="event.stopPropagation()">
+              <a class="btn secondary" href="{{ url_for('payments_import_matches', edit_id=r.id, q=q or none) }}"
+                 style="min-height:auto;height:auto;padding:2px 8px;">수정</a>
+              <form method="post" style="display:inline">
+                <input type="hidden" name="action" value="match_del">
+                <input type="hidden" name="rule_id" value="{{ r.id }}">
+                <button type="submit" class="btn secondary" style="min-height:auto;height:auto;padding:2px 8px;">삭제</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">등록된 수동매칭이 없습니다. 입금파일에서 호실을 고른 뒤 반영하면 쌓입니다.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
