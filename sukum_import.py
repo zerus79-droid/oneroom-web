@@ -952,8 +952,11 @@ def _finish_match_row(
 
 
 def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""):
-    """세입자 매칭. 건물이 여러 곳이면 전체 세입자를 모아서 이름 매칭.
-    
+    """세입자 매칭.
+
+    우선순위: 입금 계좌번호 → 건물(bank_cd) 한정 후, 그 안에서 이름/호수 매칭.
+    건물이 여러 곳이어도 계좌가 다르면 서로 섞지 않는다.
+
     다중 파일 처리 시 주의사항:
     - 개선 1: 입금파일 로더에서 (date, amount, name) 중복 제거 → 같은 파일들에서 중복 입금 감지
     - 개선 2: building_list_set으로 중복 제거하고 sorted() → 큰 building_list 방지
@@ -1017,26 +1020,61 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
     # 대표 건물(첫 번째) — UI 표시용
     primary_bunji1, primary_bunji2 = (building_list[0] if building_list else ("", ""))
 
+    # 계좌번호 → 건물 캐시 (입금 건마다 우선 이 건물들로 후보를 좁힘)
+    _acct_buildings_cache = {}
+
+    def _scope_tenants_for_deposit(dep):
+        """우선순위 1: 입금파일 계좌번호 ↔ 건물 bank_cd 매칭으로 세입자 범위 한정."""
+        dep_acct = _account_digits(dep.get("account_no") or "")
+        if not dep_acct:
+            return tenants, list(building_list)
+        if dep_acct not in _acct_buildings_cache:
+            _acct_buildings_cache[dep_acct] = set(buildings_by_account(dep_acct))
+        acct_buildings = _acct_buildings_cache[dep_acct]
+        if not acct_buildings:
+            # 계좌는 있는데 등록 건물이 없으면 전체로 두지 않고 빈 범위(오매칭 방지)
+            return [], []
+        building_set = set(building_list)
+        scope_buildings = [b for b in building_list if b in acct_buildings]
+        if not scope_buildings:
+            # building_list 밖 계좌 건물 — 로드된 세입자 중 계좌 건물만
+            scope_buildings = sorted(acct_buildings)
+        scope_set = set(scope_buildings)
+        scoped = [
+            trow for trow in tenants
+            if (trow.get("bunji1"), trow.get("bunji2")) in scope_set
+        ]
+        return scoped, scope_buildings
+
     results = []
     for dep in deposits:
+        scope_tenants, scope_buildings = _scope_tenants_for_deposit(dep)
+        scope_primary_b1, scope_primary_b2 = (
+            scope_buildings[0] if scope_buildings else (primary_bunji1, primary_bunji2)
+        )
+        scope_room_options = (
+            _room_options(scope_tenants) if scope_tenants is not tenants else all_room_options
+        )
+
         # Prefer per-deposit account_no over joined state account_no ("; "-joined).
-        if _deposit_is_excluded(dep["name"], building_list, dep.get("account_no") or "", exclude_rules):
+        exclude_buildings = scope_buildings or building_list
+        if _deposit_is_excluded(dep["name"], exclude_buildings, dep.get("account_no") or "", exclude_rules):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
 
         # 수도·전기·가스 적요는 호수 힌트가 있어도 월세로 넣지 않음
         if _is_utility_desc(dep["name"]):
             results.append(
                 _finish_match_row(
-                    dep, None, dep["amount"], tenants, all_room_options,
-                    existing_set, primary_bunji1, primary_bunji2, needs_pick=False,
+                    dep, None, dep["amount"], scope_tenants, scope_room_options,
+                    existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
                 )
             )
             continue
 
-        # 1) 호수에 붙은 이름('201호한명노')을 최우선 — 건물명·다른 이름이 앞에 있어도 입금자 쪽
+        # 1) 호수에 붙은 이름('201호한명노')을 최우선 — 단, 계좌 건물 범위 안에서만
         paired = []
         for hosu_num, person in _room_attached_names(dep["name"]):
-            paired.extend(_tenants_for_room_name(tenants, hosu_num, person))
+            paired.extend(_tenants_for_room_name(scope_tenants, hosu_num, person))
         # dedupe by identity
         paired_uniq = []
         seen_ids = set()
@@ -1051,7 +1089,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             seen_ids.add(key)
             paired_uniq.append(c)
 
-        name_candidates = [t for t in tenants if _name_matches(dep["name"], t.get("ipju_nm") or "")]
+        name_candidates = [t for t in scope_tenants if _name_matches(dep["name"], t.get("ipju_nm") or "")]
 
         if len(paired_uniq) == 1:
             candidates = paired_uniq
@@ -1089,7 +1127,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                 candidates = []  # 호수+이름인데 세입자 불일치 → 미매칭/수동
             else:
                 candidates = _narrow_by_room_hint(
-                    dep["name"], tenants, amount=dep["amount"], allow_bare_number=True
+                    dep["name"], scope_tenants, amount=dep["amount"], allow_bare_number=True
                 )
                 if len(candidates) != 1:
                     candidates = name_candidates
@@ -1101,12 +1139,12 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             match = candidates[0] if len(candidates) == 1 else None
             needs_pick = len(candidates) > 1
             row = _finish_match_row(
-                dep, match, dep["amount"], candidates, all_room_options,
-                existing_set, primary_bunji1, primary_bunji2, needs_pick=needs_pick,
+                dep, match, dep["amount"], candidates, scope_room_options,
+                existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
             )
             if row["status"] == "matched" and not needs_pick:
                 row["amount_flag"] = True
-                row["room_options"] = all_room_options
+                row["room_options"] = scope_room_options
             results.append(row)
             continue
 
@@ -1115,8 +1153,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             for match, amt in split:
                 results.append(
                     _finish_match_row(
-                        dep, match, amt, candidates, all_room_options,
-                        existing_set, primary_bunji1, primary_bunji2, needs_pick=False,
+                        dep, match, amt, candidates, scope_room_options,
+                        existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
                     )
                 )
             continue
@@ -1125,8 +1163,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         needs_pick = len(candidates) > 1
         results.append(
             _finish_match_row(
-                dep, match, dep["amount"], candidates, all_room_options,
-                existing_set, primary_bunji1, primary_bunji2, needs_pick=needs_pick,
+                dep, match, dep["amount"], candidates, scope_room_options,
+                existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
             )
         )
 
