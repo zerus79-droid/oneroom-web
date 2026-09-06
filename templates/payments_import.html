@@ -15,6 +15,10 @@
         <div class="xp-grid">
           <div class="xp-field xp-field-wide">
             <label class="ls-lab">주　　소</label>
+            {% if address_locked %}
+            <input type="text" class="ls-select" value="{{ building_label }}" disabled title="자동 감지된 건물">
+            <span class="muted">자동 감지됨</span>
+            {% else %}
             <select name="bunji1_bunji2" class="ls-select" onchange="
               var v=this.value.split('|');
               this.form.bunji1.value=v[0]||'';
@@ -29,6 +33,7 @@
             </select>
             {% if building_label %}
             <span class="muted">{{ building_label }}{% if auto_detected %} (자동 감지됨){% endif %}</span>
+            {% endif %}
             {% endif %}
             <input type="hidden" name="bunji1" value="{{ bunji1 }}">
             <input type="hidden" name="bunji2" value="{{ bunji2 }}">
@@ -62,6 +67,10 @@
         <div class="xp-grid">
           <div class="xp-field">
             <label class="ls-lab">주소 확인</label>
+            {% if address_locked %}
+            <input type="text" class="ls-select" value="{{ building_label }}" disabled title="자동 감지된 건물">
+            <span class="muted">자동 감지됨</span>
+            {% else %}
             <select name="bunji1_bunji2" class="ls-select" {% if not bunji1 %}autofocus{% endif %} onchange="
               var v=this.value.split('|');
               this.form.bunji1.value=v[0]||'';
@@ -76,6 +85,7 @@
             </select>
             <button type="submit" class="btn secondary">주소선택</button>
             {% if not bunji1 %}<span class="st-badge overdue">주소를 선택하세요</span>{% endif %}
+            {% endif %}
             <input type="hidden" name="bunji1" value="{{ bunji1 }}">
             <input type="hidden" name="bunji2" value="{{ bunji2 }}">
           </div>

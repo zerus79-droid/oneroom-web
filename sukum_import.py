@@ -1683,13 +1683,17 @@ def payments_import():
             else []
         )
 
+    building_label = _building_label(bunji1, bunji2) if bunji1 and bunji2 else ""
+    # 자동 감지 + 건물 1곳이면 주소 드롭다운 숨기고 건물명만 표시
+    address_locked = bool(auto_detected and building_label and len(building_list) == 1)
     return render_template(
         "payments_import.html",
         buildings=buildings,
         bunji1=bunji1,
         bunji2=bunji2,
-        building_label=_building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
+        building_label=building_label,
         auto_detected=auto_detected,
+        address_locked=address_locked,
         rows=rows,
         token=token,
         uploaded_name=uploaded_name,
