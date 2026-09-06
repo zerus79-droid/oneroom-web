@@ -975,6 +975,15 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             building_list = [(bunji1, bunji2)]
         else:
             return []
+
+    # JSON 상태 복원 시 [(b1,b2)]가 [[b1,b2]]로 올 수 있음 → 전부 튜플로 정규화
+    building_list = [
+        (b[0], b[1]) if not isinstance(b, tuple) else b
+        for b in building_list
+        if b and len(b) >= 2
+    ]
+    if not building_list:
+        return []
     
     # 모든 건물의 세입자 조회 — WHERE (bunji1, bunji2) IN (...)
     placeholders = ",".join(["(%s, %s)"] * len(building_list))
@@ -1034,7 +1043,6 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         if not acct_buildings:
             # 계좌는 있는데 등록 건물이 없으면 전체로 두지 않고 빈 범위(오매칭 방지)
             return [], []
-        building_set = set(building_list)
         scope_buildings = [b for b in building_list if b in acct_buildings]
         if not scope_buildings:
             # building_list 밖 계좌 건물 — 로드된 세입자 중 계좌 건물만
