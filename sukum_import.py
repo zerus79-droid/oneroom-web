@@ -48,6 +48,24 @@ EXCEL_MAGIC_NUMBERS = {
 }
 
 
+def _patch_xlrd_object_errors():
+    """농협 등 은행 .xls에 섞인 깨진 OBJECT 레코드(로고 등) 때문에 xlrd가
+    'Unexpected data at end of OBJECT record'로 죽는 걸 막음 — 입금 데이터엔
+    필요 없는 레코드라 통째로 무시."""
+    if xlrd is None:
+        return
+    import xlrd.sheet as xlrd_sheet
+
+    if getattr(xlrd_sheet.Sheet.handle_obj, "_patched", False):
+        return
+
+    def _ignore(self, data):
+        return None
+
+    _ignore._patched = True
+    xlrd_sheet.Sheet.handle_obj = _ignore
+
+
 def _upload_basename(filename):
     """폴더 선택 시 브라우저가 넘기는 'dir/file.xlsx' 경로에서 파일명만 뽑는다."""
     name = (filename or "").replace("\\", "/").strip()
@@ -121,8 +139,13 @@ def validate_file_upload(file):
             wb.close()
         elif file_ext == ".xls":
             if xlrd:
+                # 농협 등 은행 .xls의 깨진 OBJECT 레코드 — 로더와 동일하게 패치 후 연다
+                _patch_xlrd_object_errors()
                 file.seek(0)
-                wb = xlrd.open_workbook(file_contents=file.read())
+                wb = xlrd.open_workbook(
+                    file_contents=file.read(),
+                    formatting_info=False,
+                )
                 if wb.nsheets == 0:
                     return False, "Excel 파일에 시트가 없습니다."
             else:
@@ -332,23 +355,6 @@ def _extract_deposits_from_rows(rows, xlrd_book=None):
         deposits.append({"date": d.isoformat(), "amount": amount, "name": name})
     return deposits, account_no
 
-
-def _patch_xlrd_object_errors():
-    """농협 등 은행 .xls에 섞인 깨진 OBJECT 레코드(로고 등) 때문에 xlrd가
-    'Unexpected data at end of OBJECT record'로 죽는 걸 막음 — 입금 데이터엔
-    필요 없는 레코드라 통째로 무시."""
-    if xlrd is None:
-        return
-    import xlrd.sheet as xlrd_sheet
-
-    if getattr(xlrd_sheet.Sheet.handle_obj, "_patched", False):
-        return
-
-    def _ignore(self, data):
-        return None
-
-    _ignore._patched = True
-    xlrd_sheet.Sheet.handle_obj = _ignore
 
 
 def _load_bank_deposits_xls(raw_bytes):
