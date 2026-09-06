@@ -15,3 +15,4 @@ backups/
 
 # Imported tenant spreadsheets can contain personal information.
 *.xlsx
+logs/
