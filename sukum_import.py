@@ -1143,7 +1143,8 @@ def _try_split_lump(candidates, amount):
 
 def _finish_match_row(
     dep, match, amount, candidates, all_room_options,
-    existing_set, bunji1, bunji2, needs_pick, existing_import_times=None,
+    existing_set, bunji1, bunji2, needs_pick, existing_import_map=None,
+    tenants=None,
 ):
     hosu = (match.get("hosu") or "").strip().upper() if match else ""
     ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
@@ -1191,7 +1192,8 @@ def _finish_match_row(
     _nm = dep.get("name") or ""
     _tm = (dep.get("time") or "").strip()
     _ik = (row["date"], int(amount), _nm)
-    _times = (existing_import_times or {}).get(_ik) or set()
+    _import_hits = (existing_import_map or {}).get(_ik) or []
+    _times = {h.get("time") or "" for h in _import_hits}
     # 시각까지 같으면 중복. 예전에 시각 없이 저장된 적요("")도 동일 입금으로 본다.
     already_imported = bool(_times) and (_tm in _times or "" in _times or not _tm)
     if needs_pick and not already_imported:
@@ -1202,6 +1204,33 @@ def _finish_match_row(
         in existing_set
     ):
         row["status"] = "duplicate"
+        # 호실 재매칭 실패해도, 이미 반영된 sukum01 호실·세입자·계약액을 복원
+        if already_imported and not hosu and _import_hits:
+            hit = None
+            for h in _import_hits:
+                if _tm and (h.get("time") or "") == _tm:
+                    hit = h
+                    break
+            if hit is None:
+                for h in _import_hits:
+                    if not (h.get("time") or ""):
+                        hit = h
+                        break
+            if hit is None:
+                hit = _import_hits[0]
+            row["hosu"] = hit.get("hosu") or ""
+            row["ipju_seq"] = hit.get("ipju_seq") or ""
+            if hit.get("bunji1") and hit.get("bunji2"):
+                row["bunji1"] = hit.get("bunji1")
+                row["bunji2"] = hit.get("bunji2")
+                row["building_nm"] = _building_label(hit.get("bunji1"), hit.get("bunji2"))
+            tenant = _tenant_by_keys(
+                tenants, row.get("bunji1"), row.get("bunji2"),
+                row.get("hosu"), row.get("ipju_seq"),
+            ) if tenants is not None else None
+            if tenant:
+                row["tenant_nm"] = tenant.get("ipju_nm") or ""
+                row["contract_due"] = _monthly_due(tenant)
     elif not match:
         row["status"] = "unmatched"
     else:
@@ -1308,12 +1337,12 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         )
         for r in existing
     }
-    # 같은 파일 재업로드: 적요의 이름+시각(@HH:MM:SS)으로 이미 반영 여부 판정
+    # 같은 파일 재업로드: 적요의 이름+시각으로 이미 반영 여부 + 당시 호실 복원
     _import_desc_re = re.compile(
         r"입금파일\s*자동반영\s*\[[^\]]*\]\s*\((.*?)\)\s*(?:@(\d{2}:\d{2}:\d{2}))?\s*$"
     )
-    # (date, amount, name) -> set of times ("" = 예전 적요에 시각 없음)
-    existing_import_times = {}
+    # (date, amount, name) -> [{time, bunji1, bunji2, hosu, ipju_seq}, ...]
+    existing_import_map = {}
     for r in existing:
         raw_d = r.get("d")
         d = raw_d.isoformat() if hasattr(raw_d, "isoformat") else str(raw_d or "")[:10]
@@ -1325,7 +1354,13 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         if not m:
             continue
         key = (d, amt, (m.group(1) or "").strip())
-        existing_import_times.setdefault(key, set()).add((m.group(2) or "").strip())
+        existing_import_map.setdefault(key, []).append({
+            "time": (m.group(2) or "").strip(),
+            "bunji1": r.get("bunji1"),
+            "bunji2": r.get("bunji2"),
+            "hosu": (r.get("hosu") or "").strip().upper(),
+            "ipju_seq": str(r.get("ipju_seq") or "").zfill(2),
+        })
     exclude_rules = list_exclude_keywords()
     match_rules = list_match_rules()
     manual_picks = manual_picks or {}
@@ -1413,7 +1448,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                 _finish_match_row(
                     dep, forced, dep["amount"], [forced], scope_room_options,
                     existing_set, scope_primary_b1, scope_primary_b2, False,
-                    existing_import_times=existing_import_times,
+                    existing_import_map=existing_import_map,
+                    tenants=scope_tenants,
                 )
             )
             continue
@@ -1489,7 +1525,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             row = _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
-                existing_import_times=existing_import_times,
+                existing_import_map=existing_import_map,
+                    tenants=scope_tenants,
             )
             if row["status"] == "matched" and not needs_pick:
                 row["amount_flag"] = True
@@ -1504,7 +1541,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                     _finish_match_row(
                         dep, match, amt, candidates, scope_room_options,
                         existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
-                        existing_import_times=existing_import_times,
+                        existing_import_map=existing_import_map,
+                    tenants=scope_tenants,
                     )
                 )
             continue
@@ -1515,7 +1553,8 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
-                existing_import_times=existing_import_times,
+                existing_import_map=existing_import_map,
+                    tenants=scope_tenants,
             )
         )
 
