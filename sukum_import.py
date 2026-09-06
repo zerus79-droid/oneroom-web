@@ -1461,6 +1461,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                     _finish_match_row(
                         dep, match, amt, candidates, scope_room_options,
                         existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
+                        existing_import_set=existing_import_set,
                     )
                 )
             continue
