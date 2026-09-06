@@ -109,6 +109,26 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
   margin-left: auto;
   flex: 0 0 auto;
 }
+
+.btn-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: stretch;
+  min-width: 5.5em;
+}
+.btn-stack .btn-stack-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 4px 10px !important;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  box-sizing: border-box;
+  width: 100%;
+}
 </style>
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
@@ -165,8 +185,10 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
       </div>
       <div class="filter-bar-btns">
         <button type="submit" class="btn">업로드</button>
-        <a class="btn" href="{{ url_for('payments_import_exclude') }}">제외항목</a>
-        <a class="btn" href="{{ url_for('payments_import_matches') }}">수동매칭</a>
+        <div class="btn-stack">
+          <a class="btn btn-stack-item" href="{{ url_for('payments_import_exclude') }}">제외항목</a>
+          <a class="btn btn-stack-item" href="{{ url_for('payments_import_matches') }}">수동매칭</a>
+        </div>
       </div>
     </form>
 
