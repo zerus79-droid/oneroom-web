@@ -110,15 +110,18 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
   flex: 0 0 auto;
 }
 
+/* 업로드 버튼과 동일 높이: desktop 92 / ≤640 80 / ≤760 48 */
 .filter-bar-btns > .btn-stack {
   display: inline-flex;
   flex-direction: column;
   gap: 4px;
-  align-self: stretch;
-  height: 80px;
-  min-height: 80px;
-  max-height: 80px;
-  min-width: 5.8em;
+  flex: 0 0 6.4rem;
+  width: 6.4rem;
+  min-width: 6.4rem;
+  align-self: flex-start;
+  height: 92px;
+  min-height: 92px;
+  max-height: 92px;
   box-sizing: border-box;
 }
 .btn-stack .btn-stack-item {
@@ -129,18 +132,29 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
   min-height: 0 !important;
   max-height: none !important;
   height: auto !important;
-  padding: 0 10px !important;
+  padding: 0 6px !important;
   font-size: 0.95rem;
   font-weight: 700;
   line-height: 1.15;
   box-sizing: border-box;
   width: 100%;
+  margin: 0 !important;
 }
-@media (max-width: 900px) {
+@media (max-width: 640px) {
   .filter-bar-btns > .btn-stack {
-    height: 48px;
-    min-height: 48px;
-    max-height: 48px;
+    height: 80px;
+    min-height: 80px;
+    max-height: 80px;
+  }
+}
+@media (max-width: 760px) {
+  .filter-bar-btns > .btn-stack {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    height: 48px !important;
+    min-height: 48px !important;
+    max-height: 48px !important;
   }
 }
 </style>
