@@ -110,24 +110,38 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
   flex: 0 0 auto;
 }
 
-.btn-stack {
+.filter-bar-btns > .btn-stack {
   display: inline-flex;
   flex-direction: column;
   gap: 4px;
   align-self: stretch;
-  min-width: 5.5em;
+  height: 80px;
+  min-height: 80px;
+  max-height: 80px;
+  min-width: 5.8em;
+  box-sizing: border-box;
 }
 .btn-stack .btn-stack-item {
+  flex: 1 1 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 0 !important;
+  max-height: none !important;
   height: auto !important;
-  padding: 4px 10px !important;
-  font-size: 0.85rem;
-  line-height: 1.2;
+  padding: 0 10px !important;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.15;
   box-sizing: border-box;
   width: 100%;
+}
+@media (max-width: 900px) {
+  .filter-bar-btns > .btn-stack {
+    height: 48px;
+    min-height: 48px;
+    max-height: 48px;
+  }
 }
 </style>
 <div class="legacy-sukum-panel card">

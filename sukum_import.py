@@ -1113,7 +1113,7 @@ def _try_split_lump(candidates, amount):
 
 def _finish_match_row(
     dep, match, amount, candidates, all_room_options,
-    existing_set, bunji1, bunji2, needs_pick,
+    existing_set, bunji1, bunji2, needs_pick, existing_import_set=None,
 ):
     hosu = (match.get("hosu") or "").strip().upper() if match else ""
     ipju_seq = str(match.get("ipju_seq") or "").zfill(2) if match else ""
@@ -1157,12 +1157,18 @@ def _finish_match_row(
             else (all_room_options if not match else [])
         ),
     }
-    if needs_pick:
+    import_key = (row["date"], int(amount), dep.get("name") or "")
+    already_imported = bool(existing_import_set and import_key in existing_import_set)
+    if needs_pick and not already_imported:
         row["status"] = "matched"
+    elif already_imported or (
+        match
+        and (matched_bunji1, matched_bunji2, hosu, ipju_seq, row["date"], int(amount))
+        in existing_set
+    ):
+        row["status"] = "duplicate"
     elif not match:
         row["status"] = "unmatched"
-    elif (matched_bunji1, matched_bunji2, hosu, ipju_seq, row["date"], int(amount)) in existing_set:
-        row["status"] = "duplicate"
     else:
         row["status"] = "matched"
         expected = _monthly_due(match)
@@ -1249,7 +1255,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
     # 개선: (bunji1, bunji2)를 key에 포함시킴 → 다른 건물의 같은 호실/날짜/금액도 구분
     existing = db.query(
         f"""
-        SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt
+        SELECT bunji1, bunji2, hosu, ipju_seq, DATE(sukum_dt) AS d, su_sil_amt, manage_desc
         FROM sukum01
         WHERE (bunji1, bunji2) IN ({placeholders})
           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
@@ -1267,6 +1273,16 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         )
         for r in existing
     }
+    # 입금파일로 이미 반영된 건 (호실 매칭 실패해도 날짜중복)
+    _import_desc_re = re.compile(r"입금파일\s*자동반영\s*\[[^\]]*\]\s*\((.*)\)\s*$")
+    existing_import_set = set()
+    for r in existing:
+        d = r["d"].isoformat() if r.get("d") else ""
+        amt = int(r.get("su_sil_amt") or 0)
+        desc = (r.get("manage_desc") or "").strip()
+        m = _import_desc_re.search(desc)
+        if m:
+            existing_import_set.add((d, amt, (m.group(1) or "").strip()))
     exclude_rules = list_exclude_keywords()
     match_rules = list_match_rules()
     manual_picks = manual_picks or {}
@@ -1354,6 +1370,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                 _finish_match_row(
                     dep, forced, dep["amount"], [forced], scope_room_options,
                     existing_set, scope_primary_b1, scope_primary_b2, False,
+                    existing_import_set=existing_import_set,
                 )
             )
             continue
@@ -1429,6 +1446,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             row = _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
+                existing_import_set=existing_import_set,
             )
             if row["status"] == "matched" and not needs_pick:
                 row["amount_flag"] = True
@@ -1453,6 +1471,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             _finish_match_row(
                 dep, match, dep["amount"], candidates, scope_room_options,
                 existing_set, scope_primary_b1, scope_primary_b2, needs_pick=needs_pick,
+                existing_import_set=existing_import_set,
             )
         )
 
