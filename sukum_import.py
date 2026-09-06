@@ -429,33 +429,41 @@ def _name_matches(deposit_name, tenant_name):
 
 
 def _room_attached_names(text):
-    """적요에서 호수 바로 옆 입금자명을 뽑는다.
+    """적요에서 호수 바로 옆 입금자명 후보를 뽑는다.
 
-    긴 적요 앞에 건물·다른 이름이 있어도, **마지막** 'N호' 기준이 입금자인 경우가 많다.
-    - '…201호한명노' → (201, 한명노)
-    - '…공영주402호' → (402, 공영주)
+    마지막 'N호'를 입금 호수로 보고, 바로 뒤·앞 한글에서 2~4글자 후보를 만든다.
+    (앞에 다른 이름이 길게 붙어도 세입자 매칭으로 걸러진다.)
     """
     text = re.sub(r"\s+", "", text or "")
     if not text:
         return []
-    pairs = []
     marks = list(re.finditer(r"(\d{2,4})호", text))
     if not marks:
         return []
-    # 마지막 호수 마커를 입금 호수로 우선
-    for m in reversed(marks):
-        hosu = m.group(1).lstrip("0") or "0"
-        after = text[m.end():]
-        m_after = re.match(r"([가-힣]{2,4})", after)
-        if m_after:
-            pairs.append((hosu, m_after.group(1)))
-            break
-        before = text[: m.start()]
-        m_before = re.search(r"([가-힣]{2,4})$", before)
-        if m_before:
-            pairs.append((hosu, m_before.group(1)))
-            break
-    return pairs
+    m = marks[-1]
+    hosu = m.group(1).lstrip("0") or "0"
+    pairs = []
+    after = text[m.end():]
+    m_after = re.match(r"([가-힣]{2,4})", after)
+    if m_after:
+        pairs.append((hosu, m_after.group(1)))
+    before = text[: m.start()]
+    m_run = re.search(r"([가-힣]{2,8})$", before)
+    if m_run:
+        run = m_run.group(1)
+        for length in range(min(4, len(run)), 1, -1):
+            pairs.append((hosu, run[-length:]))
+            if len(run) > length:
+                pairs.append((hosu, run[:length]))
+    seen = set()
+    out = []
+    for hosu_n, name in pairs:
+        key = (hosu_n, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((hosu_n, name))
+    return out
 
 
 def _tenants_for_room_name(tenants, hosu_num, person_name):
