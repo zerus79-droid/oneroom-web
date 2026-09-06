@@ -545,7 +545,16 @@ def get_recent_failed_attempts(ip_address, sabun, minutes=10):
         (ip_address, sabun, minutes)
     )
     return int((row or {}).get("count") or 0)
-    """계약금액 변경이력 테이블. 기존 입주 폼 배치를 바꾸지 않고 수정 저장 시 기록한다."""
+
+
+def ensure_contract_terms_history():
+    """계약금액 변경이력 테이블. 기존 입주 폼 배치를 바꾸지 않고 수정 저장 시 기록한다.
+
+    수정 이력: 원래 이 def 줄이 누락돼서 아래 테이블 생성 코드가
+    get_recent_failed_attempts()의 return문 뒤 죽은 코드로 붙어있었고,
+    ensure_contract_terms_history()를 호출하는 곳(계약금액 변경이력 기록,
+    퇴실정산 기간별 계산)마다 NameError로 죽는 버그가 있었음. 복원함.
+    """
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS bd03_terms_hist (
@@ -718,16 +727,35 @@ def calc_misu_amt(
     bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None
 ):
     """전월미수총액(누적 추정).
-    (월세+관리비) × 입주 후 경과연월 − 실입금(su_sil_amt) 합계.
+    입주일~as_of(기본 오늘)까지의 청구총액(과거 임대료·관리비 변경 이력을
+    bd03_terms_hist에서 반영해 기간별로 계산, calc_contract_period_charge 재사용)
+    − 실입금(su_sil_amt) 합계.
     대체는 집주인 대납이라 세입자 미수에서 빼지 않음.
-    as_of 가 있으면 그 날짜까지의 수금·경과연월 기준.
     음수(선수금)면 0.
+
+    수정 이력: 예전엔 (현재 월세+관리비) × 경과월수로 계산해서, 옛날에 임대료가
+    더 쌌던 오래된 세입자는 실제보다 낮게(또는 0으로) 나오는 버그가 있었음
+    (예: 강석원 990,000원 vs 재계산 0원). 과거 계약금액 변경 이력이 있는
+    세입자는 그 이력을 반영해 계산하도록 수정함.
     """
     monthly = to_int_amt(rent_amt) + to_int_amt(manage_amt)
     if monthly <= 0 or not (bunji1 and bunji2 and hosu and ipju_seq):
         return 0
-    months = months_elapsed(ipju_dt, as_of)
-    expected = monthly * months
+    end_d = as_of
+    if isinstance(end_d, datetime):
+        end_d = end_d.date()
+    if end_d is None:
+        end_d = date.today()
+    start_d = ipju_dt.date() if isinstance(ipju_dt, datetime) else ipju_dt
+    if start_d and end_d >= start_d:
+        expected = calc_contract_period_charge(
+            bunji1, bunji2, hosu, ipju_seq, start_d, end_d,
+            rent_amt=rent_amt, manage_amt=manage_amt,
+        )
+    else:
+        # 입주일 정보가 없으면(예외 상황) 기존 방식으로 대체 계산.
+        months = months_elapsed(ipju_dt, as_of)
+        expected = monthly * months
     sql = """
         SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
         FROM sukum01
@@ -1135,4 +1163,3 @@ def paginate(items, page=None, *, per_page=PAGE_SIZE, page_block_size=PAGE_BLOCK
     )
     start = pager["offset"]
     return items[start : start + pager["per_page"]], pager
-
