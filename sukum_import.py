@@ -428,6 +428,83 @@ def _name_matches(deposit_name, tenant_name):
     return False
 
 
+def _room_attached_names(text):
+    """적요에서 '201호한명노' / '한명노201호'처럼 호수에 붙는 입금자명을 뽑는다.
+
+    긴 적요에 건물명·다른 세입자명이 섞여 있어도, 호수 바로 옆 이름을 입금자로 본다.
+    """
+    text = re.sub(r"\s+", "", text or "")
+    pairs = []  # (hosu_num, name)
+    for m in re.finditer(r"(\d{2,4})호([가-힣]{2,6})", text):
+        pairs.append((m.group(1).lstrip("0") or "0", m.group(2)))
+    for m in re.finditer(r"([가-힣]{2,6})\(?(\d{2,4})호", text):
+        pairs.append((m.group(2).lstrip("0") or "0", m.group(1)))
+    seen = set()
+    out = []
+    for hosu, name in pairs:
+        key = (hosu, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((hosu, name))
+    return out
+
+
+def _tenants_for_room_name(tenants, hosu_num, person_name):
+    """호수+이름 쌍에 맞는 세입자."""
+    hits = []
+    for trow in tenants:
+        hosu = (trow.get("hosu") or "").strip().upper().lstrip("0") or "0"
+        if hosu != hosu_num:
+            continue
+        if _name_matches(person_name, trow.get("ipju_nm") or ""):
+            hits.append(trow)
+    return hits
+
+
+def _name_near_hosu_score(text, tenant_name, hosu_num):
+    """호수 힌트 근처(바로 뒤/앞)에 세입자명이 있으면 높은 점수."""
+    text = re.sub(r"\s+", "", text or "")
+    nm = re.sub(r"\s+", "", tenant_name or "")
+    if len(nm) < 2 or not hosu_num:
+        return 0
+    nums = {hosu_num, hosu_num.zfill(3), hosu_num.zfill(4)}
+    best = 0
+    for num in nums:
+        if not num:
+            continue
+        if re.search(re.escape(num) + r"호" + re.escape(nm), text):
+            best = max(best, 100)
+        if re.search(re.escape(nm) + r"\(?" + re.escape(num) + r"호", text):
+            best = max(best, 90)
+        for m in re.finditer(re.escape(num) + r"호", text):
+            window = text[m.end() : m.end() + 12]
+            if nm in window:
+                best = max(best, 70)
+        for m in re.finditer(re.escape(num) + r"호", text):
+            window = text[max(0, m.start() - 12) : m.start()]
+            if nm in window:
+                best = max(best, 60)
+        if nm in text:
+            best = max(best, 10)
+    return best
+
+
+def _prefer_name_near_room(text, candidates):
+    """여러 후보 중 적요의 호수 옆에 이름이 있는 쪽을 고른다."""
+    if len(candidates) <= 1:
+        return candidates
+    scored = []
+    for c in candidates:
+        hosu = (c.get("hosu") or "").strip().upper().lstrip("0") or "0"
+        scored.append((_name_near_hosu_score(text, c.get("ipju_nm") or "", hosu), c))
+    scored.sort(key=lambda x: -x[0])
+    top = scored[0][0]
+    if top < 60:
+        return candidates
+    return [c for s, c in scored if s == top]
+
+
 def _rent_amount_matches(amount, rent, manage, tol_ratio=0.03, tol_min=1000):
     """engine.py의 correct_unit_by_rent_amount와 같은 방식 — 입금액이 그 호실
     월세+관리비랑 비슷하면(오차 3% 또는 1000원 중 큰 쪽) 그 호실로 신뢰."""
@@ -940,11 +1017,31 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
             )
             continue
 
+        # 1) 호수에 붙은 이름('201호한명노')을 최우선 — 건물명·다른 이름이 앞에 있어도 입금자 쪽
+        paired = []
+        for hosu_num, person in _room_attached_names(dep["name"]):
+            paired.extend(_tenants_for_room_name(tenants, hosu_num, person))
+        # dedupe by identity
+        paired_uniq = []
+        seen_ids = set()
+        for c in paired:
+            key = (
+                c.get("bunji1"), c.get("bunji2"),
+                (c.get("hosu") or "").strip().upper(),
+                str(c.get("ipju_seq") or "").zfill(2),
+            )
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            paired_uniq.append(c)
+
         name_candidates = [t for t in tenants if _name_matches(dep["name"], t.get("ipju_nm") or "")]
-        if len(name_candidates) > 1:
-            # 동명이인/복수호실 — 적요의 호수 힌트('401호', '1층', 숫자만)로 먼저 좁혀봄
+
+        if len(paired_uniq) == 1:
+            candidates = paired_uniq
+        elif len(paired_uniq) > 1:
             candidates = _narrow_by_room_hint(
-                dep["name"], name_candidates, amount=dep["amount"], allow_bare_number=True
+                dep["name"], paired_uniq, amount=dep["amount"], allow_bare_number=False
             )
             if len(candidates) > 1:
                 one_amt = [
@@ -953,15 +1050,33 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
                 ]
                 if len(one_amt) == 1:
                     candidates = one_amt
-        elif not name_candidates:
-            # 이름 매칭이 아예 없으면(적요가 '가람501월세'처럼 호수/건물 위주인 경우)
-            # 건물 전체에서 호수 힌트로 좁혀봄. 숫자만 있는 힌트는 그 호실 월세+관리비가
-            # 입금액이랑 비슷할 때만 신뢰(engine.py의 correct_unit_by_rent_amount 방식).
+                else:
+                    candidates = _prefer_name_near_room(dep["name"], candidates)
+        elif len(name_candidates) > 1:
+            # 동명이인/복수호실 — 호수 힌트로 좁히되, 호수 옆 이름에 가까운 후보 우선
             candidates = _narrow_by_room_hint(
-                dep["name"], tenants, amount=dep["amount"], allow_bare_number=True
+                dep["name"], name_candidates, amount=dep["amount"], allow_bare_number=True
             )
-            if len(candidates) != 1:
-                candidates = name_candidates
+            candidates = _prefer_name_near_room(dep["name"], candidates)
+            if len(candidates) > 1:
+                one_amt = [
+                    c for c in candidates
+                    if _rent_amount_matches(dep["amount"], c.get("rent_amt"), c.get("manage_amt"))
+                ]
+                if len(one_amt) == 1:
+                    candidates = one_amt
+        elif not name_candidates:
+            # 이름 매칭이 없을 때만 호수 단독 매칭(가람501월세 등).
+            # 단, 적요에 '201호OOO' 형태 이름이 있었는데 세입자에 없으면 호수만으로 확정하지 않음.
+            attached = _room_attached_names(dep["name"])
+            if attached:
+                candidates = []  # 호수+이름인데 세입자 불일치 → 미매칭/수동
+            else:
+                candidates = _narrow_by_room_hint(
+                    dep["name"], tenants, amount=dep["amount"], allow_bare_number=True
+                )
+                if len(candidates) != 1:
+                    candidates = name_candidates
         else:
             candidates = name_candidates
 
