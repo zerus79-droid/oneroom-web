@@ -520,8 +520,8 @@ document.addEventListener('change', function (e) {
   toggleSplit(t);
   var idx = t.name.slice(7);
   var rowCb = document.querySelector('input[name="apply_idx"][value="' + idx + '"]');
-  // 확인필요/기타 행은 호실 바꿔도 체크를 강제하지 않음 (일괄반영이 풀린 체크를 무시하는 것처럼 보이던 원인)
-  if (rowCb && !rowCb.disabled && rowCb.getAttribute('data-auto-check') === '1') {
+  // 미매칭·확인필요 포함: 호실을 고르면 체크, 비우면 체크 해제
+  if (rowCb && !rowCb.disabled) {
     rowCb.checked = !!t.value;
   }
   syncApplyLight(idx);

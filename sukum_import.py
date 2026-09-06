@@ -968,6 +968,7 @@ def _finish_match_row(
         "needs_pick": needs_pick,
         "source_file": dep.get("source_file", ""),
         "account_no": dep.get("account_no", ""),
+        "dep_id": dep.get("dep_id", ""),
         "room_options": (
             _room_options(
                 candidates, with_combo=True,
@@ -1485,14 +1486,35 @@ def payments_import():
             pay_kinds=pay_kinds,
         )
         if applied:
-            drop = {
-                (rows[i]["date"], rows[i]["name"], int(rows[i]["amount"]))
+            drop_ids = {rows[i].get("dep_id") for i in applied if rows[i].get("dep_id")}
+            drop_keys = {
+                (
+                    rows[i].get("date"),
+                    rows[i].get("name"),
+                    int(rows[i].get("amount") or 0),
+                    rows[i].get("account_no") or "",
+                    rows[i].get("source_file") or "",
+                )
                 for i in applied
             }
-            state["deposits"] = [
-                d for d in state["deposits"]
-                if (d["date"], d["name"], int(d["amount"])) not in drop
-            ]
+
+            def _keep_deposit(d):
+                did = d.get("dep_id") or ""
+                if did and did in drop_ids:
+                    return False
+                if not did:
+                    key = (
+                        d.get("date"),
+                        d.get("name"),
+                        int(d.get("amount") or 0),
+                        d.get("account_no") or "",
+                        d.get("source_file") or "",
+                    )
+                    if key in drop_keys:
+                        return False
+                return True
+
+            state["deposits"] = [d for d in state["deposits"] if _keep_deposit(d)]
             _write_state(token, state)
             flash(f"{len(applied)}건 반영했습니다.", "ok")
         elif one != "":
@@ -1598,6 +1620,9 @@ def payments_import():
                 for b in detected:
                     building_list_set.add(b)
         
+        for i, d in enumerate(all_deposits):
+            d["dep_id"] = f"{d.get('date')}|{d.get('amount')}|{d.get('name')}|{d.get('account_no')}|{d.get('source_file')}|{i}"
+
         # building_list_set → list 변환
         building_list = sorted(list(building_list_set))
         
@@ -1675,6 +1700,13 @@ def payments_import():
         
         auto_detected = bool(state.get("auto_detected"))
         uploaded_name = (state.get("filename") or "").strip()
+        # 구 토큰 호환: dep_id 없으면 채움
+        for i, d in enumerate(state.get("deposits") or []):
+            if not d.get("dep_id"):
+                d["dep_id"] = (
+                    f"{d.get('date')}|{d.get('amount')}|{d.get('name')}|"
+                    f"{d.get('account_no')}|{d.get('source_file')}|{i}"
+                )
         rows = (
             _match_deposits(
                 state["deposits"], building_list, state.get("account_no") or "",
