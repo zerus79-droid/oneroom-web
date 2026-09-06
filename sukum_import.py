@@ -1693,7 +1693,7 @@ def payments_import():
     if len(labels) == 1:
         building_display = labels[0]
     elif len(labels) > 1:
-        building_display = f"{labels[0]} 외 {len(labels) - 1}곳"
+        building_display = f"{labels[0]} 외 {len(labels) - 1}건물"
     else:
         building_display = building_label
     address_locked = bool(rows is not None and building_list and building_display)
