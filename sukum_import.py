@@ -48,57 +48,78 @@ EXCEL_MAGIC_NUMBERS = {
 }
 
 
+def _upload_basename(filename):
+    """폴더 선택 시 브라우저가 넘기는 'dir/file.xlsx' 경로에서 파일명만 뽑는다."""
+    name = (filename or "").replace("\\", "/").strip()
+    return os.path.basename(name) or name
+
+
 def validate_file_upload(file):
     """파일 업로드 보안 검증.
-    
+
     파일 크기, 확장자, 파일명, MIME 타입, 매직 넘버를 검증합니다.
+    폴더에서 고른 파일(경로 포함 파일명)과 은행 내보내기 흔한 괄호·공백 파일명도 허용합니다.
     """
     if not file or not file.filename:
         return False, "파일이 선택되지 않았습니다."
-    
+
+    display_name = _upload_basename(file.filename)
+    if not display_name or ".." in display_name or "\x00" in display_name:
+        return False, "파일명이 올바르지 않습니다."
+
     # 파일 크기 확인
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
-    
+
     if file_size > MAX_FILE_SIZE:
         return False, f"파일 크기가 너무 큽니다. 최대 {MAX_FILE_SIZE // (1024*1024)}MB 허용."
-    
+
     if file_size == 0:
         return False, "빈 파일입니다."
-    
-    # 파일 확장자 확인
-    file_ext = os.path.splitext(file.filename)[1].lower()
+
+    # 파일 확장자 확인 (경로가 있어도 basename 기준)
+    file_ext = os.path.splitext(display_name)[1].lower()
     if file_ext not in ALLOWED_EXTENSIONS:
-        return False, f"허용되지 않는 파일 형식입니다. 허용: {', '.join(ALLOWED_EXTENSIONS)}"
-    
-    # 파일명 검증 (악성 파일명 방지)
-    if not re.match(r'^[a-zA-Z0-9._\-가-힣\s]+$', file.filename):
+        return False, f"허용되지 않는 파일 형식입니다. 허용: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+
+    # 파일명 검증: 경로 조작만 막고, 은행 파일에 흔한 ()[]~ 등은 허용
+    if not re.match(
+        r"^[a-zA-Z0-9._\-가-힣\s()\[\]（）【】~,#&+'·]+$",
+        display_name,
+    ):
         return False, "파일명에 허용되지 않는 문자가 포함되어 있습니다."
-    
+
     # MIME 타입 검증
-    mime_type = file.content_type or ""
-    if not any(allowed in mime_type for allowed in ['spreadsheet', 'sheet', 'excel', 'ms-excel']):
-        # MIME 타입이 없거나 다른 경우, 매직 넘버로 추가 검증
+    mime_type = (file.content_type or "").lower()
+    mime_ok = any(
+        allowed in mime_type
+        for allowed in (
+            "spreadsheet",
+            "sheet",
+            "excel",
+            "ms-excel",
+            "octet-stream",  # 일부 브라우저/OS는 Excel을 이렇게 보냄
+            "zip",  # xlsx를 zip으로 보고하는 경우
+        )
+    )
+    if not mime_ok:
         file.seek(0)
-        header = file.read(4)
+        header = file.read(8)
         file.seek(0)
-        
         if not any(header.startswith(magic) for magic in EXCEL_MAGIC_NUMBERS):
             return False, "유효한 Excel 파일이 아닙니다. 파일 형식을 확인하세요."
-    
+
     # 파일을 올바르게 읽을 수 있는지 검증
     try:
         file.seek(0)
-        if file_ext == '.xlsx':
-            # XLSX 파일 검증
+        if file_ext in (".xlsx", ".xlsm"):
             from openpyxl import load_workbook
             wb = load_workbook(file, read_only=True, data_only=True)
             if not wb.sheetnames:
                 return False, "Excel 파일에 시트가 없습니다."
             wb.close()
-        elif file_ext == '.xls':
-            # XLS 파일 검증
+        elif file_ext == ".xls":
             if xlrd:
                 file.seek(0)
                 wb = xlrd.open_workbook(file_contents=file.read())
@@ -109,7 +130,7 @@ def validate_file_upload(file):
         file.seek(0)
     except Exception as e:
         return False, f"파일을 읽을 수 없습니다. 올바른 Excel 파일인지 확인하세요: {str(e)[:100]}"
-    
+
     return True, None
 
 # 매칭 결과(입금 목록)를 새로고침해도 다시 안 나오게 세션 쿠키 대신
@@ -1232,10 +1253,17 @@ def payments_import():
         seen_deposits = set()
         excluded_count = 0  # 파일 간 중복으로 제외된 건수
         
+        skipped_non_excel = 0
         for f in files:
             if not (f and f.filename):
                 continue
-            # master 보안 검증: 파일별 크기/확장자/매직넘버 확인
+            display_name = _upload_basename(f.filename)
+            file_ext = os.path.splitext(display_name)[1].lower()
+            # 폴더/다중 선택에 섞인 비엑셀은 오류 대신 건너뜀(요약만 표시)
+            if file_ext not in ALLOWED_EXTENSIONS:
+                skipped_non_excel += 1
+                continue
+            # 보안 검증: 파일별 크기/확장자/매직넘버 확인
             is_valid, error_msg = validate_file_upload(f)
             if not is_valid:
                 try:
@@ -1248,10 +1276,10 @@ def payments_import():
                     )
                 except (ImportError, Exception):
                     pass
-                file_errors.append(f"⚠ {f.filename}: {error_msg}")
+                file_errors.append(f"⚠ {display_name}: {error_msg}")
                 continue
             try:
-                deposits, account_no = load_bank_deposits(f.filename, f.read())
+                deposits, account_no = load_bank_deposits(display_name, f.read())
             except Exception as e:
                 # 개선 3: 이 파일만 건너뛰고 계속 진행
                 try:
@@ -1273,7 +1301,7 @@ def payments_import():
             
             # 각 deposit에 source_file, account_no 추가
             for d in deposits:
-                d["source_file"] = os.path.basename(f.filename or "")
+                d["source_file"] = display_name
                 d["account_no"] = account_no or ""
                 
                 # 개선 1+2: 같은 (date, amount, name, account_no) 조합이 이미 있으면 제외
@@ -1285,7 +1313,7 @@ def payments_import():
                 seen_deposits.add(dep_key)
                 all_deposits.append(d)
             
-            file_info.append((os.path.basename(f.filename or ""), account_no or ""))
+            file_info.append((display_name, account_no or ""))
             
             # 개선 2: 각 파일의 계좌번호로 건물 감지, 중복 제거
             if not (bunji1 and bunji2):
@@ -1297,6 +1325,11 @@ def payments_import():
         building_list = sorted(list(building_list_set))
         
         # 개선 3: 부분 오류가 있으면 경고 메시지 표시
+        if skipped_non_excel:
+            flash(
+                f"💡 엑셀이 아닌 파일 {skipped_non_excel}개는 건너뛰었습니다. (.xls/.xlsx/.xlsm만 처리)",
+                "info",
+            )
         if file_errors:
             for err_msg in file_errors:
                 flash(err_msg, "warn")
@@ -1314,6 +1347,13 @@ def payments_import():
             auto_detected = bool(building_list)
             if not auto_detected:
                 flash("건물을 자동으로 찾지 못했습니다. 직접 선택하세요.", "err")
+            elif len(building_list) > 1:
+                # 한 계좌가 여러 건물에 묶이거나, 여러 파일/계좌가 합쳐진 경우
+                flash(
+                    f"💡 건물 {len(building_list)}곳을 자동 감지해 함께 매칭합니다. "
+                    "한 건물만 보려면 위에서 주소를 골라 주세요.",
+                    "info",
+                )
         else:
             building_list = [(bunji1, bunji2)]
         
