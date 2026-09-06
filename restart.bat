@@ -1,36 +1,22 @@
 @echo off
-setlocal EnableExtensions
-chcp 65001 >nul
+setlocal
 cd /d "%~dp0"
 
-if not exist "app.py" (
-  echo [오류] app.py 가 없습니다. 경로: %CD%
+if not exist app.py (
+  echo [ERROR] app.py not found: %CD%
   pause
   exit /b 1
 )
 
-echo [1/2] 5000 포트 종료 중...
-powershell -NoProfile -Command ^
-  "Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+echo [1/2] Stopping port 5000...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 timeout /t 1 /nobreak >nul
 
-echo [2/2] Flask 시작...
+echo [2/2] Starting Flask...
 set "PY=C:\Users\someb\AppData\Local\Programs\Python\Python312\python.exe"
-if not exist "%PY%" (
-  where python >nul 2>&1 && set "PY=python"
-)
-if not exist "%PY%" if /I not "%PY%"=="python" (
-  echo [오류] Python 을 찾지 못했습니다.
-  echo 경로 예: C:\Users\someb\AppData\Local\Programs\Python\Python312\python.exe
-  pause
-  exit /b 1
-)
+if not exist "%PY%" set "PY=python"
 
-REM /D 로 작업폴더 지정 — 따옴표 중첩 깨짐 방지
-start "원룸 Flask" /D "%~dp0" cmd /k ""%PY%" app.py"
+start "oneroom-flask" /D "%~dp0" cmd /k "%PY% app.py"
 
-echo.
-echo 완료: http://127.0.0.1:5000
-echo 콘솔 창이 뜨면 정상입니다.
+echo Done: http://127.0.0.1:5000
 timeout /t 2 /nobreak >nul
-endlocal
