@@ -1228,10 +1228,13 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
 
     # JSON 상태 복원 시 [(b1,b2)]가 [[b1,b2]]로 올 수 있음 → 전부 튜플로 정규화
     building_list = [
-        (b[0], b[1]) if not isinstance(b, tuple) else b
+        (_pad_bunji(b[0]), _pad_bunji(b[1])) if not isinstance(b, tuple) else (_pad_bunji(b[0]), _pad_bunji(b[1]))
         for b in building_list
         if b and len(b) >= 2
     ]
+    building_list = [(b1, b2) for b1, b2 in building_list if b1 and b2]
+    # 중복 제거(패딩 후)
+    building_list = sorted(set(building_list))
     if not building_list:
         return []
     
@@ -1277,8 +1280,15 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
     _import_desc_re = re.compile(r"입금파일\s*자동반영\s*\[[^\]]*\]\s*\((.*)\)\s*$")
     existing_import_set = set()
     for r in existing:
-        d = r["d"].isoformat() if r.get("d") else ""
-        amt = int(r.get("su_sil_amt") or 0)
+        raw_d = r.get("d")
+        if hasattr(raw_d, "isoformat"):
+            d = raw_d.isoformat()
+        else:
+            d = str(raw_d or "")[:10]
+        try:
+            amt = int(r.get("su_sil_amt") or 0)
+        except (TypeError, ValueError):
+            continue
         desc = (r.get("manage_desc") or "").strip()
         m = _import_desc_re.search(desc)
         if m:
@@ -1300,19 +1310,27 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         if not dep_acct:
             return tenants, list(building_list)
         if dep_acct not in _acct_buildings_cache:
-            _acct_buildings_cache[dep_acct] = set(buildings_by_account(dep_acct))
+            # bd01/bd03 번지 자리수 차이를 흡수하도록 패딩 정규화
+            _acct_buildings_cache[dep_acct] = {
+                (_pad_bunji(b1), _pad_bunji(b2))
+                for b1, b2 in buildings_by_account(dep_acct)
+                if _pad_bunji(b1) and _pad_bunji(b2)
+            }
         acct_buildings = _acct_buildings_cache[dep_acct]
         if not acct_buildings:
-            # 계좌는 있는데 등록 건물이 없으면 전체로 두지 않고 빈 범위(오매칭 방지)
-            return [], []
-        scope_buildings = [b for b in building_list if b in acct_buildings]
+            # 자동매칭 후보만 비움. 건물 목록은 유지 → 미매칭 호실 선택은 가능
+            return [], list(building_list)
+        padded_building_list = [
+            (_pad_bunji(b1), _pad_bunji(b2)) for b1, b2 in building_list
+        ]
+        scope_buildings = [b for b in padded_building_list if b in acct_buildings]
         if not scope_buildings:
             # building_list 밖 계좌 건물 — 로드된 세입자 중 계좌 건물만
             scope_buildings = sorted(acct_buildings)
         scope_set = set(scope_buildings)
         scoped = [
             trow for trow in tenants
-            if (trow.get("bunji1"), trow.get("bunji2")) in scope_set
+            if (_pad_bunji(trow.get("bunji1")), _pad_bunji(trow.get("bunji2"))) in scope_set
         ]
         return scoped, scope_buildings
 
@@ -1322,9 +1340,13 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         scope_primary_b1, scope_primary_b2 = (
             scope_buildings[0] if scope_buildings else (primary_bunji1, primary_bunji2)
         )
-        scope_room_options = (
-            _room_options(scope_tenants) if scope_tenants is not tenants else all_room_options
-        )
+        # 계좌 범위 세입자가 비어도 미매칭 수동선택용으로 전체 호실 목록은 유지
+        if scope_tenants is tenants:
+            scope_room_options = all_room_options
+        elif scope_tenants:
+            scope_room_options = _room_options(scope_tenants)
+        else:
+            scope_room_options = all_room_options
 
         # Prefer per-deposit account_no over joined state account_no ("; "-joined).
         exclude_buildings = scope_buildings or building_list
