@@ -21,6 +21,29 @@
 .xp-field-wide .addr-line {
   width: auto;
 }
+/* 주소 표시칸: 패널 배경과 같게 → 비활성처럼 */
+.addr-line .addr-display,
+.addr-line input.ls-select:disabled {
+  background: var(--panel-face, #f0f7fc) !important;
+  background-color: var(--panel-face, #f0f7fc) !important;
+  border-color: #c5d4e0 !important;
+  color: #334155 !important;
+  -webkit-text-fill-color: #334155 !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+  cursor: default;
+}
+/* 파일선택 버튼 = 녹색 반영(is-on) 스타일 */
+.legacy-sukum-panel .file-pick-btn {
+  background: #dcfce7 !important;
+  border-right: 1.5px solid #16a34a !important;
+  color: #166534 !important;
+  -webkit-text-fill-color: #166534 !important;
+  font-weight: 700;
+}
+.legacy-sukum-panel .file-pick:hover .file-pick-btn {
+  background: #bbf7d0 !important;
+}
 .addr-toolbar {
   display: flex;
   align-items: center;
@@ -90,7 +113,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
             </div>
             {% else %}
             <div class="addr-line">
-              <input type="text" class="ls-select" value="자동 감지 (파일에서 건물 찾음)" disabled>
+              <input type="text" class="ls-select addr-display" value="자동 감지 (파일에서 건물 찾음)" disabled>
               <details class="addr-pick-side">
                 <summary>주소 직접 고르기</summary>
                 <div class="addr-pick-panel">
