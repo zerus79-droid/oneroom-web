@@ -711,17 +711,24 @@ def _ensure_match_rule_table():
             """
             CREATE TABLE IF NOT EXISTS sukum_import_match (
               id INT AUTO_INCREMENT PRIMARY KEY,
-              keyword VARCHAR(120) NOT NULL DEFAULT '',
-              bunji1 CHAR(4) NOT NULL DEFAULT '',
-              bunji2 CHAR(4) NOT NULL DEFAULT '',
-              hosu VARCHAR(16) NOT NULL DEFAULT '',
-              ipju_seq CHAR(2) NOT NULL DEFAULT '',
-              acct_no VARCHAR(32) NOT NULL DEFAULT '',
+              keyword VARCHAR(120) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci,
+              bunji1 CHAR(4) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci,
+              bunji2 CHAR(4) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci,
+              hosu VARCHAR(16) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci,
+              ipju_seq CHAR(2) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci,
+              acct_no VARCHAR(32) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci,
               sys_dt DATETIME NULL,
-              uid VARCHAR(20) NOT NULL DEFAULT ''
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+              uid VARCHAR(20) NOT NULL DEFAULT '' COLLATE utf8mb4_unicode_ci
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """
         )
+    # 이미 general_ci로 만들어진 경우 bd01(unicode_ci) JOIN에서 1267 발생 → 맞춤
+    try:
+        db.execute(
+            "ALTER TABLE sukum_import_match CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        )
+    except Exception:
+        pass
     _MATCH_RULE_READY = True
 
 
@@ -731,7 +738,11 @@ def list_match_rules():
         """
         SELECT m.id, m.keyword, m.bunji1, m.bunji2, m.hosu, m.ipju_seq, m.acct_no, b.juso
         FROM sukum_import_match m
-        LEFT JOIN bd01 b ON b.bunji1=m.bunji1 AND b.bunji2=m.bunji2
+        LEFT JOIN bd01 b
+          ON CONVERT(b.bunji1 USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT(m.bunji1 USING utf8mb4) COLLATE utf8mb4_unicode_ci
+         AND CONVERT(b.bunji2 USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           = CONVERT(m.bunji2 USING utf8mb4) COLLATE utf8mb4_unicode_ci
         ORDER BY m.keyword, m.bunji1, m.bunji2, m.hosu, m.id
         """
     ) or []
