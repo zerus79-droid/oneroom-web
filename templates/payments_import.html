@@ -330,14 +330,14 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
                 <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
                   <option value="">호실 선택</option>
                   {% for opt in r.room_options %}
-                  <option value="{{ opt.value }}" {% if opt.value==current_value or (current_value and opt.value.endswith(current_value)) or (r.hosu and opt.value.endswith(r.hosu ~ '|' ~ r.ipju_seq)) %}selected{% endif %}>{{ opt.label }}</option>
+                  <option value="{{ opt.value }}" data-due="{{ opt.due or 0 }}" {% if opt.value==current_value or (current_value and opt.value.endswith(current_value)) or (r.hosu and opt.value.endswith(r.hosu ~ '|' ~ r.ipju_seq)) %}selected{% endif %}>{{ opt.label }}</option>
                   {% endfor %}
                 </select>
                 {% elif needs_dropdown %}
                 <select name="manual_{{ row_i }}" class="ls-select" style="min-height:auto;height:auto;padding:2px 4px;">
                   <option value="">호실 선택{% if current_value %} (지금: {{ r.hosu }}호 {{ r.tenant_nm }}){% endif %}</option>
                   {% for opt in r.room_options %}
-                  <option value="{{ opt.value }}" {% if opt.value==current_value or (current_value and opt.value.endswith(current_value)) or (r.hosu and opt.value.endswith(r.hosu ~ '|' ~ r.ipju_seq)) %}selected{% endif %}>{{ opt.label }}</option>
+                  <option value="{{ opt.value }}" data-due="{{ opt.due or 0 }}" {% if opt.value==current_value or (current_value and opt.value.endswith(current_value)) or (r.hosu and opt.value.endswith(r.hosu ~ '|' ~ r.ipju_seq)) %}selected{% endif %}>{{ opt.label }}</option>
                   {% endfor %}
                 </select>
                 {% else %}
@@ -354,7 +354,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
                   {% if ac %}{{ ac[:8] }}{% if ac|length > 8 %}~{% endif %}{% else %}-{% endif %}
                 {% else %}-{% endif %}
               </td>
-              <td class="tc">
+              <td class="tc contract-due-cell" data-row="{{ row_i }}">
                 {% if r.contract_due %}{{ r.contract_due|money }}{% else %}-{% endif %}
               </td>
               <td class="tc">
@@ -575,6 +575,20 @@ function syncApplyLight(idx) {
   var btn = document.querySelector('.apply-one-btn[value="' + idx + '"]');
   if (btn) btn.classList.toggle('is-on', rowHasRoom(idx));
 }
+function syncContractDue(sel) {
+  if (!sel || !sel.name || sel.name.indexOf('manual_') !== 0) return;
+  var idx = sel.name.slice(7);
+  var cell = document.querySelector('.contract-due-cell[data-row="' + idx + '"]');
+  if (!cell) return;
+  var opt = sel.options[sel.selectedIndex];
+  var due = opt ? parseInt(opt.getAttribute('data-due') || '0', 10) : 0;
+  if (!sel.value || sel.value === 'ALL' || !due) {
+    cell.textContent = '-';
+    return;
+  }
+  var s = String(due);
+  cell.textContent = s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
 document.addEventListener('change', function (e) {
   var t = e.target;
   if (!t || t.tagName !== 'SELECT' || !t.name || t.name.indexOf('manual_') !== 0) return;
@@ -585,6 +599,7 @@ document.addEventListener('change', function (e) {
   if (rowCb && !rowCb.disabled) {
     rowCb.checked = !!t.value;
   }
+  syncContractDue(t);
   syncApplyLight(idx);
   hideApplyErr(idx);
 });
@@ -612,6 +627,7 @@ document.addEventListener('submit', function (e) {
 });
 document.querySelectorAll('select[name^="manual_"]').forEach(function (sel) {
   toggleSplit(sel);
+  syncContractDue(sel);
   syncApplyLight(sel.name.slice(7));
 });
 function rowApplyOk(idx) {
