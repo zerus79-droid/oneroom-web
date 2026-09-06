@@ -464,6 +464,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
   var name = document.getElementById('bank_file_name');
   var form = inp && inp.form;
   if (!inp || !form) return;
+  var uploading = false;
   function syncName() {
     if (!name) return;
     var files = inp.files;
@@ -475,14 +476,29 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
       name.textContent = name.getAttribute('data-kept') || '선택된 파일 없음';
     }
   }
+  function markUploading() {
+    if (uploading) return false;
+    uploading = true;
+    var btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    return true;
+  }
   form.addEventListener('submit', function (e) {
-    if (inp.files && inp.files.length > 0) return;
-    e.preventDefault();
-    inp.click();
+    if (!(inp.files && inp.files.length > 0)) {
+      e.preventDefault();
+      inp.click();
+      return;
+    }
+    if (!markUploading()) {
+      e.preventDefault();
+      return;
+    }
   });
   inp.addEventListener('change', function () {
     syncName();
-    if (inp.files && inp.files.length > 0) HTMLFormElement.prototype.submit.call(form);
+    if (!(inp.files && inp.files.length > 0)) return;
+    if (!markUploading()) return;
+    HTMLFormElement.prototype.submit.call(form);
   });
 })();
 document.addEventListener('click', function (e) {
