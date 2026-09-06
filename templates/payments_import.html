@@ -37,10 +37,9 @@
             <label class="ls-lab">입금파일</label>
             <label class="ls-box file-pick">
               <input type="file" name="bank_file" id="bank_file" accept=".xls,.xlsx,.xlsm,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="file-pick-input" multiple>
-              <span class="file-pick-btn">파일 선택</span>
+              <span class="file-pick-btn">파일선택(다중가능)</span>
               <span class="file-pick-name" id="bank_file_name" data-kept="{{ uploaded_name or '' }}">{{ uploaded_name or '선택된 파일 없음' }}</span>
             </label>
-            <span class="muted" style="display:block;margin-top:4px;">여러 건물·여러 파일을 한 번에 올릴 수 있어요. .xls/.xlsx/.xlsm만 처리하고, 폴더에 섞인 다른 형식은 자동으로 건너뜁니다. 한 계좌가 여러 건물이면 함께 매칭합니다.</span>
           </div>
         </div>
       </div>
