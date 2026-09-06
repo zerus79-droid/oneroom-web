@@ -756,15 +756,63 @@ _AMOUNT_FLAG_MULTIPLE = 2  # 월세+관리비 기준액의 이 배수를 넘으�
 
 
 _UTILITY_RE = re.compile(r"수도|전기|가스|공과금|공공요금|난방|온수|한전|열요금")
+_MISC_RE = re.compile(r"수도|전기|가스|공과금|공공요금|난방|온수|한전|열요금|대납|기타")
 _LUMP_RE = re.compile(r"보증|계약|잔금")
+_ETC_CHAR_CACHE = None
 
 
 def _is_utility_desc(name):
     """수도·전기·가스·공과금 적요는 월세가 아님. '월세'가 같이 있으면 임대료로 본다."""
-    t = re.sub(r"\s+", "", name or "")
-    if not t or "월세" in t:
+    s = re.sub(r"\s+", "", name or "")
+    if not s or "월세" in s:
         return False
-    return bool(_UTILITY_RE.search(t))
+    return bool(_UTILITY_RE.search(s))
+
+
+def _is_misc_desc(name):
+    """전기·대납·기타 등 월세/관리비가 아닌 입금 적요."""
+    s = re.sub(r"\s+", "", name or "")
+    if not s or "월세" in s:
+        return False
+    return bool(_MISC_RE.search(s))
+
+
+def _amount_suggests_etc(amount, contract_due):
+    """입금액이 계약액(월세+관리비)보다 훨씬 작으면 기타 후보."""
+    try:
+        amount = int(amount or 0)
+        contract_due = int(contract_due or 0)
+    except (TypeError, ValueError):
+        return False
+    if amount <= 0 or contract_due <= 0:
+        return False
+    return amount < contract_due * 0.5
+
+
+def _etc_sukum_char():
+    """수금성격 코드 중 이름이 '기타'인 것. 없으면 '04'.
+    미수 집계는 sukum_char='01'만 보므로 01이 아니면 월세에 잡히지 않는다."""
+    global _ETC_CHAR_CACHE
+    if _ETC_CHAR_CACHE is not None:
+        return _ETC_CHAR_CACHE
+    try:
+        row = db.query_one(
+            """
+            SELECT g_sub_cd FROM gicho_code
+            WHERE g_cd='01' AND g_sub_cd <> '00'
+              AND g_cd_nm LIKE %s
+            ORDER BY g_sub_cd
+            LIMIT 1
+            """,
+            ("%기타%",),
+        )
+        if row and row.get("g_sub_cd") is not None:
+            _ETC_CHAR_CACHE = str(row.get("g_sub_cd")).strip().zfill(2)
+            return _ETC_CHAR_CACHE
+    except Exception:
+        pass
+    _ETC_CHAR_CACHE = "04"
+    return _ETC_CHAR_CACHE
 
 
 def _is_lump_desc(name):
@@ -948,6 +996,23 @@ def _finish_match_row(
             if amount > expected + misu:
                 row["amount_flag"] = True
                 row["room_options"] = all_room_options
+
+    # 수금 성격: 월세(rent) / 기타(etc)
+    misc = _is_misc_desc(dep.get("name") or "")
+    small = bool(match) and _amount_suggests_etc(amount, contract_due)
+    if misc:
+        row["pay_kind"] = "etc"
+        row["suggest_etc"] = False
+        # 기타는 월세 과다입금 확인필요 플래그 대신 기타로 표시
+        if row.get("status") == "matched" and not needs_pick:
+            row["amount_flag"] = False
+    elif small and row.get("status") == "matched":
+        row["pay_kind"] = "etc"  # 기본 기타, 화면에서 월세로 바꿀 수 있음
+        row["suggest_etc"] = True
+        row["amount_flag"] = True  # 확인필요(기타?) — 자동체크 안 함
+    else:
+        row["pay_kind"] = "rent"
+        row["suggest_etc"] = False
     return row
 
 
@@ -1069,16 +1134,7 @@ def _match_deposits(deposits, building_list, account_no="", bunji1="", bunji2=""
         if _deposit_is_excluded(dep["name"], exclude_buildings, dep.get("account_no") or "", exclude_rules):
             continue  # 제외 목록에 걸리면 매칭 결과에 아예 표시하지 않음
 
-        # 수도·전기·가스 적요는 호수 힌트가 있어도 월세로 넣지 않음
-        if _is_utility_desc(dep["name"]):
-            results.append(
-                _finish_match_row(
-                    dep, None, dep["amount"], scope_tenants, scope_room_options,
-                    existing_set, scope_primary_b1, scope_primary_b2, needs_pick=False,
-                )
-            )
-            continue
-
+        # 전기·대납·기타 적요도 호실 매칭은 하되, _finish_match_row에서 pay_kind=etc로 표시
         # 1) 호수에 붙은 이름('201호한명노')을 최우선 — 단, 계좌 건물 범위 안에서만
         paired = []
         for hosu_num, person in _room_attached_names(dep["name"]):
@@ -1234,12 +1290,16 @@ def _room_options(tenants, with_combo=False, bunji1="", bunji2="", as_of=None):
     return opts
 
 
-def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
+def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name, pay_kind="rent"):
     hosu = (hosu or "").strip().upper()
     ipju_seq = str(ipju_seq or "").zfill(2)
     if not (hosu and ipju_seq) or int(amount or 0) <= 0:
         return False
     sukum_seq = _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu)
+    is_etc = (pay_kind or "rent") == "etc"
+    sukum_char = _etc_sukum_char() if is_etc else "01"
+    kind_label = "기타" if is_etc else "월세"
+    desc = f"입금파일 자동반영 [{kind_label}] ({name or ''})"
     db.execute(
         """
         INSERT INTO sukum01 (
@@ -1248,7 +1308,7 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
             suri_dt, suri_seq, s_method, del_yn, sys_dt, uid
         ) VALUES (
             %s, %s, %s, %s, %s, %s,
-            '01', '03', %s, %s, 0,
+            %s, '03', %s, %s, 0,
             NULL, '', '', 'N', NOW(), %s
         )
         """,
@@ -1259,7 +1319,8 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
             bunji2,
             hosu,
             ipju_seq,
-            f"입금파일 자동반영 ({name or ''})",
+            sukum_char,
+            desc,
             int(amount),
             session.get("sabun") or "",
         ),
@@ -1267,9 +1328,12 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name):
     return True
 
 
-def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_map=None):
-    """선택한 입금들을 등록. row.bunji1/bunji2가 있으면 그 건물로 등록(여러 건물 지원)."""
+def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_map=None, pay_kinds=None):
+    """선택한 입금들을 등록. row.bunji1/bunji2가 있으면 그 건물로 등록(여러 건물 지원).
+    pay_kinds: {index_str: 'rent'|'etc'}
+    """
     split_map = split_map or {}
+    pay_kinds = pay_kinds or {}
     saved = 0
     applied = []
     for i, row in enumerate(rows):
@@ -1282,6 +1346,9 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
         # 없으면 함수 인자의 기본값 사용 (하위호환성)
         row_bunji1 = row.get("bunji1") or bunji1
         row_bunji2 = row.get("bunji2") or bunji2
+        pay_kind = (pay_kinds.get(str(i)) or row.get("pay_kind") or "rent").strip()
+        if pay_kind not in ("rent", "etc"):
+            pay_kind = "rent"
         
         raw = manual_overrides.get(str(i)) or []
         if isinstance(raw, str):
@@ -1312,7 +1379,7 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
                 hosu, ipju_seq = key.split("|", 1)
                 if _insert_sukum(
                     row_bunji1, row_bunji2, hosu, ipju_seq,
-                    row["date"], amt, row.get("name"),
+                    row["date"], amt, row.get("name"), pay_kind=pay_kind,
                 ):
                     n += 1
                     saved += 1
@@ -1331,7 +1398,7 @@ def _apply_selected(rows, bunji1, bunji2, selected_idx, manual_overrides, split_
             hosu, ipju_seq = row.get("hosu"), row.get("ipju_seq")
         if _insert_sukum(
             row_bunji1, row_bunji2, hosu, ipju_seq,
-            row["date"], row["amount"], row.get("name"),
+            row["date"], row["amount"], row.get("name"), pay_kind=pay_kind,
         ):
             saved += 1
             applied.append(i)
@@ -1400,8 +1467,14 @@ def payments_import():
         rows = _match_deposits(
             state["deposits"], building_list, state.get("account_no") or "",
         )
+        pay_kinds = {}
+        for k in request.form:
+            if not k.startswith("pay_kind_"):
+                continue
+            pay_kinds[k[len("pay_kind_"):]] = (request.form.get(k) or "rent").strip()
         _saved, applied = _apply_selected(
             rows, primary_bunji1, primary_bunji2, selected_idx, manual_overrides, split_map,
+            pay_kinds=pay_kinds,
         )
         if applied:
             drop = {
