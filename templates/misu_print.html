@@ -157,7 +157,8 @@
     <button type="submit">적용</button>
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary"
-       href="{{ url_for('misu', bunji1=bunji1|bunji, bunji2=bunji2|bunji, hosu=hosu, name=name, as_of=as_of, only_misu=('1' if only_misu else '0'), nav_from='base') }}">이전</a>
+       href="{{ url_for('misu', bunji1=bunji1|bunji, bunji2=bunji2|bunji, hosu=hosu, name=name, as_of=as_of, only_misu=('1' if only_misu else '0'), nav_from='base') }}"
+       onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
     <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
   </form>
 

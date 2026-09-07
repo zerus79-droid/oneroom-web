@@ -140,7 +140,8 @@
 <body>
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
-    <a class="secondary" href="{{ url_for('repairs') }}">이전</a>
+    <a class="secondary" href="{{ url_for('repairs') }}"
+       onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
     <span class="hint">Ctrl+P · 용지 A4 가로 · 머리글/바닥글 끄면 더 깔끔함</span>
   </div>
 
