@@ -16,6 +16,30 @@ from utils import (
     tenant_is_past_out as _tenant_is_past_out,
 )
 
+_HOSU_NORM_AVAILABLE = None
+
+
+def _hosu_filter(column_value, args):
+    """검색 인덱스가 적용된 DB와 구버전 DB 모두 지원한다."""
+    global _HOSU_NORM_AVAILABLE
+    if _HOSU_NORM_AVAILABLE is None:
+        try:
+            row = db.query_one(
+                """SELECT COUNT(*) AS c
+                   FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA=DATABASE()
+                    AND TABLE_NAME='bd03_det'
+                    AND COLUMN_NAME='hosu_norm'"""
+            )
+            _HOSU_NORM_AVAILABLE = bool((row or {}).get("c"))
+        except Exception:
+            _HOSU_NORM_AVAILABLE = False
+    if _HOSU_NORM_AVAILABLE:
+        args.append(column_value)
+        return "hosu_norm=%s"
+    args.append(column_value)
+    return "UPPER(TRIM(hosu))=%s"
+
 
 @app.route("/search")
 @login_required
@@ -59,10 +83,7 @@ def search():
             where.append("bunji2=%s")
             args.append(bunji2)
         if hosu:
-            # UPPER(TRIM(hosu))=%s 대신 인덱스가 걸린 hosu_norm 컬럼으로 비교
-            # (migrations/001_search_speed_indexes.sql 적용 필요)
-            where.append("hosu_norm=%s")
-            args.append(hosu)
+            where.append(_hosu_filter(hosu, args))
         if ipju_seq:
             where.append("ipju_seq=%s")
             args.append(ipju_seq.zfill(2))
