@@ -29,7 +29,7 @@ from utils import (
 
 # A4 가로(높이 210mm) + 제목·기간행. 32줄이면 크롬이 한 장을 둘로 쪼개
 # 날짜가 이어지지 않은 것처럼 보임.
-_PRINT_ROWS_PER_PAGE = 20
+_PRINT_ROWS_PER_PAGE = 22
 _REPAIR_PRINT_COL_READY = False
 _REPAIR_COMMON_HOSU_READY = False
 _REPAIR_SCHEMA_LOCK = Lock()
