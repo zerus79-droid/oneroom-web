@@ -273,20 +273,37 @@ def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s, *, pay_ma
 
 
 
-def _month_sukum_breakdown_map_all(month_start, month_end_s):
-    """전체 건물 당월 수금 {(b1,b2): {(hosu,seq): {char:{sil,dache}}}}."""
+
+def _bunji_keys_sql(keys, col1="bunji1", col2="bunji2"):
+    """Optional (bunji1,bunji2) filter. keys=None → no filter; [] → match nothing."""
+    if keys is None:
+        return "", []
+    keys = list(keys or [])
+    if not keys:
+        return f" AND 1=0", []
+    parts, args = [], []
+    for b1, b2 in keys:
+        parts.append(f"({col1}=%s AND {col2}=%s)")
+        args.extend([b1, b2])
+    return " AND (" + " OR ".join(parts) + ")", args
+
+
+def _month_sukum_breakdown_map_all(month_start, month_end_s, keys=None):
+    """당월 수금 {(b1,b2): {(hosu,seq): {char:{sil,dache}}}}. keys면 해당 건물만."""
     ms = month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start)
+    ksql, kargs = _bunji_keys_sql(keys)
     rows = db.query(
-        """
+        f"""
         SELECT bunji1, bunji2, hosu_norm AS hosu, ipju_seq, sukum_char,
                COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
                COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
           FROM sukum01
          WHERE (del_yn IS NULL OR del_yn='N' OR del_yn='')
            AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+           {ksql}
          GROUP BY bunji1, bunji2, hosu_norm, ipju_seq, sukum_char
         """,
-        (ms, month_end_s),
+        (ms, month_end_s, *kargs),
         apply_building_access=False,
     ) or []
     out = {}
@@ -301,20 +318,22 @@ def _month_sukum_breakdown_map_all(month_start, month_end_s):
     return out
 
 
-def _lifetime_sil01_map_all(as_of):
-    """전체 건물 누적 월세실입 {(b1,b2): {(hosu,seq): paid}}."""
+def _lifetime_sil01_map_all(as_of, keys=None):
+    """누적 월세실입 {(b1,b2): {(hosu,seq): paid}}. keys면 해당 건물만."""
     as_of_s = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10]
+    ksql, kargs = _bunji_keys_sql(keys)
     rows = db.query(
-        """
+        f"""
         SELECT bunji1, bunji2, hosu_norm AS hosu, ipju_seq,
                COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS paid
           FROM sukum01
          WHERE sukum_char='01'
            AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
            AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+           {ksql}
          GROUP BY bunji1, bunji2, hosu_norm, ipju_seq
         """,
-        (as_of_s,),
+        (as_of_s, *kargs),
         apply_building_access=False,
     ) or []
     out = {}
@@ -325,17 +344,19 @@ def _lifetime_sil01_map_all(as_of):
     return out
 
 
-def _terms_hist_map_all(as_of):
+def _terms_hist_map_all(as_of, keys=None):
     as_of_s = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10]
+    ksql, kargs = _bunji_keys_sql(keys)
     try:
         rows = db.query(
-            """
+            f"""
             SELECT bunji1, bunji2, hosu, ipju_seq, effective_dt, rent_amt, manage_amt
               FROM bd03_terms_hist
              WHERE effective_dt <= %s
+               {ksql}
              ORDER BY bunji1, bunji2, effective_dt, hist_id
             """,
-            (as_of_s,),
+            (as_of_s, *kargs),
             apply_building_access=False,
         ) or []
     except Exception:
@@ -348,10 +369,11 @@ def _terms_hist_map_all(as_of):
     return out
 
 
-def _jungsan_month_tenants_all(month_start, month_end):
-    """전체 건물 당월 거주자 {(b1,b2): [tenant rows]}."""
+def _jungsan_month_tenants_all(month_start, month_end, keys=None):
+    """당월 거주자 {(b1,b2): [tenant rows]}. keys면 해당 건물만."""
+    ksql, kargs = _bunji_keys_sql(keys, "m.bunji1", "m.bunji2")
     rows = db.query(
-        """
+        f"""
         SELECT m.bunji1, m.bunji2, m.hosu, d.ipju_seq, d.ipju_nm, d.ipju_dt, d.out_dt,
                d.bojung_amt, d.yechi_amt, d.rent_amt, d.manage_amt, d.napbu_gb
           FROM bd03_m m
@@ -362,9 +384,11 @@ def _jungsan_month_tenants_all(month_start, month_end):
            AND d.ipju_dt IS NOT NULL
            AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY)
            AND (d.out_dt IS NULL OR d.out_dt < '1000-01-01' OR d.out_dt >= %s)
+         WHERE 1=1
+           {ksql}
          ORDER BY m.bunji1, m.bunji2, m.hosu, d.ipju_dt
         """,
-        (month_end.isoformat(), month_start.isoformat()),
+        (month_end.isoformat(), month_start.isoformat(), *kargs),
         apply_building_access=False,
     ) or []
     out = {}
@@ -373,20 +397,22 @@ def _jungsan_month_tenants_all(month_start, month_end):
     return out
 
 
-def _month_cost_maps(month_start, month_end_s):
-    """수리·중개 건물별 합 {(b1,b2): amt}."""
+def _month_cost_maps(month_start, month_end_s, keys=None):
+    """수리·중개 건물별 합 {(b1,b2): amt}. keys면 해당 건물만."""
     ms = month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start)
+    ksql, kargs = _bunji_keys_sql(keys)
     suri = {}
     jungke = {}
     try:
         for r in db.query(
-            """
+            f"""
             SELECT bunji1, bunji2, COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
               FROM bd05_suri
              WHERE suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+               {ksql}
              GROUP BY bunji1, bunji2
             """,
-            (ms, month_end_s),
+            (ms, month_end_s, *kargs),
             apply_building_access=False,
         ) or []:
             suri[(r.get("bunji1"), r.get("bunji2"))] = _to_int_amt(r.get("a"))
@@ -394,13 +420,14 @@ def _month_cost_maps(month_start, month_end_s):
         pass
     try:
         for r in db.query(
-            """
+            f"""
             SELECT bunji1, bunji2, COALESCE(SUM(COALESCE(jungke_amt,0)),0) AS a
               FROM sjungke01
              WHERE jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+               {ksql}
              GROUP BY bunji1, bunji2
             """,
-            (ms, month_end_s),
+            (ms, month_end_s, *kargs),
             apply_building_access=False,
         ) or []:
             jungke[(r.get("bunji1"), r.get("bunji2"))] = _to_int_amt(r.get("a"))

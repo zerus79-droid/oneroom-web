@@ -1558,6 +1558,7 @@ def jungsan_list():
     month_end = date(y, m, monthrange(y, m)[1])
     results = []
     sum_pay = 0
+    pager = None
 
     if ran:
         b_where, b_args = [], []
@@ -1576,7 +1577,27 @@ def jungsan_list():
         if b_where:
             bsql += " WHERE " + " AND ".join(b_where)
         bsql += " ORDER BY bunji1, bunji2"
-        buildings = db.query(bsql, b_args)
+        buildings_raw = db.query(bsql, b_args) or []
+
+        # 목록 메타만 먼저 정리한 뒤 페이지 슬라이스 — 안 보이는 동은 계산하지 않음
+        buildings = []
+        seen_keys = set()
+        for b in buildings_raw:
+            raw1, raw2 = b.get("bunji1"), b.get("bunji2")
+            b1, b2 = _pad_bunji(raw1), _pad_bunji(raw2)
+            if not b1 or not b2:
+                continue
+            if (raw1, raw2) != (b1, b2):
+                continue
+            key = (b1, b2)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            b_use = dict(b)
+            b_use["bunji1"], b_use["bunji2"] = b1, b2
+            buildings.append(b_use)
+
+        page_buildings, pager = _paginate(buildings)
 
         saved_rows = db.query(
             """
@@ -1596,32 +1617,27 @@ def jungsan_list():
         for r in saved_rows or []:
             saved_by[(_pad_bunji(r.get("bunji1")), _pad_bunji(r.get("bunji2")))] = r
 
-        # 미저장 건물이 있으면 전체 건물 데이터를 몇 번 쿼리로 미리 적재 (N+1 제거)
-        need_live = any(
-            (b.get("bunji1"), b.get("bunji2")) not in saved_by for b in (buildings or [])
-        )
+        live_keys = [
+            (b.get("bunji1"), b.get("bunji2"))
+            for b in page_buildings
+            if (b.get("bunji1"), b.get("bunji2")) not in saved_by
+        ]
         tenants_all = pay_all = paid_all = terms_all = {}
         suri_all = jungke_all = {}
-        if need_live:
-            tenants_all = _jungsan_month_tenants_all(month_start, month_end)
-            pay_all = _month_sukum_breakdown_map_all(month_start, month_end.isoformat())
-            paid_all = _lifetime_sil01_map_all(month_end)
-            terms_all = _terms_hist_map_all(month_end)
-            suri_all, jungke_all = _month_cost_maps(month_start, month_end.isoformat())
+        if live_keys:
+            tenants_all = _jungsan_month_tenants_all(month_start, month_end, keys=live_keys)
+            pay_all = _month_sukum_breakdown_map_all(
+                month_start, month_end.isoformat(), keys=live_keys
+            )
+            paid_all = _lifetime_sil01_map_all(month_end, keys=live_keys)
+            terms_all = _terms_hist_map_all(month_end, keys=live_keys)
+            suri_all, jungke_all = _month_cost_maps(
+                month_start, month_end.isoformat(), keys=live_keys
+            )
 
-        seen_keys = set()
-        for b in buildings or []:
-            raw1, raw2 = b.get("bunji1"), b.get("bunji2")
-            b1, b2 = _pad_bunji(raw1), _pad_bunji(raw2)
-            if not b1 or not b2:
-                continue
-            # 깨진 번지(예: 508- → 0508)는 정상 행과 금액이 어긋나므로 제외
-            if (raw1, raw2) != (b1, b2):
-                continue
+        for b in page_buildings:
+            b1, b2 = b.get("bunji1"), b.get("bunji2")
             key = (b1, b2)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
             r = saved_by.get(key)
             if r:
                 mgmt_gb = (r.get("mgmt_gb") or "").strip().upper()
@@ -1646,8 +1662,8 @@ def jungsan_list():
                 sum_pay += pay
                 results.append(
                     {
-                        "bunji1": r.get("bunji1"),
-                        "bunji2": r.get("bunji2"),
+                        "bunji1": b1,
+                        "bunji2": b2,
                         "jungsan_dt": r.get("jungsan_dt"),
                         "jungsan_seq": r.get("jungsan_seq"),
                         "juso": r.get("juso") or "",
@@ -1666,15 +1682,13 @@ def jungsan_list():
                     }
                 )
                 continue
-            b_use = dict(b)
-            b_use["bunji1"], b_use["bunji2"] = b1, b2
             live = _jungsan_build_preview(
                 b1,
                 b2,
                 month_end.isoformat(),
                 list_mode=True,
                 preload={
-                    "building": b_use,
+                    "building": b,
                     "skip_ensure_cols": True,
                     "skip_saved": True,
                     "rooms": tenants_all.get(key) or [],
@@ -1712,9 +1726,6 @@ def jungsan_list():
             )
 
     years = list(range(today.year, today.year - 15, -1))
-    pager = None
-    if ran and results:
-        results, pager = _paginate(results)
     return render_template(
         "jungsan_list.html",
         filters={
