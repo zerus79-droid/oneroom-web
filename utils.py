@@ -686,26 +686,45 @@ def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
             terms.append((eff, to_int_amt(r.get("rent_amt")), to_int_amt(r.get("manage_amt"))))
     terms.sort(key=lambda x: x[0])
     total = Fraction(0, 1)
-    idx = 0
-    day = ipju_dt
     end_exclusive = end_dt + timedelta(days=1)
-    # 퇴실일 당일도 거주·청구 기간에 포함한다.
-    while day <= end_dt:
-        while idx + 1 < len(terms) and terms[idx + 1][0] <= day:
-            idx += 1
-        mdiff = (day.year - ipju_dt.year) * 12 + day.month - ipju_dt.month
+
+    def _rate_on(day):
+        i = 0
+        while i + 1 < len(terms) and terms[i + 1][0] <= day:
+            i += 1
+        return int(terms[i][1] + terms[i][2])
+
+    # O(개월): 계약 주기 단위로 합산. (일 단위 루프는 장기 세입자에서 초단위로 느려짐)
+    mdiff = 0
+    while True:
         cycle_start = _add_months_clamped(ipju_dt, mdiff)
-        if cycle_start > day:
-            mdiff -= 1
-            cycle_start = _add_months_clamped(ipju_dt, mdiff)
+        if cycle_start > end_dt:
+            break
         cycle_end = _add_months_clamped(ipju_dt, mdiff + 1)
         cycle_days = max(1, (cycle_end - cycle_start).days)
-        monthly = Decimal(terms[idx][1] + terms[idx][2])
-        # 완전한 계약 주기는 달력 일수와 무관하게 월액 1회분이다.
-        # 마지막 불완전 주기만 XP와 기존 장부의 30일 일할 규칙을 적용한다.
-        divisor = cycle_days if cycle_end <= end_exclusive else 30
-        total += Fraction(int(monthly), divisor)
-        day += timedelta(days=1)
+        # 주기 안에 요금 변경이 있으면 그 주기만 일 단위로 정확히 합산
+        mid_changes = [
+            t[0] for t in terms[1:]
+            if cycle_start < t[0] < min(cycle_end, end_exclusive)
+        ]
+        if not mid_changes:
+            monthly = _rate_on(cycle_start)
+            if cycle_end <= end_exclusive:
+                total += Fraction(int(monthly), 1)
+            else:
+                occ_days = (end_dt - cycle_start).days + 1
+                total += Fraction(int(monthly) * max(0, occ_days), 30)
+            mdiff += 1
+            continue
+        day = cycle_start
+        last = min(cycle_end, end_exclusive)
+        while day < last and day <= end_dt:
+            monthly = _rate_on(day)
+            divisor = cycle_days if cycle_end <= end_exclusive else 30
+            total += Fraction(int(monthly), divisor)
+            day += timedelta(days=1)
+        mdiff += 1
+
     # 분수로 누적해 28·31일 주기에서 부동소수점 오차로 월액이 100원
     # 초과되는 일을 막고, 기존 표시 단위(100원 올림)는 유지한다.
     return ((total.numerator + total.denominator * 100 - 1)

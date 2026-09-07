@@ -650,7 +650,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             misu = _calc_misu_amt(
                 b1, b2, hosu, seq, rent, manage, m.get("ipju_dt"), as_of=as_of,
                 paid=paid_map.get(tk, 0),
-                terms_rows=terms_map.get(tk),
+                # [] 는 '이력 없음' — None 이면 또 DB를 친다
+                terms_rows=terms_map.get(tk, []),
             )
             exit_misu = None
             if out_d and month_start <= out_d <= month_end:
