@@ -1571,7 +1571,7 @@ def jungsan_list():
         bsql = (
             "SELECT bunji1, bunji2, juso, owner_nm, mgmt_gb, sukum_acct_gb,"
             " sukum_bojung_acct_gb, sukum_rent_acct_gb, sukum_manage_acct_gb, man_cost,"
-            " stair_cost, inet_cost, option_cost FROM bd01"
+            " stair_cost, inet_cost, option_cost, first_amt FROM bd01"
         )
         if b_where:
             bsql += " WHERE " + " AND ".join(b_where)
@@ -1594,7 +1594,7 @@ def jungsan_list():
         )
         saved_by = {}
         for r in saved_rows or []:
-            saved_by[(r.get("bunji1"), r.get("bunji2"))] = r
+            saved_by[(_pad_bunji(r.get("bunji1")), _pad_bunji(r.get("bunji2")))] = r
 
         # 미저장 건물이 있으면 전체 건물 데이터를 몇 번 쿼리로 미리 적재 (N+1 제거)
         need_live = any(
@@ -1609,8 +1609,19 @@ def jungsan_list():
             terms_all = _terms_hist_map_all(month_end)
             suri_all, jungke_all = _month_cost_maps(month_start, month_end.isoformat())
 
+        seen_keys = set()
         for b in buildings or []:
-            key = (b.get("bunji1"), b.get("bunji2"))
+            raw1, raw2 = b.get("bunji1"), b.get("bunji2")
+            b1, b2 = _pad_bunji(raw1), _pad_bunji(raw2)
+            if not b1 or not b2:
+                continue
+            # 깨진 번지(예: 508- → 0508)는 정상 행과 금액이 어긋나므로 제외
+            if (raw1, raw2) != (b1, b2):
+                continue
+            key = (b1, b2)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             r = saved_by.get(key)
             if r:
                 mgmt_gb = (r.get("mgmt_gb") or "").strip().upper()
@@ -1655,13 +1666,15 @@ def jungsan_list():
                     }
                 )
                 continue
+            b_use = dict(b)
+            b_use["bunji1"], b_use["bunji2"] = b1, b2
             live = _jungsan_build_preview(
-                b.get("bunji1"),
-                b.get("bunji2"),
+                b1,
+                b2,
                 month_end.isoformat(),
                 list_mode=True,
                 preload={
-                    "building": b,
+                    "building": b_use,
                     "skip_ensure_cols": True,
                     "skip_saved": True,
                     "rooms": tenants_all.get(key) or [],
@@ -1678,8 +1691,8 @@ def jungsan_list():
             sum_pay += pay
             results.append(
                 {
-                    "bunji1": b.get("bunji1"),
-                    "bunji2": b.get("bunji2"),
+                    "bunji1": b1,
+                    "bunji2": b2,
                     "jungsan_dt": month_end,
                     "jungsan_seq": None,
                     "juso": b.get("juso") or "",
