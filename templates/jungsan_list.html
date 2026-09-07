@@ -113,7 +113,7 @@
       </tbody>
       <tfoot>
         <tr>
-          <th colspan="2" class="tc">합계 {{ pager.total if pager else results|length }}건</th>
+          <th colspan="2" class="tc">이 페이지 합계 {{ results|length }}건{% if pager and pager.total %} / 전체 {{ pager.total }}건{% endif %}</th>
           <th class="num">{{ sum_pay|money }}</th>
           <th colspan="9"></th>
         </tr>
