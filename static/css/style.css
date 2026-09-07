@@ -3887,16 +3887,24 @@ a.bldg-card-title:hover { color: var(--navy); }
 }
 .checkout-utility-actions .btn,
 .checkout-utility-actions a.btn {
+  /* 상단 조회 버튼(.filter-bar-btns)과 동일 폭·높이 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: auto;
-  min-width: auto;
+  flex: 0 0 6.4rem;
+  width: 6.4rem;
+  min-width: 6.4rem;
   min-height: 92px;
-  padding: 9px 16px;
+  max-height: 92px;
+  height: 92px;
+  padding: 4px 6px;
+  margin: 0;
   box-sizing: border-box;
   text-align: center;
-  line-height: 1.35;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
 }
 @media (max-width: 760px) {
   .checkout-utility-lower {
