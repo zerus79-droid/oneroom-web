@@ -565,6 +565,10 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
     else:
         # 라이브: 호수 + 당월 거주자(현재 입주 · 당월 퇴실)
         rooms = _jungsan_month_tenants(b1, b2, month_start, month_end)
+        # N+1 제거: 당월 수금·누적실입·계약이력을 건물 단위로 한 번에 로드
+        pay_map = _month_sukum_breakdown_map(b1, b2, month_start, month_end_s)
+        paid_map = _lifetime_sil01_map(b1, b2, as_of)
+        terms_map = _terms_hist_map(b1, b2, as_of)
         sum_bojung = sum_rent = sum_manage = sum_ipkum = sum_misu = 0
         tenant_cnt = 0
         for m in rooms:
@@ -601,7 +605,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
             bojung = _bojung_disp_amt(m.get("bojung_amt"), m.get("yechi_amt"), is_resp)
             yechi = _to_int_amt(m.get("yechi_amt"))
             pay_parts = _month_sukum_breakdown(
-                b1, b2, hosu, seq, month_start, month_end_s
+                b1, b2, hosu, seq, month_start, month_end_s, pay_map=pay_map
             )
             rent_part = pay_parts.get("01", {"sil": 0, "dache": 0})
             rent_sil = _to_int_amt(rent_part.get("sil"))
@@ -620,15 +624,18 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
             out_adj_desc = ""
             if out_d and month_start <= out_d <= month_end:
                 out_adj_exists, out_adj_amt, out_adj_desc = _month_out_adjustment(
-                    b1, b2, hosu, seq, month_start, month_end_s
+                    b1, b2, hosu, seq, month_start, month_end_s, pay_map=pay_map
                 )
             # 퇴실월에는 별도의 79,000원 추정 조정액을 입금액으로 넣지 않는다.
             # 퇴실정산 확정액(또는 누적 미수)은 아래 exit_misu로 반영한다.
             out_settle_amt = None
             ipkum = sil_amt + dache_amt
             is_exit = bool(out_d and month_start <= out_d <= month_end)
+            tk = (_hosu_key(hosu), _seq_key(seq))
             misu = _calc_misu_amt(
-                b1, b2, hosu, seq, rent, manage, m.get("ipju_dt"), as_of=as_of
+                b1, b2, hosu, seq, rent, manage, m.get("ipju_dt"), as_of=as_of,
+                paid=paid_map.get(tk, 0),
+                terms_rows=terms_map.get(tk),
             )
             exit_misu = None
             if out_d and month_start <= out_d <= month_end:
@@ -1076,7 +1083,8 @@ from jungsan_engine import (
     _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell, _jungsan_month_rent_split,
     _jungsan_out_settle_amt, _month_bounds, _prorate_amt,
     _rent_ipkum_for_pay, _valid_out_dt, _month_sukum_sil_dache,
-    _month_sukum_breakdown,
+    _month_sukum_breakdown, _month_sukum_breakdown_map,
+    _lifetime_sil01_map, _terms_hist_map, _hosu_key, _seq_key,
     _month_out_adjustment, _jungsan_month_tenants,
 )
 

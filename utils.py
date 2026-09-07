@@ -654,25 +654,28 @@ def _add_months_clamped(d, months):
 
 
 def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
-                                rent_amt=0, manage_amt=0):
+                                rent_amt=0, manage_amt=0, *, terms_rows=None):
     """입주일~퇴실일(양끝 포함)의 임대료+관리비를 계약월+30일 일할로 계산한다."""
     if isinstance(ipju_dt, datetime): ipju_dt = ipju_dt.date()
     if isinstance(end_dt, datetime): end_dt = end_dt.date()
     if not ipju_dt or not end_dt or end_dt < ipju_dt:
         return 0
-    try:
-        ensure_contract_terms_history()
-        rows = db.query(
-            """SELECT effective_dt,rent_amt,manage_amt FROM bd03_terms_hist
-               WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-                 AND effective_dt <= %s
-               ORDER BY effective_dt,hist_id""",
-            (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
-        )
-    except Exception as e:
-        import logging
-        logging.warning(f"[Contract Period] 계약 이력 조회 실패: {e}")
-        rows = []
+    if terms_rows is not None:
+        rows = terms_rows
+    else:
+        try:
+            ensure_contract_terms_history()
+            rows = db.query(
+                """SELECT effective_dt,rent_amt,manage_amt FROM bd03_terms_hist
+                   WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+                     AND effective_dt <= %s
+                   ORDER BY effective_dt,hist_id""",
+                (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
+            )
+        except Exception as e:
+            import logging
+            logging.warning(f"[Contract Period] 계약 이력 조회 실패: {e}")
+            rows = []
     terms = [(ipju_dt, to_int_amt(rent_amt), to_int_amt(manage_amt))]
     for r in rows or []:
         eff = r.get("effective_dt")
@@ -724,7 +727,8 @@ def fmt_ipju_short(v):
 
 
 def calc_misu_amt(
-    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None
+    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None,
+    *, paid=None, terms_rows=None,
 ):
     """전월미수총액(누적 추정).
     입주일~as_of(기본 오늘)까지의 청구총액(과거 임대료·관리비 변경 이력을
@@ -732,6 +736,8 @@ def calc_misu_amt(
     − 실입금(su_sil_amt) 합계.
     대체는 집주인 대납이라 세입자 미수에서 빼지 않음.
     음수(선수금)면 0.
+
+    paid / terms_rows 를 넘기면 배치 조회 결과를 재사용해 N+1 쿼리를 줄인다.
 
     수정 이력: 예전엔 (현재 월세+관리비) × 경과월수로 계산해서, 옛날에 임대료가
     더 쌌던 오래된 세입자는 실제보다 낮게(또는 0으로) 나오는 버그가 있었음
@@ -751,27 +757,31 @@ def calc_misu_amt(
         expected = calc_contract_period_charge(
             bunji1, bunji2, hosu, ipju_seq, start_d, end_d,
             rent_amt=rent_amt, manage_amt=manage_amt,
+            terms_rows=terms_rows,
         )
     else:
         # 입주일 정보가 없으면(예외 상황) 기존 방식으로 대체 계산.
         months = months_elapsed(ipju_dt, as_of)
         expected = monthly * months
-    sql = """
-        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
-        FROM sukum01
-        WHERE bunji1=%s AND bunji2=%s
-          AND hosu_norm=%s AND ipju_seq=%s
-          AND sukum_char='01'
-          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-    """
-    args = [bunji1, bunji2, (hosu or "").strip().upper(), ipju_seq]
-    if as_of is not None:
-        if isinstance(as_of, datetime):
-            as_of = as_of.date()
-        sql += " AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
-        args.append(as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10])
-    paid_row = db.query_one(sql, args)
-    paid = to_int_amt((paid_row or {}).get("paid"))
+    if paid is None:
+        sql = """
+            SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
+            FROM sukum01
+            WHERE bunji1=%s AND bunji2=%s
+              AND hosu_norm=%s AND ipju_seq=%s
+              AND sukum_char='01'
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+        """
+        args = [bunji1, bunji2, (hosu or "").strip().upper(), ipju_seq]
+        if as_of is not None:
+            if isinstance(as_of, datetime):
+                as_of = as_of.date()
+            sql += " AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
+            args.append(as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10])
+        paid_row = db.query_one(sql, args)
+        paid = to_int_amt((paid_row or {}).get("paid"))
+    else:
+        paid = to_int_amt(paid)
     return max(0, expected - paid)
 
 

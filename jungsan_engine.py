@@ -97,26 +97,132 @@ def _jungsan_out_settle_amt(napbu, rent, ipju_dt, out_dt, month_start, month_end
     return (rent if ipju < month_start else 0) + prorate(occ)
 
 
+
+
+def _hosu_key(hosu):
+    return (hosu or "").strip().upper()
+
+
+def _seq_key(seq):
+    return str(seq or "").zfill(2)
+
+
+def _month_sukum_breakdown_map(b1, b2, month_start, month_end_s):
+    """한 건물·한 달 수금을 한 번에 읽어 {(hosu, seq): {char: {sil,dache}}}."""
+    ms = month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start)
+    rows = db.query(
+        """
+        SELECT hosu_norm AS hosu, ipju_seq, sukum_char,
+               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
+               COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
+          FROM sukum01
+         WHERE bunji1=%s AND bunji2=%s
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+           AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+         GROUP BY hosu_norm, ipju_seq, sukum_char
+        """,
+        (b1, b2, ms, month_end_s),
+    ) or []
+    out = {}
+    for row in rows:
+        key = (_hosu_key(row.get("hosu")), _seq_key(row.get("ipju_seq")))
+        char = str(row.get("sukum_char") or "").strip().zfill(2)
+        out.setdefault(key, {})[char] = {
+            "sil": _to_int_amt(row.get("sil")),
+            "dache": _to_int_amt(row.get("dache")),
+        }
+    return out
+
+
+def _lifetime_sil01_map(b1, b2, as_of):
+    """미수 계산용: 당일까지 월세(01) 실입금 합 {(hosu, seq): paid}."""
+    if hasattr(as_of, "isoformat"):
+        as_of_s = as_of.isoformat()
+    else:
+        as_of_s = str(as_of)[:10]
+    rows = db.query(
+        """
+        SELECT hosu_norm AS hosu, ipju_seq,
+               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS paid
+          FROM sukum01
+         WHERE bunji1=%s AND bunji2=%s
+           AND sukum_char='01'
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+           AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+         GROUP BY hosu_norm, ipju_seq
+        """,
+        (b1, b2, as_of_s),
+    ) or []
+    return {
+        (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq"))): _to_int_amt(r.get("paid"))
+        for r in rows
+    }
+
+
+def _terms_hist_map(b1, b2, as_of):
+    """계약변경 이력 {(hosu, seq): [rows...]} — 미수 기간청구용."""
+    if hasattr(as_of, "isoformat"):
+        as_of_s = as_of.isoformat()
+    else:
+        as_of_s = str(as_of)[:10]
+    try:
+        rows = db.query(
+            """
+            SELECT hosu, ipju_seq, effective_dt, rent_amt, manage_amt
+              FROM bd03_terms_hist
+             WHERE bunji1=%s AND bunji2=%s
+               AND effective_dt <= %s
+             ORDER BY effective_dt, hist_id
+            """,
+            (b1, b2, as_of_s),
+        ) or []
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        key = (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq")))
+        out.setdefault(key, []).append(r)
+    return out
+
+
 def _month_sukum_sil_dache(b1, b2, hosu, seq, month_start, month_end_s):
-    row = db.query_one("""SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil, COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache FROM sukum01 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s AND sukum_char='01' AND (del_yn IS NULL OR del_yn='N' OR del_yn='') AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""", (b1,b2,(hosu or '').strip().upper(),str(seq or '').zfill(2) if seq else '',month_start.isoformat() if hasattr(month_start,'isoformat') else str(month_start),month_end_s))
-    return _to_int_amt((row or {}).get('sil')), _to_int_amt((row or {}).get('dache'))
+    row = db.query_one(
+        """SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
+                  COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
+             FROM sukum01
+            WHERE bunji1=%s AND bunji2=%s
+              AND hosu_norm=%s AND ipju_seq=%s
+              AND sukum_char='01'
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+              AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""",
+        (
+            b1, b2, (hosu or "").strip().upper(),
+            str(seq or "").zfill(2) if seq else "",
+            month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start),
+            month_end_s,
+        ),
+    )
+    return _to_int_amt((row or {}).get("sil")), _to_int_amt((row or {}).get("dache"))
 
 
-def _month_sukum_breakdown(b1, b2, hosu, seq, month_start, month_end_s):
+def _month_sukum_breakdown(b1, b2, hosu, seq, month_start, month_end_s, *, pay_map=None):
     """월별 수금 성격별 실입금·대체금 집계.
 
     sukum_char는 수금 방식(sukum_gb)이 아니라 수금 성격이다.
     01=월세+관리비, 02=보증금, 03=예치금, 04=수리비,
     05=중개보수, 06=퇴실정산 임대료, 07=퇴실정산 관리비.
     기존 호환을 위해 값이 없는 성격도 0으로 반환한다.
+    pay_map이 있으면 DB 재조회 없이 맵에서 꺼낸다.
     """
+    if pay_map is not None:
+        return dict(pay_map.get((_hosu_key(hosu), _seq_key(seq))) or {})
     rowset = db.query(
         """SELECT sukum_char,
                   COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
                   COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
              FROM sukum01
             WHERE bunji1=%s AND bunji2=%s
-              AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+              AND hosu_norm=%s AND ipju_seq=%s
               AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
               AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
             GROUP BY sukum_char""",
@@ -136,9 +242,33 @@ def _month_sukum_breakdown(b1, b2, hosu, seq, month_start, month_end_s):
     return result
 
 
-def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s):
-    row = db.query_one("""SELECT COUNT(*) AS cnt, COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS amt, MAX(COALESCE(manage_desc,'')) AS manage_desc FROM sukum01 WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s AND sukum_char='06' AND (del_yn IS NULL OR del_yn='N' OR del_yn='') AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""", (b1,b2,(hosu or '').strip().upper(),str(seq or '').zfill(2) if seq else '',month_start.isoformat() if hasattr(month_start,'isoformat') else str(month_start),month_end_s))
-    return _to_int_amt((row or {}).get('cnt')) > 0, _to_int_amt((row or {}).get('amt')), ((row or {}).get('manage_desc') or '').strip()
+def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s, *, pay_map=None):
+    if pay_map is not None:
+        part = (pay_map.get((_hosu_key(hosu), _seq_key(seq))) or {}).get("06") or {}
+        amt = _to_int_amt(part.get("sil"))
+        return amt > 0, amt, ""
+    row = db.query_one(
+        """SELECT COUNT(*) AS cnt,
+                  COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS amt,
+                  MAX(COALESCE(manage_desc,'')) AS manage_desc
+             FROM sukum01
+            WHERE bunji1=%s AND bunji2=%s
+              AND hosu_norm=%s AND ipju_seq=%s
+              AND sukum_char='06'
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+              AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)""",
+        (
+            b1, b2, (hosu or "").strip().upper(),
+            str(seq or "").zfill(2) if seq else "",
+            month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start),
+            month_end_s,
+        ),
+    )
+    return (
+        _to_int_amt((row or {}).get("cnt")) > 0,
+        _to_int_amt((row or {}).get("amt")),
+        ((row or {}).get("manage_desc") or "").strip(),
+    )
 
 
 def _jungsan_month_tenants(b1, b2, month_start, month_end):
