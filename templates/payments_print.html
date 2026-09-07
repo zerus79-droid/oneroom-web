@@ -131,7 +131,8 @@
   <div class="toolbar">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary" href="{{ url_for('payments_print_excel') }}?{{ request.query_string.decode() }}">엑셀 다운로드</a>
-    <a class="secondary" href="{{ url_for('payments', fresh=1) }}">이전</a>
+    <a class="secondary" href="{{ url_for('payments', fresh=1) }}"
+       onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
     <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
   </div>
 
