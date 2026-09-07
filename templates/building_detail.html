@@ -73,7 +73,96 @@
     <div class="ls-actions">
       <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}">수정</a>
       <a class="btn secondary" href="{{ url_for('buildings') }}">목록</a>
+      <button type="button" class="btn" id="building-delete-open"
+              style="background:#c0392b;border-color:#c0392b;margin-left:auto">삭제</button>
     </div>
   </div>
 </div>
+
+{% set confirm_name = building.juso if building.juso else (building.bunji1|bunji_pair(building.bunji2)) %}
+<div class="confirm-overlay" id="building-delete-overlay" hidden>
+  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="building-delete-title" style="max-width:420px">
+    <div class="confirm-dialog-head" id="building-delete-title" style="color:#c0392b">건물 삭제 (되돌릴 수 없음)</div>
+    <div class="confirm-dialog-body">
+      <p><strong>{{ confirm_name }}</strong> 건물을 삭제합니다.</p>
+      <p>연관 데이터가 <strong>모두 함께 삭제</strong>됩니다.</p>
+      <ul style="margin:8px 0 12px 1.2em;line-height:1.5;font-size:0.92em">
+        <li>호수 {{ cascade_counts.rooms|default(0) }} · 세입자이력 {{ cascade_counts.tenants|default(0) }}
+            (현재입주 {{ cascade_counts.tenants_current|default(0) }})</li>
+        <li>수금 {{ cascade_counts.payments|default(0) }} · 수리 {{ cascade_counts.repairs|default(0) }}
+            · 퇴실 {{ cascade_counts.checkouts|default(0) }}</li>
+        <li>정산 {{ cascade_counts.jungsan|default(0) }} · 중개 {{ cascade_counts.brokerage|default(0) }}</li>
+      </ul>
+      <form method="post" action="{{ url_for('building_delete', bunji1=building.bunji1, bunji2=building.bunji2) }}"
+            id="building-delete-form" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="ls-row" style="margin:0 0 8px">
+          <label class="ls-lab" for="building-delete-confirm-name">건물명 확인</label>
+          <div class="ls-val">
+            <input type="text" class="ls-box" name="confirm_name" id="building-delete-confirm-name"
+                   placeholder="{{ confirm_name }}" required autocomplete="off">
+            <div class="muted" style="font-size:0.85em;margin-top:2px">위에 적힌 건물명을 그대로 입력</div>
+          </div>
+        </div>
+        <div class="ls-row" style="margin:0">
+          <label class="ls-lab" for="building-delete-password">비밀번호</label>
+          <div class="ls-val">
+            <input type="password" class="ls-box" name="password" id="building-delete-password"
+                   required autocomplete="current-password" placeholder="접속 계정 비밀번호">
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="confirm-dialog-actions">
+      <button type="button" class="btn secondary" id="building-delete-cancel">취소</button>
+      <button type="submit" class="btn" form="building-delete-form" id="building-delete-submit"
+              style="background:#c0392b;border-color:#c0392b">삭제 확정</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var overlay = document.getElementById('building-delete-overlay');
+  var openBtn = document.getElementById('building-delete-open');
+  var cancelBtn = document.getElementById('building-delete-cancel');
+  var form = document.getElementById('building-delete-form');
+  var expected = {{ confirm_name|tojson }};
+  if (!overlay || !openBtn || !form) return;
+  function show() {
+    overlay.hidden = false;
+    var name = document.getElementById('building-delete-confirm-name');
+    var pw = document.getElementById('building-delete-password');
+    if (name) { name.value = ''; name.focus(); }
+    if (pw) pw.value = '';
+  }
+  function hide() { overlay.hidden = true; }
+  openBtn.addEventListener('click', show);
+  if (new URLSearchParams(location.search).get('delete') === '1') show();
+  if (cancelBtn) cancelBtn.addEventListener('click', hide);
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) hide();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !overlay.hidden) hide();
+  });
+  form.addEventListener('submit', function (e) {
+    var name = (document.getElementById('building-delete-confirm-name') || {}).value || '';
+    var pw = (document.getElementById('building-delete-password') || {}).value || '';
+    if (String(name).trim() !== String(expected).trim()) {
+      e.preventDefault();
+      if (window.appAlert) window.appAlert('건물명이 일치하지 않습니다.');
+      else alert('건물명이 일치하지 않습니다.');
+      return;
+    }
+    if (!String(pw).trim()) {
+      e.preventDefault();
+      if (window.appAlert) window.appAlert('비밀번호를 입력하세요.');
+      else alert('비밀번호를 입력하세요.');
+      return;
+    }
+    var btn = document.getElementById('building-delete-submit');
+    if (btn) btn.disabled = true;
+  });
+})();
+</script>
 {% endblock %}

@@ -28,6 +28,7 @@ from utils import (
     parse_money as _parse_money,
     require_write_access,
     table_columns as _table_columns,
+    verify_password as _verify_password,
 )
 
 # 전기료납부(elec_gb) — 기존 프로그램: 각세대별 / 관리비에 포함
@@ -1092,7 +1093,14 @@ def building_detail(bunji1, bunji2):
             "state": room.get("room_state") or "vacant",
         })
     floors = sorted(floor_map.items(), key=lambda item: item[0], reverse=True)
-    return render_template("building_detail.html", building=b, floors=floors, **_building_selects())
+    cascade_counts = _building_cascade_counts(bunji1, bunji2)
+    return render_template(
+        "building_detail.html",
+        building=b,
+        floors=floors,
+        cascade_counts=cascade_counts,
+        **_building_selects(),
+    )
 
 
 @app.route("/building/<bunji1>/<bunji2>/rooms")
@@ -1216,6 +1224,139 @@ def room_new(bunji1, bunji2):
         return redirect(url_for("building_rooms", bunji1=bunji1, bunji2=bunji2))
 
     return render_template("room_form.html", building=b, form=form, mode="new")
+
+
+
+
+def _count_rows(sql, args):
+    try:
+        row = db.query_one(sql, args)
+    except Exception:
+        return 0
+    return int((row or {}).get("c") or 0)
+
+
+def _building_cascade_counts(bunji1, bunji2):
+    """건물 삭제 전 연관 건수 (경고 표시용). 없는 테이블은 0."""
+    args = (bunji1, bunji2)
+    return {
+        "rooms": _count_rows(
+            "SELECT COUNT(*) AS c FROM bd03_m WHERE bunji1=%s AND bunji2=%s", args
+        ),
+        "tenants": _count_rows(
+            "SELECT COUNT(*) AS c FROM bd03_det WHERE bunji1=%s AND bunji2=%s", args
+        ),
+        "tenants_current": _count_rows(
+            f"""SELECT COUNT(*) AS c FROM bd03_det d
+                WHERE d.bunji1=%s AND d.bunji2=%s AND ({_CURRENT_TENANT_SQL})""",
+            args,
+        ),
+        "payments": _count_rows(
+            """SELECT COUNT(*) AS c FROM sukum01
+               WHERE bunji1=%s AND bunji2=%s
+                 AND (del_yn IS NULL OR del_yn='' OR del_yn='N')""",
+            args,
+        ),
+        "repairs": _count_rows(
+            "SELECT COUNT(*) AS c FROM bd05_suri WHERE bunji1=%s AND bunji2=%s", args
+        ),
+        "checkouts": _count_rows(
+            "SELECT COUNT(*) AS c FROM bd07_out WHERE bunji1=%s AND bunji2=%s", args
+        ),
+        "jungsan": _count_rows(
+            "SELECT COUNT(*) AS c FROM jungsan_m WHERE bunji1=%s AND bunji2=%s", args
+        ),
+        "brokerage": _count_rows(
+            "SELECT COUNT(*) AS c FROM sjungke01 WHERE bunji1=%s AND bunji2=%s", args
+        ),
+    }
+
+
+def _session_password_ok(password):
+    """접속 중인 사용자 비밀번호 확인 (bcrypt / 레거시 평문)."""
+    sabun = (session.get("sabun") or "").strip()
+    password = (password or "").strip()
+    if not sabun or not password:
+        return False
+    row = db.query_one(
+        "SELECT pass_wd FROM sawon_m WHERE sabun=%s",
+        (sabun,),
+    )
+    if not row:
+        return False
+    stored = (row.get("pass_wd") or "").strip()
+    if not stored:
+        return False
+    if stored.startswith("$2b$"):
+        try:
+            return bool(_verify_password(password, stored))
+        except Exception:
+            return False
+    return stored == password
+
+
+def _table_exists(name):
+    try:
+        row = db.query_one(
+            """
+            SELECT 1 AS ok
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE() AND table_name=%s
+            LIMIT 1
+            """,
+            (name,),
+        )
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _cascade_delete_building(bunji1, bunji2):
+    """건물 + 연관 데이터 연쇄 삭제. 자식 → 건물 순. 반환: {table: deleted_count}."""
+    # 순서: 수금/수리/퇴실/정산/중개/약정/세입자/호수/권한/매칭 → 건물
+    steps = [
+        ("sukum01", "DELETE FROM sukum01 WHERE bunji1=%s AND bunji2=%s"),
+        ("bd05_suri", "DELETE FROM bd05_suri WHERE bunji1=%s AND bunji2=%s"),
+        ("bd07_out", "DELETE FROM bd07_out WHERE bunji1=%s AND bunji2=%s"),
+        ("jungsan_adjustment", "DELETE FROM jungsan_adjustment WHERE bunji1=%s AND bunji2=%s"),
+        ("jungsan_det", "DELETE FROM jungsan_det WHERE bunji1=%s AND bunji2=%s"),
+        ("jungsan_m", "DELETE FROM jungsan_m WHERE bunji1=%s AND bunji2=%s"),
+        ("sjungke01", "DELETE FROM sjungke01 WHERE bunji1=%s AND bunji2=%s"),
+        ("bd03_terms_hist", "DELETE FROM bd03_terms_hist WHERE bunji1=%s AND bunji2=%s"),
+        ("bd03_det", "DELETE FROM bd03_det WHERE bunji1=%s AND bunji2=%s"),
+        ("bd03_m", "DELETE FROM bd03_m WHERE bunji1=%s AND bunji2=%s"),
+        ("sawon_building", "DELETE FROM sawon_building WHERE bunji1=%s AND bunji2=%s"),
+        ("building_access", "DELETE FROM building_access WHERE bunji1=%s AND bunji2=%s"),
+        ("sukum_import_exclude", "DELETE FROM sukum_import_exclude WHERE bunji1=%s AND bunji2=%s"),
+        ("sukum_import_match", "DELETE FROM sukum_import_match WHERE bunji1=%s AND bunji2=%s"),
+        ("bd01", "DELETE FROM bd01 WHERE bunji1=%s AND bunji2=%s"),
+    ]
+    deleted = {}
+    conn = db.get_conn()
+    try:
+        conn.autocommit(False)
+        with conn.cursor() as cur:
+            for table, sql in steps:
+                if table != "bd01" and not _table_exists(table):
+                    continue
+                cur.execute(sql, (bunji1, bunji2))
+                deleted[table] = int(cur.rowcount or 0)
+            if deleted.get("bd01", 0) <= 0:
+                raise RuntimeError("건물을 찾지 못했습니다.")
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.autocommit(True)
+        except Exception:
+            pass
+        conn.close()
+    return deleted
 
 
 @app.route("/building/<bunji1>/<bunji2>/room/<hosu>/delete", methods=["POST"])
@@ -1501,3 +1642,63 @@ def building_edit(bunji1, bunji2):
         orig_js=_building_orig_for_js(orig),
         **_building_selects(),
     )
+
+@app.route("/building/<bunji1>/<bunji2>/delete", methods=["POST"])
+@login_required
+@require_write_access
+def building_delete(bunji1, bunji2):
+    """건물 연쇄 삭제. 경고 확인 + 접속자 비밀번호 재확인 후에만 실행."""
+    bunji1 = _pad_bunji(bunji1)
+    bunji2 = _pad_bunji(bunji2)
+    b = db.query_one(
+        "SELECT bunji1, bunji2, juso FROM bd01 WHERE bunji1=%s AND bunji2=%s",
+        (bunji1, bunji2),
+    )
+    if not b:
+        flash("삭제할 건물을 찾을 수 없습니다.", "err")
+        return redirect(url_for("buildings"))
+
+    confirm_name = (request.form.get("confirm_name") or "").strip()
+    password = request.form.get("password") or ""
+    expected_name = (b.get("juso") or "").strip() or fmt_bunji_pair(bunji1, bunji2)
+    # 건물명(또는 번지)을 그대로 입력했는지 — 실수 방지용 추가 게이트
+    if confirm_name != expected_name:
+        flash("건물명이 일치하지 않습니다. 삭제하려면 경고창의 건물명을 그대로 입력하세요.", "err")
+        return redirect(url_for("building_detail", bunji1=bunji1, bunji2=bunji2))
+    if not _session_password_ok(password):
+        flash("비밀번호가 올바르지 않습니다. 건물을 삭제하지 않았습니다.", "err")
+        return redirect(url_for("building_detail", bunji1=bunji1, bunji2=bunji2))
+
+    try:
+        deleted = _cascade_delete_building(bunji1, bunji2)
+        invalidate_building_cache(cache, bunji1, bunji2)
+        try:
+            from logs_handler import log_security_event
+            log_security_event(
+                "building_cascade_delete",
+                user_id=session.get("sabun"),
+                ip_address=request.remote_addr,
+                details=f"Deleted building {bunji1}-{bunji2} ({expected_name}) counts={deleted}",
+            )
+        except Exception:
+            pass
+        parts = []
+        label = {
+            "bd03_m": "호수",
+            "bd03_det": "세입자이력",
+            "sukum01": "수금",
+            "bd05_suri": "수리",
+            "bd07_out": "퇴실",
+            "jungsan_m": "정산",
+            "sjungke01": "중개",
+        }
+        for k, lab in label.items():
+            n = deleted.get(k) or 0
+            if n:
+                parts.append(f"{lab} {n}")
+        extra = (" / " + ", ".join(parts)) if parts else ""
+        flash(f"건물 «{expected_name}» 및 연관 데이터를 삭제했습니다.{extra}", "ok")
+    except Exception as e:
+        flash(f"건물 삭제 실패: {e}", "err")
+        return redirect(url_for("building_detail", bunji1=bunji1, bunji2=bunji2))
+    return redirect(url_for("buildings"))

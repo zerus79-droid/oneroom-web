@@ -172,6 +172,8 @@
       <button type="submit">{% if mode=='new' %}등록{% else %}수정 저장{% endif %}</button>
       {% if mode=='edit' %}
       <a class="btn secondary" href="{{ url_for('building_detail', bunji1=form.bunji1, bunji2=form.bunji2) }}">취소</a>
+      <a class="btn" href="{{ url_for('building_detail', bunji1=form.bunji1, bunji2=form.bunji2, delete=1) }}"
+         style="background:#c0392b;border-color:#c0392b;margin-left:auto">삭제…</a>
       {% else %}
       <a class="btn secondary" href="{{ url_for('buildings') }}">취소</a>
       {% endif %}
