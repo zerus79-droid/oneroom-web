@@ -276,6 +276,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
       <button type="submit" class="btn" form="apply-form">일괄반영</button>
     </div>
     <form method="post" id="exclude-quick-form" action="{{ url_for('payments_import_exclude') }}" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="exclude_add">
       <input type="hidden" name="token" value="{{ token }}">
       <input type="hidden" name="keyword" id="exclude-quick-keyword">
@@ -283,6 +284,7 @@ details.addr-pick-side[open] > .addr-pick-panel .ls-select {
       <input type="hidden" name="bunji2" value="{{ bunji2 }}">
     </form>
     <form method="post" id="apply-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="apply">
       <input type="hidden" name="token" value="{{ token }}">
       <div class="panel-table-wrap table-scroll">

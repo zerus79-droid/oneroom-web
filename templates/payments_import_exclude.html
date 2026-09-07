@@ -7,6 +7,7 @@
   </div>
   <div class="legacy-sukum-body xp-form">
     <form method="post" class="filter-bar" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="{{ 'exclude_edit' if edit else 'exclude_add' }}">
       {% if edit %}<input type="hidden" name="keyword_id" value="{{ edit.id }}">{% endif %}
       <input type="hidden" name="bunji1" id="ex_bunji1" value="{{ edit.bunji1 if edit else '' }}">
@@ -96,6 +97,7 @@
               <a class="btn secondary" href="{{ url_for('payments_import_exclude', edit_id=kw.id, q=q or none) }}"
                  style="min-height:auto;height:auto;padding:2px 8px;">수정</a>
               <form method="post" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="action" value="exclude_del">
                 <input type="hidden" name="keyword_id" value="{{ kw.id }}">
                 <button type="submit" class="btn secondary" style="min-height:auto;height:auto;padding:2px 8px;">삭제</button>
