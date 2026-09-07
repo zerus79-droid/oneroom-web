@@ -654,25 +654,28 @@ def _add_months_clamped(d, months):
 
 
 def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
-                                rent_amt=0, manage_amt=0):
+                                rent_amt=0, manage_amt=0, *, terms_rows=None):
     """입주일~퇴실일(양끝 포함)의 임대료+관리비를 계약월+30일 일할로 계산한다."""
     if isinstance(ipju_dt, datetime): ipju_dt = ipju_dt.date()
     if isinstance(end_dt, datetime): end_dt = end_dt.date()
     if not ipju_dt or not end_dt or end_dt < ipju_dt:
         return 0
-    try:
-        ensure_contract_terms_history()
-        rows = db.query(
-            """SELECT effective_dt,rent_amt,manage_amt FROM bd03_terms_hist
-               WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-                 AND effective_dt <= %s
-               ORDER BY effective_dt,hist_id""",
-            (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
-        )
-    except Exception as e:
-        import logging
-        logging.warning(f"[Contract Period] 계약 이력 조회 실패: {e}")
-        rows = []
+    if terms_rows is not None:
+        rows = terms_rows
+    else:
+        try:
+            ensure_contract_terms_history()
+            rows = db.query(
+                """SELECT effective_dt,rent_amt,manage_amt FROM bd03_terms_hist
+                   WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
+                     AND effective_dt <= %s
+                   ORDER BY effective_dt,hist_id""",
+                (bunji1, bunji2, (hosu or "").strip().upper(), str(ipju_seq or "").zfill(2), end_dt),
+            )
+        except Exception as e:
+            import logging
+            logging.warning(f"[Contract Period] 계약 이력 조회 실패: {e}")
+            rows = []
     terms = [(ipju_dt, to_int_amt(rent_amt), to_int_amt(manage_amt))]
     for r in rows or []:
         eff = r.get("effective_dt")
@@ -683,26 +686,45 @@ def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
             terms.append((eff, to_int_amt(r.get("rent_amt")), to_int_amt(r.get("manage_amt"))))
     terms.sort(key=lambda x: x[0])
     total = Fraction(0, 1)
-    idx = 0
-    day = ipju_dt
     end_exclusive = end_dt + timedelta(days=1)
-    # 퇴실일 당일도 거주·청구 기간에 포함한다.
-    while day <= end_dt:
-        while idx + 1 < len(terms) and terms[idx + 1][0] <= day:
-            idx += 1
-        mdiff = (day.year - ipju_dt.year) * 12 + day.month - ipju_dt.month
+
+    def _rate_on(day):
+        i = 0
+        while i + 1 < len(terms) and terms[i + 1][0] <= day:
+            i += 1
+        return int(terms[i][1] + terms[i][2])
+
+    # O(개월): 계약 주기 단위로 합산. (일 단위 루프는 장기 세입자에서 초단위로 느려짐)
+    mdiff = 0
+    while True:
         cycle_start = _add_months_clamped(ipju_dt, mdiff)
-        if cycle_start > day:
-            mdiff -= 1
-            cycle_start = _add_months_clamped(ipju_dt, mdiff)
+        if cycle_start > end_dt:
+            break
         cycle_end = _add_months_clamped(ipju_dt, mdiff + 1)
         cycle_days = max(1, (cycle_end - cycle_start).days)
-        monthly = Decimal(terms[idx][1] + terms[idx][2])
-        # 완전한 계약 주기는 달력 일수와 무관하게 월액 1회분이다.
-        # 마지막 불완전 주기만 XP와 기존 장부의 30일 일할 규칙을 적용한다.
-        divisor = cycle_days if cycle_end <= end_exclusive else 30
-        total += Fraction(int(monthly), divisor)
-        day += timedelta(days=1)
+        # 주기 안에 요금 변경이 있으면 그 주기만 일 단위로 정확히 합산
+        mid_changes = [
+            t[0] for t in terms[1:]
+            if cycle_start < t[0] < min(cycle_end, end_exclusive)
+        ]
+        if not mid_changes:
+            monthly = _rate_on(cycle_start)
+            if cycle_end <= end_exclusive:
+                total += Fraction(int(monthly), 1)
+            else:
+                occ_days = (end_dt - cycle_start).days + 1
+                total += Fraction(int(monthly) * max(0, occ_days), 30)
+            mdiff += 1
+            continue
+        day = cycle_start
+        last = min(cycle_end, end_exclusive)
+        while day < last and day <= end_dt:
+            monthly = _rate_on(day)
+            divisor = cycle_days if cycle_end <= end_exclusive else 30
+            total += Fraction(int(monthly), divisor)
+            day += timedelta(days=1)
+        mdiff += 1
+
     # 분수로 누적해 28·31일 주기에서 부동소수점 오차로 월액이 100원
     # 초과되는 일을 막고, 기존 표시 단위(100원 올림)는 유지한다.
     return ((total.numerator + total.denominator * 100 - 1)
@@ -724,7 +746,8 @@ def fmt_ipju_short(v):
 
 
 def calc_misu_amt(
-    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None
+    bunji1, bunji2, hosu, ipju_seq, rent_amt=None, manage_amt=None, ipju_dt=None, as_of=None,
+    *, paid=None, terms_rows=None,
 ):
     """전월미수총액(누적 추정).
     입주일~as_of(기본 오늘)까지의 청구총액(과거 임대료·관리비 변경 이력을
@@ -732,6 +755,8 @@ def calc_misu_amt(
     − 실입금(su_sil_amt) 합계.
     대체는 집주인 대납이라 세입자 미수에서 빼지 않음.
     음수(선수금)면 0.
+
+    paid / terms_rows 를 넘기면 배치 조회 결과를 재사용해 N+1 쿼리를 줄인다.
 
     수정 이력: 예전엔 (현재 월세+관리비) × 경과월수로 계산해서, 옛날에 임대료가
     더 쌌던 오래된 세입자는 실제보다 낮게(또는 0으로) 나오는 버그가 있었음
@@ -751,27 +776,31 @@ def calc_misu_amt(
         expected = calc_contract_period_charge(
             bunji1, bunji2, hosu, ipju_seq, start_d, end_d,
             rent_amt=rent_amt, manage_amt=manage_amt,
+            terms_rows=terms_rows,
         )
     else:
         # 입주일 정보가 없으면(예외 상황) 기존 방식으로 대체 계산.
         months = months_elapsed(ipju_dt, as_of)
         expected = monthly * months
-    sql = """
-        SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
-        FROM sukum01
-        WHERE bunji1=%s AND bunji2=%s
-          AND hosu_norm=%s AND ipju_seq=%s
-          AND sukum_char='01'
-          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-    """
-    args = [bunji1, bunji2, (hosu or "").strip().upper(), ipju_seq]
-    if as_of is not None:
-        if isinstance(as_of, datetime):
-            as_of = as_of.date()
-        sql += " AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
-        args.append(as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10])
-    paid_row = db.query_one(sql, args)
-    paid = to_int_amt((paid_row or {}).get("paid"))
+    if paid is None:
+        sql = """
+            SELECT COALESCE(SUM(COALESCE(su_sil_amt,0)), 0) AS paid
+            FROM sukum01
+            WHERE bunji1=%s AND bunji2=%s
+              AND hosu_norm=%s AND ipju_seq=%s
+              AND sukum_char='01'
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+        """
+        args = [bunji1, bunji2, (hosu or "").strip().upper(), ipju_seq]
+        if as_of is not None:
+            if isinstance(as_of, datetime):
+                as_of = as_of.date()
+            sql += " AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)"
+            args.append(as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10])
+        paid_row = db.query_one(sql, args)
+        paid = to_int_amt((paid_row or {}).get("paid"))
+    else:
+        paid = to_int_amt(paid)
     return max(0, expected - paid)
 
 
