@@ -416,8 +416,8 @@ def _paginate_pay_items(payments, has_day_amt):
     한 페이지에 몇 줄이 들어가는지는 인쇄 CSS(7pt, 줄간격 1.22, 칸 헤더 포함)로
     실제 렌더링해 픽셀 단위로 측정한 값을 바탕으로 계산한다(여유를 두어 넘치지
     않는 쪽으로 보수적으로 잡음). 반환값: [[col1, col2, col3], [col1, col2, col3], ...]
-    페이지마다 3칸으로 고르게 나뉘고, 마지막 항목이 일할계산 행이면
-    {"is_day_amt": True} 로 표시해 템플릿에서 따로 렌더링한다.
+    왼쪽 칸부터 rows_per_col줄까지 채운 뒤 다음 칸으로 넘긴다.
+    마지막 항목이 일할계산 행이면 {"is_day_amt": True} 로 표시해 템플릿에서 따로 렌더링한다.
     """
     items = list(payments)
     if has_day_amt:
@@ -441,11 +441,13 @@ def _paginate_pay_items(payments, has_day_amt):
     pages = []
     for start in range(0, len(items), per_page):
         page_items = items[start:start + per_page]
-        col_n = 3
-        row_n = (len(page_items) + col_n - 1) // col_n
-        cols = [page_items[i * row_n:(i + 1) * row_n] for i in range(col_n)]
-        # 짧은 칸은 빈 줄로 채워 세 칸 높이를 맞춤 → 칸 구분선을 진짜 border로
-        # 그려도(배경 그라디언트 안 씀) 항상 끝까지 이어짐
+        # 왼쪽 → 가운데 → 오른쪽: 칸을 가득 채운 뒤 다음 칸
+        cols = [
+            list(page_items[i * rows_per_col:(i + 1) * rows_per_col])
+            for i in range(3)
+        ]
+        row_n = max((len(c) for c in cols), default=0)
+        # 짧은 칸은 빈 줄로 채워 세 칸 높이를 맞춤 → 칸 구분선이 끝까지 이어짐
         for col in cols:
             col.extend({"is_filler": True} for _ in range(row_n - len(col)))
         pages.append(cols)
