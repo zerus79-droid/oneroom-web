@@ -271,6 +271,143 @@ def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s, *, pay_ma
     )
 
 
+
+
+def _month_sukum_breakdown_map_all(month_start, month_end_s):
+    """전체 건물 당월 수금 {(b1,b2): {(hosu,seq): {char:{sil,dache}}}}."""
+    ms = month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start)
+    rows = db.query(
+        """
+        SELECT bunji1, bunji2, hosu_norm AS hosu, ipju_seq, sukum_char,
+               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil,
+               COALESCE(SUM(COALESCE(su_dache_amt,0)),0) AS dache
+          FROM sukum01
+         WHERE (del_yn IS NULL OR del_yn='N' OR del_yn='')
+           AND sukum_dt >= %s AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+         GROUP BY bunji1, bunji2, hosu_norm, ipju_seq, sukum_char
+        """,
+        (ms, month_end_s),
+        apply_building_access=False,
+    ) or []
+    out = {}
+    for row in rows:
+        bkey = (row.get("bunji1"), row.get("bunji2"))
+        tkey = (_hosu_key(row.get("hosu")), _seq_key(row.get("ipju_seq")))
+        char = str(row.get("sukum_char") or "").strip().zfill(2)
+        out.setdefault(bkey, {}).setdefault(tkey, {})[char] = {
+            "sil": _to_int_amt(row.get("sil")),
+            "dache": _to_int_amt(row.get("dache")),
+        }
+    return out
+
+
+def _lifetime_sil01_map_all(as_of):
+    """전체 건물 누적 월세실입 {(b1,b2): {(hosu,seq): paid}}."""
+    as_of_s = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10]
+    rows = db.query(
+        """
+        SELECT bunji1, bunji2, hosu_norm AS hosu, ipju_seq,
+               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS paid
+          FROM sukum01
+         WHERE sukum_char='01'
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+           AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+         GROUP BY bunji1, bunji2, hosu_norm, ipju_seq
+        """,
+        (as_of_s,),
+        apply_building_access=False,
+    ) or []
+    out = {}
+    for r in rows:
+        bkey = (r.get("bunji1"), r.get("bunji2"))
+        tkey = (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq")))
+        out.setdefault(bkey, {})[tkey] = _to_int_amt(r.get("paid"))
+    return out
+
+
+def _terms_hist_map_all(as_of):
+    as_of_s = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10]
+    try:
+        rows = db.query(
+            """
+            SELECT bunji1, bunji2, hosu, ipju_seq, effective_dt, rent_amt, manage_amt
+              FROM bd03_terms_hist
+             WHERE effective_dt <= %s
+             ORDER BY bunji1, bunji2, effective_dt, hist_id
+            """,
+            (as_of_s,),
+            apply_building_access=False,
+        ) or []
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        bkey = (r.get("bunji1"), r.get("bunji2"))
+        tkey = (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq")))
+        out.setdefault(bkey, {}).setdefault(tkey, []).append(r)
+    return out
+
+
+def _jungsan_month_tenants_all(month_start, month_end):
+    """전체 건물 당월 거주자 {(b1,b2): [tenant rows]}."""
+    rows = db.query(
+        """
+        SELECT m.bunji1, m.bunji2, m.hosu, d.ipju_seq, d.ipju_nm, d.ipju_dt, d.out_dt,
+               d.bojung_amt, d.yechi_amt, d.rent_amt, d.manage_amt, d.napbu_gb
+          FROM bd03_m m
+          LEFT JOIN bd03_det d
+            ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
+           AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
+           AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='')
+           AND d.ipju_dt IS NOT NULL
+           AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+           AND (d.out_dt IS NULL OR d.out_dt < '1000-01-01' OR d.out_dt >= %s)
+         ORDER BY m.bunji1, m.bunji2, m.hosu, d.ipju_dt
+        """,
+        (month_end.isoformat(), month_start.isoformat()),
+        apply_building_access=False,
+    ) or []
+    out = {}
+    for r in rows:
+        out.setdefault((r.get("bunji1"), r.get("bunji2")), []).append(r)
+    return out
+
+
+def _month_cost_maps(month_start, month_end_s):
+    """수리·중개 건물별 합 {(b1,b2): amt}."""
+    ms = month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start)
+    suri = {}
+    jungke = {}
+    try:
+        for r in db.query(
+            """
+            SELECT bunji1, bunji2, COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
+              FROM bd05_suri
+             WHERE suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+             GROUP BY bunji1, bunji2
+            """,
+            (ms, month_end_s),
+            apply_building_access=False,
+        ) or []:
+            suri[(r.get("bunji1"), r.get("bunji2"))] = _to_int_amt(r.get("a"))
+    except Exception:
+        pass
+    try:
+        for r in db.query(
+            """
+            SELECT bunji1, bunji2, COALESCE(SUM(COALESCE(jungke_amt,0)),0) AS a
+              FROM sjungke01
+             WHERE jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+             GROUP BY bunji1, bunji2
+            """,
+            (ms, month_end_s),
+            apply_building_access=False,
+        ) or []:
+            jungke[(r.get("bunji1"), r.get("bunji2"))] = _to_int_amt(r.get("a"))
+    except Exception:
+        pass
+    return suri, jungke
+
 def _jungsan_month_tenants(b1, b2, month_start, month_end):
     return db.query("""SELECT m.hosu,d.ipju_seq,d.ipju_nm,d.ipju_dt,d.out_dt,d.bojung_amt,d.yechi_amt,d.rent_amt,d.manage_amt,d.napbu_gb FROM bd03_m m LEFT JOIN bd03_det d ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu)) AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='') AND d.ipju_dt IS NOT NULL AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY) AND (d.out_dt IS NULL OR d.out_dt < '1000-01-01' OR d.out_dt >= %s) WHERE m.bunji1=%s AND m.bunji2=%s ORDER BY m.hosu,d.ipju_dt""", (month_end.isoformat(),month_start.isoformat(),b1,b2))
 

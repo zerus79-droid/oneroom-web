@@ -380,7 +380,7 @@ def _jungsan_decorate_rows(rows):
     return rows
 
 
-def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
+def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=None):
     """
     주소별 정산서 조회 미리보기 (화면 표시용).
     저장된 jungsan 이 있으면 그 데이터, 없으면 현재 호·입주·수금으로 계산.
@@ -395,16 +395,20 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
     as_of_s = as_of.isoformat()
     month_end_s = month_end.isoformat()
 
-    _ensure_g_cost_cols()
-    building = db.query_one(
-        """
-        SELECT bunji1, bunji2, juso, owner_nm, first_amt, man_cost, mgmt_gb, sukum_acct_gb,
-               sukum_bojung_acct_gb, sukum_rent_acct_gb, sukum_manage_acct_gb,
-               stair_cost, inet_cost, option_cost
-        FROM bd01 WHERE bunji1=%s AND bunji2=%s
-        """,
-        (b1, b2),
-    )
+    preload = preload or {}
+    if not preload.get("skip_ensure_cols"):
+        _ensure_g_cost_cols()
+    building = preload.get("building")
+    if not building:
+        building = db.query_one(
+            """
+            SELECT bunji1, bunji2, juso, owner_nm, first_amt, man_cost, mgmt_gb, sukum_acct_gb,
+                   sukum_bojung_acct_gb, sukum_rent_acct_gb, sukum_manage_acct_gb,
+                   stair_cost, inet_cost, option_cost
+            FROM bd01 WHERE bunji1=%s AND bunji2=%s
+            """,
+            (b1, b2),
+        )
     if not building:
         return {"error": "미등록 주소입니다.", "building": None}
 
@@ -416,20 +420,23 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
     manager_account = _is_item_manager_account(building, "rent")
 
     # 저장된 정산서 (기준일 또는 그 달 말일)
-    saved = db.query_one(
-        """
-        SELECT * FROM jungsan_m
-        WHERE bunji1=%s AND bunji2=%s
-          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-          AND (
-            DATE(jungsan_dt)=%s
-            OR (jungsan_dt >= %s AND jungsan_dt < DATE_ADD(%s, INTERVAL 1 DAY))
-          )
-        ORDER BY jungsan_dt DESC, jungsan_seq DESC
-        LIMIT 1
-        """,
-        (b1, b2, as_of_s, month_start.isoformat(), month_end_s),
-    )
+    if preload.get("skip_saved"):
+        saved = None
+    else:
+        saved = db.query_one(
+            """
+            SELECT * FROM jungsan_m
+            WHERE bunji1=%s AND bunji2=%s
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+              AND (
+                DATE(jungsan_dt)=%s
+                OR (jungsan_dt >= %s AND jungsan_dt < DATE_ADD(%s, INTERVAL 1 DAY))
+              )
+            ORDER BY jungsan_dt DESC, jungsan_seq DESC
+            LIMIT 1
+            """,
+            (b1, b2, as_of_s, month_start.isoformat(), month_end_s),
+        )
 
     source = "live"
     rows = []
@@ -564,11 +571,19 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
         }
     else:
         # 라이브: 호수 + 당월 거주자(현재 입주 · 당월 퇴실)
-        rooms = _jungsan_month_tenants(b1, b2, month_start, month_end)
-        # N+1 제거: 당월 수금·누적실입·계약이력을 건물 단위로 한 번에 로드
-        pay_map = _month_sukum_breakdown_map(b1, b2, month_start, month_end_s)
-        paid_map = _lifetime_sil01_map(b1, b2, as_of)
-        terms_map = _terms_hist_map(b1, b2, as_of)
+        rooms = preload.get("rooms")
+        if rooms is None:
+            rooms = _jungsan_month_tenants(b1, b2, month_start, month_end)
+        # N+1 제거: 당월 수금·누적실입·계약이력을 건물 단위(또는 목록 사전적재)로 로드
+        pay_map = preload.get("pay_map")
+        if pay_map is None:
+            pay_map = _month_sukum_breakdown_map(b1, b2, month_start, month_end_s)
+        paid_map = preload.get("paid_map")
+        if paid_map is None:
+            paid_map = _lifetime_sil01_map(b1, b2, as_of)
+        terms_map = preload.get("terms_map")
+        if terms_map is None:
+            terms_map = _terms_hist_map(b1, b2, as_of)
         sum_bojung = sum_rent = sum_manage = sum_ipkum = sum_misu = 0
         tenant_cnt = 0
         for m in rooms:
@@ -639,7 +654,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
             )
             exit_misu = None
             if out_d and month_start <= out_d <= month_end:
-                exit_misu = _exit_settlement_misu(b1, b2, hosu, seq, m, out_d)
+                if not list_mode:
+                    exit_misu = _exit_settlement_misu(b1, b2, hosu, seq, m, out_d)
                 if exit_misu is not None or out_adj_exists:
                     # 누적 미수는 표시하지 않고 당월 퇴실정산 수금(종류 06)만 표시한다.
                     ipkum = _to_int_amt(out_adj_amt) if out_adj_exists else 0
@@ -704,27 +720,31 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
             sum_ipkum += ipkum
             sum_misu += misu
 
-        suri = db.query_one(
-            """
-            SELECT COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
-            FROM bd05_suri
-            WHERE bunji1=%s AND bunji2=%s
-              AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-            """,
-            (b1, b2, month_start.isoformat(), month_end_s),
-        )
-        jungke = db.query_one(
-            """
-            SELECT COALESCE(SUM(COALESCE(jungke_amt,0)),0) AS a
-            FROM sjungke01
-            WHERE bunji1=%s AND bunji2=%s
-              AND jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-            """,
-            (b1, b2, month_start.isoformat(), month_end_s),
-        )
+        if "owner_suri" in preload and "jungke_cost" in preload:
+            owner_suri = _to_int_amt(preload.get("owner_suri"))
+            jungke_cost = _to_int_amt(preload.get("jungke_cost"))
+        else:
+            suri = db.query_one(
+                """
+                SELECT COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
+                FROM bd05_suri
+                WHERE bunji1=%s AND bunji2=%s
+                  AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+                """,
+                (b1, b2, month_start.isoformat(), month_end_s),
+            )
+            jungke = db.query_one(
+                """
+                SELECT COALESCE(SUM(COALESCE(jungke_amt,0)),0) AS a
+                FROM sjungke01
+                WHERE bunji1=%s AND bunji2=%s
+                  AND jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+                """,
+                (b1, b2, month_start.isoformat(), month_end_s),
+            )
+            owner_suri = _to_int_amt((suri or {}).get("a"))
+            jungke_cost = _to_int_amt((jungke or {}).get("a"))
         man_cost = _to_int_amt(building.get("man_cost"))
-        owner_suri = _to_int_amt((suri or {}).get("a"))
-        jungke_cost = _to_int_amt((jungke or {}).get("a"))
         # 지급액은 아래 공통 구간에서 월세분으로 다시 계산.
         dache_sum = sum(_to_int_amt(r.get("dache_amt")) for r in rows)
         claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
@@ -879,7 +899,14 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False):
             }
         )
 
-    _apply_month_adjustments(rows, b1, b2, month_start)
+    if not (list_mode and (preload or {}).get("skip_adjustments")):
+        _apply_month_adjustments(rows, b1, b2, month_start)
+    else:
+        for r in rows:
+            r.setdefault("adjustment_items", [])
+            r.setdefault("adjustment_amt", 0)
+            r.setdefault("company_comp_amt", 0)
+            r.setdefault("company_pay_amt", 0)
     ipkum_sum = sum(_to_int_amt(r.get("ipkum_amt")) for r in rows)
     dache_sum = sum(
         _to_int_amt(r.get("dache_amt"))
@@ -1084,8 +1111,10 @@ from jungsan_engine import (
     _jungsan_out_settle_amt, _month_bounds, _prorate_amt,
     _rent_ipkum_for_pay, _valid_out_dt, _month_sukum_sil_dache,
     _month_sukum_breakdown, _month_sukum_breakdown_map,
-    _lifetime_sil01_map, _terms_hist_map, _hosu_key, _seq_key,
-    _month_out_adjustment, _jungsan_month_tenants,
+    _month_sukum_breakdown_map_all, _lifetime_sil01_map, _lifetime_sil01_map_all,
+    _terms_hist_map, _terms_hist_map_all, _hosu_key, _seq_key,
+    _month_out_adjustment, _jungsan_month_tenants, _jungsan_month_tenants_all,
+    _month_cost_maps,
 )
 
 
@@ -1566,6 +1595,19 @@ def jungsan_list():
         for r in saved_rows or []:
             saved_by[(r.get("bunji1"), r.get("bunji2"))] = r
 
+        # 미저장 건물이 있으면 전체 건물 데이터를 몇 번 쿼리로 미리 적재 (N+1 제거)
+        need_live = any(
+            (b.get("bunji1"), b.get("bunji2")) not in saved_by for b in (buildings or [])
+        )
+        tenants_all = pay_all = paid_all = terms_all = {}
+        suri_all = jungke_all = {}
+        if need_live:
+            tenants_all = _jungsan_month_tenants_all(month_start, month_end)
+            pay_all = _month_sukum_breakdown_map_all(month_start, month_end.isoformat())
+            paid_all = _lifetime_sil01_map_all(month_end)
+            terms_all = _terms_hist_map_all(month_end)
+            suri_all, jungke_all = _month_cost_maps(month_start, month_end.isoformat())
+
         for b in buildings or []:
             key = (b.get("bunji1"), b.get("bunji2"))
             r = saved_by.get(key)
@@ -1613,7 +1655,22 @@ def jungsan_list():
                 )
                 continue
             live = _jungsan_build_preview(
-                b.get("bunji1"), b.get("bunji2"), month_end.isoformat(), list_mode=True
+                b.get("bunji1"),
+                b.get("bunji2"),
+                month_end.isoformat(),
+                list_mode=True,
+                preload={
+                    "building": b,
+                    "skip_ensure_cols": True,
+                    "skip_saved": True,
+                    "rooms": tenants_all.get(key) or [],
+                    "pay_map": pay_all.get(key) or {},
+                    "paid_map": paid_all.get(key) or {},
+                    "terms_map": terms_all.get(key) or {},
+                    "owner_suri": suri_all.get(key, 0),
+                    "jungke_cost": jungke_all.get(key, 0),
+                    "skip_adjustments": True,
+                },
             )
             s = (live or {}).get("summary") or {}
             pay = _to_int_amt(s.get("pay_amt"))
