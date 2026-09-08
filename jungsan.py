@@ -581,10 +581,10 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
         pay_map = preload.get("pay_map")
         if pay_map is None:
             pay_map = _month_sukum_breakdown_map(b1, b2, month_start, month_end_s)
-        # 월정산 미수는 달력월·실입 기준 (occupancy cycle calc_misu_amt 사용 안 함)
-        sil_months_map = preload.get("sil_months_map")
-        if sil_months_map is None:
-            sil_months_map = _sil01_paid_months_map(b1, b2, as_of)
+        # 월정산 미수는 금액 running balance (occupancy cycle calc_misu_amt 사용 안 함)
+        sil_paid_map = preload.get("sil_paid_map")
+        if sil_paid_map is None:
+            sil_paid_map = _lifetime_sil01_map(b1, b2, as_of)
         terms_map = preload.get("terms_map")
         if terms_map is None:
             terms_map = _terms_hist_map(b1, b2, as_of)
@@ -657,7 +657,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 m.get("ipju_dt"),
                 as_of,
                 m.get("napbu_gb") or "B",
-                paid_months=sil_months_map.get(tk) or set(),
+                paid_sil=sil_paid_map.get(tk) or 0,
             )
             exit_misu = None
             if out_d and month_start <= out_d <= month_end:
@@ -1155,7 +1155,7 @@ from jungsan_engine import (
     _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell, _jungsan_month_rent_split,
     _jungsan_out_settle_amt, _month_bounds, _prorate_amt,
     _rent_ipkum_for_pay, _cap_dache_to_rent_shortfall,
-    _jungsan_calendar_misu_amt, _sil01_paid_months_map, _sil01_paid_months_map_all,
+    _jungsan_calendar_misu_amt, _lifetime_sil01_map, _lifetime_sil01_map_all,
     _valid_out_dt, _month_sukum_sil_dache,
     _month_sukum_breakdown, _month_sukum_breakdown_map,
     _month_sukum_breakdown_map_all,
@@ -1670,14 +1670,14 @@ def jungsan_list():
             for b in page_buildings
             if (b.get("bunji1"), b.get("bunji2")) not in saved_by
         ]
-        tenants_all = pay_all = sil_months_all = terms_all = {}
+        tenants_all = pay_all = sil_paid_all = terms_all = {}
         suri_all = jungke_all = {}
         if live_keys:
             tenants_all = _jungsan_month_tenants_all(month_start, month_end, keys=live_keys)
             pay_all = _month_sukum_breakdown_map_all(
                 month_start, month_end.isoformat(), keys=live_keys
             )
-            sil_months_all = _sil01_paid_months_map_all(month_end, keys=live_keys)
+            sil_paid_all = _lifetime_sil01_map_all(month_end, keys=live_keys)
             terms_all = _terms_hist_map_all(month_end, keys=live_keys)
             suri_all, jungke_all = _month_cost_maps(
                 month_start, month_end.isoformat(), keys=live_keys
@@ -1739,7 +1739,7 @@ def jungsan_list():
                     "skip_saved": True,
                     "rooms": tenants_all.get(key) or [],
                     "pay_map": pay_all.get(key) or {},
-                    "sil_months_map": sil_months_all.get(key) or {},
+                    "sil_paid_map": sil_paid_all.get(key) or {},
                     "terms_map": terms_all.get(key) or {},
                     "owner_suri": suri_all.get(key, 0),
                     "jungke_cost": jungke_all.get(key, 0),

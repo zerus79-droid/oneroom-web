@@ -95,15 +95,15 @@ def _jungsan_calendar_misu_amt(
     as_of,
     napbu_gb="B",
     *,
-    paid_months=None,
+    paid_sil=0,
 ):
-    """월정산 라이브 미수: 달력월 + 이월. (occupancy cycle 미사용)
+    """월정산 라이브 미수: 금액 running balance. (occupancy cycle 미사용)
 
-    - 선불(A): 입주월~기준월 매월 청구
-    - 후불(B): 입주 다음달~기준월 매월 청구 (입주월은 청구 시작 전)
-    - 해당 달력월에 01 실입금이 하루라도 있으면 그 달 청구는 미수 아님
-    - 이전 달 미수는 그대로 이월
-    - 대체(dache)는 미수를 지우지 않음 (실입만 인정)
+    - 선불(A): 입주월~기준월 inclusive 청구개월
+    - 후불(B): 입주 다음달~기준월 inclusive
+    - due = monthly * n_due (monthly = rent_amt + manage_amt, 현재 계약 금액)
+    - paid_sil = as_of까지 01 su_sil_amt 합 (대체 dache는 미수에서 차감 안 함)
+    - misu = max(0, due - paid_sil)
     """
     monthly = _to_int_amt(rent_amt) + _to_int_amt(manage_amt)
     if monthly <= 0:
@@ -112,20 +112,15 @@ def _jungsan_calendar_misu_amt(
     end = _as_date(as_of)
     if not start or not end or end < start:
         return 0
-    paid = paid_months if paid_months is not None else set()
     first = (start.year, start.month)
     last = (end.year, end.month)
     if str(napbu_gb or "B").strip().upper() != "A":
         first = _shift_month(first, 1)
     if first > last:
         return 0
-    misu = 0
-    cur = first
-    while cur <= last:
-        if cur not in paid:
-            misu += monthly
-        cur = _shift_month(cur, 1)
-    return misu
+    n_due = (last[0] - first[0]) * 12 + (last[1] - first[1]) + 1
+    due = monthly * n_due
+    return max(0, due - _to_int_amt(paid_sil))
 
 
 def _sil01_paid_months_map(b1, b2, as_of):
