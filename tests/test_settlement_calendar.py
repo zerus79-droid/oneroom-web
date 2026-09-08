@@ -199,29 +199,48 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
         self.assertEqual(_cap_dache_to_rent_shortfall(300000, 300000, 50000), 0)
 
     def test_calendar_misu_ignores_dache_and_carries(self):
-        # 후불: 입주월 제외. 3·4월 실입, 5월 미납 → 5월분만 미수
-        paid = {(2026, 3), (2026, 4)}
+        # 후불: 입주월 제외 → 3·4·5월 3개월 due. paid_sil=500k(2개월분) → 5월분 미수
+        # dache는 paid_sil에 포함되지 않음
         misu = _jungsan_calendar_misu_amt(
             250000, 0, date(2026, 2, 10), date(2026, 5, 31), "B",
-            paid_months=paid,
+            paid_sil=500000,
         )
         self.assertEqual(misu, 250000)
 
     def test_calendar_misu_prepaid_includes_move_in_month(self):
-        paid = {(2026, 2), (2026, 3)}
+        # 선불: 2·3·4월 3개월 due, paid_sil=500k → 4월분 미수 250k
         misu = _jungsan_calendar_misu_amt(
             200000, 50000, date(2026, 2, 5), date(2026, 4, 30), "A",
-            paid_months=paid,
+            paid_sil=500000,
         )
-        # 2·3월 실입, 4월 미납 → 250k
         self.assertEqual(misu, 250000)
 
-    def test_calendar_misu_any_sil_clears_month(self):
-        # 소액 실입만 있어도 그 달 미수 아님 (대체는 paid_months에 안 들어옴)
-        paid = {(2026, 4)}
+    def test_calendar_misu_amount_running_balance(self):
+        # 후불: 2 months due, paid_sil=250000 once → misu=250000
         misu = _jungsan_calendar_misu_amt(
+            250000, 0, date(2026, 2, 1), date(2026, 4, 30), "B",
+            paid_sil=250000,
+        )
+        self.assertEqual(misu, 250000)
+        # 한 달에 2개월분을 넣어도 금액으로 차감 (달력월 이진 clear 아님)
+        misu2 = _jungsan_calendar_misu_amt(
+            250000, 0, date(2026, 2, 1), date(2026, 4, 30), "B",
+            paid_sil=500000,
+        )
+        self.assertEqual(misu2, 0)
+        # 부분 실입은 잔액 미수
+        misu3 = _jungsan_calendar_misu_amt(
             250000, 0, date(2026, 3, 1), date(2026, 4, 30), "B",
-            paid_months=paid,
+            paid_sil=100000,
+        )
+        self.assertEqual(misu3, 150000)
+
+    def test_calendar_misu_b04_fully_paid(self):
+        # B04-style: 25 due months × 250k - 6,250,000 sil → 0
+        # 후불: 입주 2024-07 → 청구 2024-08 ~ 2026-08 = 25개월
+        misu = _jungsan_calendar_misu_amt(
+            250000, 0, date(2024, 7, 1), date(2026, 8, 31), "B",
+            paid_sil=6250000,
         )
         self.assertEqual(misu, 0)
 
