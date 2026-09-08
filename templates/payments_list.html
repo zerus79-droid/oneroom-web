@@ -44,8 +44,10 @@
     </thead>
     <tbody>
       {% for p in payments %}
-      <tr>
-        <td class="tc">
+      <tr class="click-row"
+          title="클릭: 수정"
+          onclick="location.href='{{ url_for('payment_new', bunji1=p.bunji1, bunji2=p.bunji2, hosu=p.hosu, ipju_seq=p.ipju_seq, sukum_dt=p.sukum_dt|fmt_date, sukum_seq=p.sukum_seq, edit=1) }}'">
+        <td class="tc" onclick="event.stopPropagation()">
           <input type="checkbox" class="pay-del-check"
                  data-sukum-dt="{{ p.sukum_dt|fmt_date }}"
                  data-sukum-seq="{{ p.sukum_seq }}"
