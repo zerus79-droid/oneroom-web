@@ -661,6 +661,78 @@
     }
     bindMoneyInputs();
 
+    // 번지·일자: 금액처럼 입력 중 숫자만 유지 (호수는 문자 허용 — 제외)
+    // KEEP: 이 블록을 지우거나 우회하지 말 것. 여러 번 빠졌던 UX — base.html 수정 시 유지.
+    function scrubDigitsOnly(el, allowHyphen) {
+      if (!el) return;
+      var raw = String(el.value || '');
+      if (allowHyphen && (raw.indexOf('-') >= 0 || raw.indexOf('－') >= 0)) return;
+      var max = parseInt(el.getAttribute('maxlength'), 10);
+      if (!max || max < 1) {
+        if (el.classList && el.classList.contains('dp-y')) max = 4;
+        else if (el.classList && (el.classList.contains('dp-m') || el.classList.contains('dp-d'))) max = 2;
+        else max = 4;
+      }
+      var digits = raw.replace(/\D/g, '').slice(0, max);
+      if (digits === raw) return;
+      var start = el.selectionStart;
+      var oldLen = raw.length;
+      el.value = digits;
+      var newLen = digits.length;
+      if (typeof start === 'number') {
+        var pos = start + (newLen - oldLen);
+        if (pos < 0) pos = 0;
+        try { el.setSelectionRange(pos, pos); } catch (e) {}
+      }
+    }
+    function bindDigitsOnlyInputs(scope) {
+      var root = scope || document;
+      var nodes = [];
+      root.querySelectorAll(
+        'input[name="bunji1"],input[name="bunji2"],input[name="q_bunji1"],input[name="q_bunji2"],' +
+        '#bunji1,#bunji2,#q_bunji1,#q_bunji2,input.bunji1-input,input.bunji2-input,' +
+        'input.dp-y,input.dp-m,input.dp-d'
+      ).forEach(function (el) { nodes.push(el); });
+      nodes.forEach(function (el) {
+        if (!el || el._digitsOnlyBound) return;
+        el._digitsOnlyBound = true;
+        el.setAttribute('inputmode', 'numeric');
+        var allowHyphen = !!(typeof isBunjiInput === 'function' && isBunjiInput(el));
+        el.addEventListener('keydown', function (e) {
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
+          if (e.key === 'Process' || e.isComposing) return;
+          if (e.key.length !== 1) return;
+          if (/\d/.test(e.key)) return;
+          if (allowHyphen && (e.key === '-' || e.key === '－')) return;
+          e.preventDefault();
+        });
+        el.addEventListener('beforeinput', function (e) {
+          if (e.isComposing) return;
+          if (!e.data) return;
+          if (allowHyphen && (e.data === '-' || e.data === '－')) return;
+          if (/^\d+$/.test(e.data)) return;
+          if (e.inputType && e.inputType.indexOf('insert') === 0) {
+            e.preventDefault();
+            var only = String(e.data).replace(/\D/g, '');
+            if (!only) return;
+            var max = parseInt(el.getAttribute('maxlength'), 10) || 4;
+            var start = el.selectionStart || 0;
+            var end = el.selectionEnd || 0;
+            var cur = String(el.value || '');
+            var next = (cur.slice(0, start) + only + cur.slice(end)).replace(/\D/g, '').slice(0, max);
+            el.value = next;
+            var pos = Math.min(start + only.length, next.length);
+            try { el.setSelectionRange(pos, pos); } catch (err) {}
+            try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (err2) {}
+          }
+        });
+        el.addEventListener('input', function () { scrubDigitsOnly(el, allowHyphen); });
+        el.addEventListener('compositionend', function () { scrubDigitsOnly(el, allowHyphen); });
+        scrubDigitsOnly(el, allowHyphen);
+      });
+    }
+    bindDigitsOnlyInputs();
+
     (function bindBunji1ChangeClearsBunji2() {
       function digitsOf(el) {
         return String(el && el.value != null ? el.value : '').replace(/\D/g, '');
@@ -871,6 +943,7 @@
       });
       document.querySelectorAll('.date-parts').forEach(bindDateParts);
       bindMoneyInputs();
+      bindDigitsOnlyInputs();
       if (window.rebindBunjiClear) window.rebindBunjiClear();
       if (window.rebindAddressGate) window.rebindAddressGate();
       if (window.ensureCsrfTokens) window.ensureCsrfTokens();
