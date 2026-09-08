@@ -71,6 +71,123 @@ def _rent_ipkum_for_pay(sil_amt, dache_amt, rent_calc):
     return min(paid, rent)
 
 
+def _cap_dache_to_rent_shortfall(rent_due, sil_amt, dache_amt):
+    """대체는 당월 월세 부족분(rent_due - sil)까지만. 관리비까지 넣어도 월세를 넘지 않음."""
+    rent = _to_int_amt(rent_due)
+    sil = _to_int_amt(sil_amt)
+    raw = _to_int_amt(dache_amt)
+    if raw <= 0:
+        return 0
+    return min(raw, max(0, rent - sil))
+
+
+def _shift_month(year_month, delta):
+    """(year, month) 튜플을 delta개월 이동."""
+    y, m = year_month
+    idx = y * 12 + (m - 1) + delta
+    return idx // 12, idx % 12 + 1
+
+
+def _jungsan_calendar_misu_amt(
+    rent_amt,
+    manage_amt,
+    ipju_dt,
+    as_of,
+    napbu_gb="B",
+    *,
+    paid_months=None,
+):
+    """월정산 라이브 미수: 달력월 + 이월. (occupancy cycle 미사용)
+
+    - 선불(A): 입주월~기준월 매월 청구
+    - 후불(B): 입주 다음달~기준월 매월 청구 (입주월은 청구 시작 전)
+    - 해당 달력월에 01 실입금이 하루라도 있으면 그 달 청구는 미수 아님
+    - 이전 달 미수는 그대로 이월
+    - 대체(dache)는 미수를 지우지 않음 (실입만 인정)
+    """
+    monthly = _to_int_amt(rent_amt) + _to_int_amt(manage_amt)
+    if monthly <= 0:
+        return 0
+    start = _as_date(ipju_dt)
+    end = _as_date(as_of)
+    if not start or not end or end < start:
+        return 0
+    paid = paid_months if paid_months is not None else set()
+    first = (start.year, start.month)
+    last = (end.year, end.month)
+    if str(napbu_gb or "B").strip().upper() != "A":
+        first = _shift_month(first, 1)
+    if first > last:
+        return 0
+    misu = 0
+    cur = first
+    while cur <= last:
+        if cur not in paid:
+            misu += monthly
+        cur = _shift_month(cur, 1)
+    return misu
+
+
+def _sil01_paid_months_map(b1, b2, as_of):
+    """{(hosu, seq): set((y, m), ...)} — 01 실입금이 있는 달력월."""
+    if hasattr(as_of, "isoformat"):
+        as_of_s = as_of.isoformat()
+    else:
+        as_of_s = str(as_of)[:10]
+    rows = db.query(
+        """
+        SELECT hosu_norm AS hosu, ipju_seq,
+               YEAR(sukum_dt) AS yy, MONTH(sukum_dt) AS mm,
+               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil
+          FROM sukum01
+         WHERE bunji1=%s AND bunji2=%s
+           AND sukum_char='01'
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+           AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+         GROUP BY hosu_norm, ipju_seq, YEAR(sukum_dt), MONTH(sukum_dt)
+        """,
+        (b1, b2, as_of_s),
+    ) or []
+    out = {}
+    for r in rows:
+        if _to_int_amt(r.get("sil")) <= 0:
+            continue
+        key = (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq")))
+        out.setdefault(key, set()).add((int(r.get("yy")), int(r.get("mm"))))
+    return out
+
+
+def _sil01_paid_months_map_all(as_of, keys=None):
+    """건물별 sil01 실입 달력월 {(b1,b2): {(hosu,seq): set((y,m))}}."""
+    as_of_s = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)[:10]
+    ksql, kargs = _bunji_keys_sql(keys)
+    rows = db.query(
+        f"""
+        SELECT bunji1, bunji2, hosu_norm AS hosu, ipju_seq,
+               YEAR(sukum_dt) AS yy, MONTH(sukum_dt) AS mm,
+               COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS sil
+          FROM sukum01
+         WHERE sukum_char='01'
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+           AND sukum_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+           {ksql}
+         GROUP BY bunji1, bunji2, hosu_norm, ipju_seq, YEAR(sukum_dt), MONTH(sukum_dt)
+        """,
+        (as_of_s, *kargs),
+        apply_building_access=False,
+    ) or []
+    out = {}
+    for r in rows:
+        if _to_int_amt(r.get("sil")) <= 0:
+            continue
+        bkey = (r.get("bunji1"), r.get("bunji2"))
+        tkey = (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq")))
+        out.setdefault(bkey, {}).setdefault(tkey, set()).add(
+            (int(r.get("yy")), int(r.get("mm")))
+        )
+    return out
+
+
 def _jungsan_month_rent_split(napbu, rent, ipju_dt, out_dt, month_start, month_end):
     rent = _to_int_amt(rent)
     out_d = _valid_out_dt(out_dt)
