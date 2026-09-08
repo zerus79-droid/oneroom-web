@@ -156,10 +156,10 @@
         <div class="ls-val">
           <input type="text" name="common_item" value="{{ c.item_nm or '' }}" maxlength="40" placeholder="항목명" class="ls-box" autocomplete="off">
         </div>
+        <label class="ls-lab">금액</label>
         <div class="ls-val">
-          <input type="text" name="common_amt" value="{{ c.cost_amt|money }}" inputmode="numeric" placeholder="금액" class="money-input ls-money-in" autocomplete="off">
+          <input type="text" name="common_amt" value="{{ c.cost_amt|money }}" inputmode="numeric" placeholder="예: 50,000" class="money-input ls-money-in" autocomplete="off">
         </div>
-        <div class="ls-val"></div>
       </div>
       {% endfor %}
       <div class="ls-row js-common-row">
@@ -167,10 +167,10 @@
         <div class="ls-val">
           <input type="text" name="common_item" value="" maxlength="40" placeholder="항목명" class="ls-box" autocomplete="off">
         </div>
+        <label class="ls-lab">금액</label>
         <div class="ls-val">
-          <input type="text" name="common_amt" value="" inputmode="numeric" placeholder="금액" class="money-input ls-money-in" autocomplete="off">
+          <input type="text" name="common_amt" value="" inputmode="numeric" placeholder="예: 50,000" class="money-input ls-money-in" autocomplete="off">
         </div>
-        <div class="ls-val"></div>
       </div>
     </div>
 
@@ -208,8 +208,9 @@
     if (!rowFilled(last)) return;
     var clone = last.cloneNode(true);
     clone.querySelectorAll("input").forEach(function (inp) { inp.value = ""; });
-    var lab = clone.querySelector(".ls-lab");
-    if (lab) lab.textContent = "";
+    var labs = clone.querySelectorAll(".ls-lab");
+    if (labs.length) labs[0].textContent = "";
+    if (labs.length > 1) labs[1].textContent = "금액";
     wrap.appendChild(clone);
     if (window.rebindPageWidgets) window.rebindPageWidgets();
   }
