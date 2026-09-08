@@ -3,7 +3,17 @@ from datetime import date
 from unittest.mock import patch
 
 from utils import calc_contract_period_charge, months_elapsed
-from jungsan import _apply_month_adjustments, _is_manager_account, _jungsan_decorate_rows
+from jungsan import (
+    _apply_month_adjustments,
+    _is_manager_account,
+    _is_item_manager_account,
+    _jungsan_decorate_rows,
+)
+from jungsan_engine import (
+    _cap_dache_to_rent_shortfall,
+    _jungsan_calendar_misu_amt,
+    _rent_ipkum_for_pay,
+)
 from building import _normalize_sukum_acct_gb
 from checkout import _checkout_tenant_adjustment_total, _period_mm_dd
 
@@ -168,3 +178,65 @@ class SettlementCalendarTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
+    def test_item_manager_account_uses_per_item_flag(self):
+        b = {
+            "sukum_acct_gb": "O",
+            "sukum_rent_acct_gb": "M",
+            "sukum_bojung_acct_gb": "O",
+            "sukum_manage_acct_gb": "M",
+        }
+        self.assertTrue(_is_item_manager_account(b, "rent"))
+        self.assertFalse(_is_item_manager_account(b, "bojung"))
+        self.assertTrue(_is_item_manager_account(b, "manage"))
+
+    def test_dache_cap_limits_to_rent_shortfall(self):
+        # 월세+관리비를 대체에 넣어도 월세 부족분까지만
+        self.assertEqual(_cap_dache_to_rent_shortfall(300000, 0, 400000), 300000)
+        self.assertEqual(_cap_dache_to_rent_shortfall(300000, 100000, 400000), 200000)
+        self.assertEqual(_cap_dache_to_rent_shortfall(300000, 300000, 50000), 0)
+
+    def test_calendar_misu_ignores_dache_and_carries(self):
+        # 후불: 입주월 제외. 3·4월 실입, 5월 미납 → 5월분만 미수
+        paid = {(2026, 3), (2026, 4)}
+        misu = _jungsan_calendar_misu_amt(
+            250000, 0, date(2026, 2, 10), date(2026, 5, 31), "B",
+            paid_months=paid,
+        )
+        self.assertEqual(misu, 250000)
+
+    def test_calendar_misu_prepaid_includes_move_in_month(self):
+        paid = {(2026, 2), (2026, 3)}
+        misu = _jungsan_calendar_misu_amt(
+            200000, 50000, date(2026, 2, 5), date(2026, 4, 30), "A",
+            paid_months=paid,
+        )
+        # 2·3월 실입, 4월 미납 → 250k
+        self.assertEqual(misu, 250000)
+
+    def test_calendar_misu_any_sil_clears_month(self):
+        # 소액 실입만 있어도 그 달 미수 아님 (대체는 paid_months에 안 들어옴)
+        paid = {(2026, 4)}
+        misu = _jungsan_calendar_misu_amt(
+            250000, 0, date(2026, 3, 1), date(2026, 4, 30), "B",
+            paid_months=paid,
+        )
+        self.assertEqual(misu, 0)
+
+    def test_rent_ipkum_counts_dache_like_sil(self):
+        self.assertEqual(_rent_ipkum_for_pay(100000, 200000, 300000), 300000)
+        self.assertEqual(_rent_ipkum_for_pay(0, 270000, 270000), 270000)
+
+    @patch("jungsan._month_adjustment_map")
+    def test_dache_capped_without_rent_adjustment(self, adjustment_map):
+        adjustment_map.return_value = {}
+        row = {"hosu": "B04", "ipju_seq": "01", "rent_calc": 250000,
+               "rent_amt": 250000, "sil_amt": 0, "dache_amt": 350000,
+               "dache_gb": "대체", "misu_amt": 0, "is_empty": False}
+        _apply_month_adjustments([row], "0001", "0001", date(2026, 8, 1))
+        self.assertEqual(row["dache_amt"], 250000)
+        self.assertEqual(row["dache_gb"], "대체")
+
+
