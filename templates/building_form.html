@@ -169,12 +169,13 @@
       전기료납부: 각세대별(B) / 관리비에 포함(A) · 관리형태와 입금통장 주체는 별도 선택 · 주소는 화면 앞 0 없이, 저장 시 4자리
     </p>
     <div class="ls-actions">
-      <button type="submit">{% if mode=='new' %}등록{% else %}수정 저장{% endif %}</button>
       {% if mode=='edit' %}
-      <a class="btn secondary" href="{{ url_for('building_detail', bunji1=form.bunji1, bunji2=form.bunji2) }}">취소</a>
       <a class="btn" href="{{ url_for('building_detail', bunji1=form.bunji1, bunji2=form.bunji2, delete=1) }}"
-         style="background:#c0392b;border-color:#c0392b;margin-left:auto">삭제…</a>
+         style="background:#c0392b;border-color:#c0392b">삭제…</a>
+      <button type="submit" style="margin-left:auto">수정 저장</button>
+      <a class="btn secondary" href="{{ url_for('building_detail', bunji1=form.bunji1, bunji2=form.bunji2) }}">취소</a>
       {% else %}
+      <button type="submit">등록</button>
       <a class="btn secondary" href="{{ url_for('buildings') }}">취소</a>
       {% endif %}
     </div>
