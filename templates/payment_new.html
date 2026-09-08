@@ -4,11 +4,19 @@
 {# 레거시 「수금 관리」 창 레이아웃에 맞춤 #}
 <div class="legacy-sukum-panel card">
   <div class="legacy-sukum-caption">
-    <span class="caption-title">수금 등록</span>
+    <span class="caption-title">수금 등록{% if form.mode == 'edit' %} (수정){% endif %}</span>
   </div>
   <div class="legacy-sukum-body xp-form">
-  <form method="post" id="payment-form" autocomplete="off" data-skip-addr-check="1">
-    <input type="hidden" name="manage_desc" value="">
+  <form method="post" id="payment-form" autocomplete="off" data-skip-addr-check="1"
+        data-mode="{{ form.mode or 'new' }}">
+    <input type="hidden" name="mode" value="{{ form.mode or 'new' }}">
+    <input type="hidden" name="orig_sukum_dt" value="{{ form.orig_sukum_dt or '' }}">
+    <input type="hidden" name="orig_sukum_seq" value="{{ form.orig_sukum_seq or '' }}">
+    <input type="hidden" name="orig_bunji1" value="{{ form.orig_bunji1 or '' }}">
+    <input type="hidden" name="orig_bunji2" value="{{ form.orig_bunji2 or '' }}">
+    <input type="hidden" name="orig_hosu" value="{{ form.orig_hosu or '' }}">
+    <input type="hidden" name="orig_ipju_seq" value="{{ form.orig_ipju_seq or '' }}">
+    <input type="hidden" name="manage_desc" value="{{ form.manage_desc or '' }}">
 
     {# 레거시 XP 창과 동일한 3열 배치: 수금일자/순번/입주일 → 번지/성명/보증금 → 호수/연락/예치금 → (빈칸)/(빈칸)/월관
        입금파일 등록은 입주일·보증금 오른쪽 2칸 버튼 #}
@@ -248,6 +256,7 @@ window.addEventListener('pageshow', function (e) {
   var seqEl = document.getElementById('ipju_seq');
   var hintEl = document.getElementById('tenant-hint');
   var form = document.getElementById('payment-form');
+  var formMode = (form && form.getAttribute('data-mode')) || 'new';
   var buildingHintEl = document.getElementById('building-hint');
   var looking = false;
   var lastKey = '';
@@ -826,6 +835,17 @@ window.addEventListener('pageshow', function (e) {
       if (hint) {
         hint.textContent = '부족 약 ' + fmtMoneyNum(short) + ' · 기본 0';
         hint.classList.add('text-warn');
+      }
+    } else if (formMode === 'edit') {
+      // 수정 모드: 기존 대체금액 유지, 직접 편집 가능
+      dac.readOnly = false;
+      dac.classList.remove('ls-ro', 'dache-off');
+      dac.placeholder = '0';
+      dac.dataset.wasOff = '0';
+      dac.title = '수정 모드 — 대체금액 직접 입력';
+      if (hint) {
+        hint.textContent = '수정 · 직접 입력';
+        hint.classList.remove('text-warn');
       }
     } else {
       dac.readOnly = true;

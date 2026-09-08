@@ -195,6 +195,7 @@ def payment_new():
 
     arg_b1, arg_b2 = _parse_bunji_src(request.args)
     pre = {
+        "mode": "new",
         "bunji1": arg_b1,
         "bunji2": arg_b2,
         "hosu": (request.args.get("hosu") or "").strip().upper(),
@@ -205,6 +206,13 @@ def payment_new():
         "su_sil_amt": "",
         "su_dache_amt": "",
         "manage_desc": "",
+        "sukum_seq": "",
+        "orig_sukum_dt": "",
+        "orig_sukum_seq": "",
+        "orig_bunji1": "",
+        "orig_bunji2": "",
+        "orig_hosu": "",
+        "orig_ipju_seq": "",
     }
     # form 금액은 템플릿에서 |money 로 표시
 
@@ -234,9 +242,17 @@ def payment_new():
         manage_desc = (request.form.get("manage_desc") or "").strip()
         amount_raw = (request.form.get("su_sil_amt") or "0").replace(",", "").strip()
         dache_raw = (request.form.get("su_dache_amt") or "0").replace(",", "").strip()
+        mode = (request.form.get("mode") or "new").strip()
+        orig_sukum_dt = clamp_date_str((request.form.get("orig_sukum_dt") or "").strip())
+        orig_sukum_seq = (request.form.get("orig_sukum_seq") or "").strip()
+        orig_bunji1 = _pad_bunji(request.form.get("orig_bunji1"))
+        orig_bunji2 = _pad_bunji(request.form.get("orig_bunji2"))
+        orig_hosu = (request.form.get("orig_hosu") or "").strip().upper()
+        orig_ipju_seq = (request.form.get("orig_ipju_seq") or "").strip()
 
         pre.update(
             {
+                "mode": mode if mode in ("new", "edit") else "new",
                 "bunji1": bunji1,
                 "bunji2": bunji2,
                 "hosu": hosu,
@@ -247,6 +263,12 @@ def payment_new():
                 "su_sil_amt": amount_raw,
                 "su_dache_amt": dache_raw,
                 "manage_desc": manage_desc,
+                "orig_sukum_dt": orig_sukum_dt,
+                "orig_sukum_seq": orig_sukum_seq,
+                "orig_bunji1": orig_bunji1,
+                "orig_bunji2": orig_bunji2,
+                "orig_hosu": orig_hosu,
+                "orig_ipju_seq": orig_ipju_seq,
             }
         )
         tenants = _tenants_in_building(bunji1, bunji2)
@@ -265,6 +287,99 @@ def payment_new():
             flash("건물(주소·주소2), 호실, 입주순번, 수금일은 필수입니다.", "err")
             return _render_payment_new(
                 buildings, rooms, chars, gbs, pre, tenants, recent, pager
+            )
+
+        uid = session.get("sabun") or ""
+        is_edit = (
+            mode == "edit"
+            and orig_sukum_dt
+            and orig_sukum_seq
+            and orig_bunji1
+            and orig_bunji2
+            and orig_hosu
+        )
+
+        if is_edit:
+            new_seq = orig_sukum_seq
+            if sukum_dt != orig_sukum_dt or hosu != orig_hosu or bunji1 != orig_bunji1 or bunji2 != orig_bunji2:
+                # 날짜·호실·건물이 바뀌면 같은 순번 충돌 여부 확인 후 필요 시 재할당
+                clash = db.query_one(
+                    """
+                    SELECT sukum_seq FROM sukum01
+                    WHERE sukum_dt >= %s AND sukum_dt < %s + INTERVAL 1 DAY
+                      AND bunji1=%s AND bunji2=%s AND hosu_norm=%s
+                      AND sukum_seq=%s
+                      AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
+                    """,
+                    (
+                        sukum_dt + " 00:00:00",
+                        sukum_dt,
+                        bunji1,
+                        bunji2,
+                        hosu,
+                        orig_sukum_seq,
+                    ),
+                )
+                if clash:
+                    new_seq = _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu)
+            try:
+                n = db.execute(
+                    """
+                    UPDATE sukum01 SET
+                      sukum_dt=%s,
+                      sukum_seq=%s,
+                      bunji1=%s, bunji2=%s, hosu=%s, ipju_seq=%s,
+                      sukum_char=%s, sukum_gb=%s, manage_desc=%s,
+                      su_sil_amt=%s, su_dache_amt=%s,
+                      uid=%s, sys_dt=NOW()
+                    WHERE sukum_dt >= %s AND sukum_dt < %s + INTERVAL 1 DAY
+                      AND sukum_seq=%s
+                      AND bunji1=%s AND bunji2=%s
+                      AND hosu_norm=%s
+                      AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
+                    """,
+                    (
+                        sukum_dt + " 00:00:00",
+                        new_seq,
+                        bunji1,
+                        bunji2,
+                        hosu,
+                        ipju_seq,
+                        sukum_char,
+                        sukum_gb,
+                        manage_desc,
+                        amount,
+                        dache_amt,
+                        uid,
+                        orig_sukum_dt + " 00:00:00",
+                        orig_sukum_dt,
+                        orig_sukum_seq,
+                        orig_bunji1,
+                        orig_bunji2,
+                        orig_hosu,
+                    ),
+                )
+            except Exception as e:
+                flash(f"저장 실패: {e}", "err")
+                return _render_payment_new(
+                    buildings, rooms, chars, gbs, pre, tenants, recent, pager
+                )
+            if not n:
+                flash("수정할 자료를 찾지 못했습니다.", "err")
+                return _render_payment_new(
+                    buildings, rooms, chars, gbs, pre, tenants, recent, pager
+                )
+            flash("수정 저장했습니다.", "ok")
+            return redirect(
+                url_for(
+                    "payments",
+                    bunji1=bunji1,
+                    bunji2=bunji2,
+                    hosu=hosu,
+                    ipju_seq=ipju_seq,
+                    all_hist=1,
+                    include_dache=1,
+                )
             )
 
         # 순번: 같은 날 + 같은 건물·호실만 카운트
@@ -295,7 +410,7 @@ def payment_new():
                     manage_desc,
                     amount,
                     dache_amt,
-                    session.get("sabun") or "",
+                    uid,
                 ),
             )
         except Exception as e:
@@ -315,6 +430,80 @@ def payment_new():
                 ipju_seq=ipju_seq,
             )
         )
+
+    # GET: edit=1 또는 sukum_dt+sukum_seq 있으면 수정 모드로 로드
+    edit_flag = (request.args.get("edit") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "y",
+    )
+    edit_dt = clamp_date_str((request.args.get("sukum_dt") or "").strip())
+    edit_seq = (request.args.get("sukum_seq") or "").strip()
+    if (
+        (edit_flag or (edit_dt and edit_seq))
+        and pre["bunji1"]
+        and pre["bunji2"]
+        and pre["hosu"]
+        and edit_dt
+        and edit_seq
+    ):
+        row = db.query_one(
+            """
+            SELECT sukum_dt, sukum_seq, bunji1, bunji2, hosu, ipju_seq,
+                   sukum_char, sukum_gb, manage_desc, su_sil_amt, su_dache_amt
+            FROM sukum01
+            WHERE sukum_dt >= %s AND sukum_dt < %s + INTERVAL 1 DAY
+              AND sukum_seq=%s
+              AND bunji1=%s AND bunji2=%s
+              AND hosu_norm=%s
+              AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
+            """,
+            (
+                edit_dt + " 00:00:00",
+                edit_dt,
+                edit_seq,
+                _pad_bunji(pre["bunji1"]),
+                _pad_bunji(pre["bunji2"]),
+                pre["hosu"],
+            ),
+        )
+        if row:
+            dt = str(row.get("sukum_dt") or "")[:10]
+            seq = str(row.get("sukum_seq") or "").strip()
+            b1 = row.get("bunji1") or ""
+            b2 = row.get("bunji2") or ""
+            h = (row.get("hosu") or "").strip().upper()
+            iseq = str(row.get("ipju_seq") or "").strip()
+            if iseq.isdigit():
+                iseq = iseq.zfill(2)
+            sil = row.get("su_sil_amt")
+            dac = row.get("su_dache_amt")
+            pre.update(
+                {
+                    "mode": "edit",
+                    "bunji1": b1,
+                    "bunji2": b2,
+                    "hosu": h,
+                    "ipju_seq": iseq,
+                    "sukum_dt": dt,
+                    "sukum_seq": seq,
+                    "sukum_char": str(row.get("sukum_char") or "01").zfill(2),
+                    "sukum_gb": str(row.get("sukum_gb") or "03").zfill(2),
+                    "su_sil_amt": "" if sil is None else str(int(sil)),
+                    "su_dache_amt": "" if dac is None else str(int(dac)),
+                    "manage_desc": row.get("manage_desc") or "",
+                    "orig_sukum_dt": dt,
+                    "orig_sukum_seq": seq,
+                    "orig_bunji1": b1,
+                    "orig_bunji2": b2,
+                    "orig_hosu": h,
+                    "orig_ipju_seq": iseq,
+                }
+            )
+            tenants = _tenants_in_building(b1, b2)
+        else:
+            flash("수정할 수금 내역을 찾지 못했습니다.", "err")
 
     recent, pager = _recent_payments()
     return _render_payment_new(buildings, rooms, chars, gbs, pre, tenants, recent, pager)
