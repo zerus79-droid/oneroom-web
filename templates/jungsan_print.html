@@ -238,6 +238,9 @@
       <div class="blk costs">
         <div><span class="lab">관리수수료</span> <span class="amt">{{ data.summary.man_cost|money }}</span></div>
         <div><span class="lab">수　리　비</span> <span class="amt">{{ data.summary.owner_suri|money }}</span></div>
+        {% for c in data.summary.common_costs or [] %}
+        <div><span class="lab">{{ c.item_nm }}</span> <span class="amt">{{ c.cost_amt|money }}</span></div>
+        {% endfor %}
         <div><span class="lab">중개　보수</span> <span class="amt">{{ data.summary.jungke_cost|money }}</span></div>
         <div class="sum-line"><span class="lab">계</span> <span class="amt">{{ data.summary.cost_sum|money }}</span></div>
       </div>
