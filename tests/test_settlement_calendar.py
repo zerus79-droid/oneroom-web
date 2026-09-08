@@ -193,10 +193,13 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
         self.assertTrue(_is_item_manager_account(b, "manage"))
 
     def test_dache_cap_limits_to_rent_shortfall(self):
-        # 월세+관리비를 대체에 넣어도 월세 부족분까지만
+        # due = 월세+관리비 부족분까지만 (예: 월세 300k+관리 100k = 400k)
+        self.assertEqual(_cap_dache_to_rent_shortfall(400000, 0, 400000), 400000)
+        self.assertEqual(_cap_dache_to_rent_shortfall(400000, 100000, 400000), 300000)
+        self.assertEqual(_cap_dache_to_rent_shortfall(400000, 400000, 50000), 0)
+        # 월세만 due인 경우도 동일 규칙
         self.assertEqual(_cap_dache_to_rent_shortfall(300000, 0, 400000), 300000)
         self.assertEqual(_cap_dache_to_rent_shortfall(300000, 100000, 400000), 200000)
-        self.assertEqual(_cap_dache_to_rent_shortfall(300000, 300000, 50000), 0)
 
     def test_calendar_misu_ignores_dache_and_carries(self):
         # 후불: 입주월 제외 → 3·4·5월 3개월 due. paid_sil=500k(2개월분) → 5월분 미수
@@ -247,16 +250,35 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
     def test_rent_ipkum_counts_dache_like_sil(self):
         self.assertEqual(_rent_ipkum_for_pay(100000, 200000, 300000), 300000)
         self.assertEqual(_rent_ipkum_for_pay(0, 270000, 270000), 270000)
+        # due=월세+관리비(500k): sil+dache를 500k까지
+        self.assertEqual(_rent_ipkum_for_pay(0, 400000, 500000), 400000)
+        self.assertEqual(_rent_ipkum_for_pay(100000, 400000, 500000), 500000)
 
     @patch("jungsan._month_adjustment_map")
     def test_dache_capped_without_rent_adjustment(self, adjustment_map):
         adjustment_map.return_value = {}
         row = {"hosu": "B04", "ipju_seq": "01", "rent_calc": 250000,
-               "rent_amt": 250000, "sil_amt": 0, "dache_amt": 350000,
+               "rent_amt": 250000, "manage_amt": 0, "sil_amt": 0, "dache_amt": 350000,
                "dache_gb": "대체", "misu_amt": 0, "is_empty": False}
         _apply_month_adjustments([row], "0001", "0001", date(2026, 8, 1))
         self.assertEqual(row["dache_amt"], 250000)
         self.assertEqual(row["dache_gb"], "대체")
+
+    @patch("jungsan._month_adjustment_map")
+    def test_dache_cap_includes_manage_amt(self, adjustment_map):
+        """대체 상한 due = 월세+관리비. 예: 300k+100k, sil0 dache400k → 400k."""
+        adjustment_map.return_value = {}
+        row = {"hosu": "302", "ipju_seq": "01", "rent_calc": 300000,
+               "rent_amt": 300000, "manage_amt": 100000, "sil_amt": 0,
+               "dache_amt": 400000, "dache_gb": "대체", "misu_amt": 0, "is_empty": False}
+        _apply_month_adjustments([row], "0001", "0001", date(2026, 8, 1))
+        self.assertEqual(row["dache_amt"], 400000)
+        self.assertEqual(row["dache_gb"], "대체")
+        row2 = {"hosu": "302", "ipju_seq": "01", "rent_calc": 300000,
+                "rent_amt": 300000, "manage_amt": 100000, "sil_amt": 100000,
+                "dache_amt": 400000, "dache_gb": "대체", "misu_amt": 0, "is_empty": False}
+        _apply_month_adjustments([row2], "0001", "0001", date(2026, 8, 1))
+        self.assertEqual(row2["dache_amt"], 300000)
 
     def test_imdae_dache_sums_raw_even_when_gb_cleared(self):
         """실입≥월세로 dache_gb가 비어도 기록된 su_dache_amt(raw)는 임대료대체 합에 포함한다."""

@@ -50,35 +50,38 @@ def _prorate_amt(amt, days, month_days):
     return _ceil_100(amt * days / float(month_days))
 
 
-def _dache_flag(sil_amt, dache_amt, rent_calc=None):
-    sil, dache, rent = _to_int_amt(sil_amt), _to_int_amt(dache_amt), _to_int_amt(rent_calc)
-    if dache <= 0 or (rent > 0 and sil >= rent):
+def _dache_flag(sil_amt, dache_amt, due_amt=None):
+    """대체 표시. due_amt=당월 월세+관리비. 실입이 due 이상이면 대체 해제."""
+    sil, dache, due = _to_int_amt(sil_amt), _to_int_amt(dache_amt), _to_int_amt(due_amt)
+    if dache <= 0 or (due > 0 and sil >= due):
         return ""
     return "대체"
 
 
-def _dache_rent_remain(rent_calc, sil_amt, dache_amt):
-    rent, sil, dache = _to_int_amt(rent_calc), _to_int_amt(sil_amt), _to_int_amt(dache_amt)
-    if rent <= 0 or sil >= rent:
+def _dache_rent_remain(due_amt, sil_amt, dache_amt):
+    """신규 대체 가능액. due_amt=당월 월세+관리비."""
+    due, sil, dache = _to_int_amt(due_amt), _to_int_amt(sil_amt), _to_int_amt(dache_amt)
+    if due <= 0 or sil >= due:
         return 0
-    return max(0, rent - sil - dache)
+    return max(0, due - sil - dache)
 
 
-def _rent_ipkum_for_pay(sil_amt, dache_amt, rent_calc):
-    paid, rent = _to_int_amt(sil_amt) + _to_int_amt(dache_amt), _to_int_amt(rent_calc)
-    if paid <= 0 or rent <= 0:
+def _rent_ipkum_for_pay(sil_amt, dache_amt, due_amt):
+    """실입+대체를 due(월세+관리비)까지만 입금/지급에 반영."""
+    paid, due = _to_int_amt(sil_amt) + _to_int_amt(dache_amt), _to_int_amt(due_amt)
+    if paid <= 0 or due <= 0:
         return 0
-    return min(paid, rent)
+    return min(paid, due)
 
 
-def _cap_dache_to_rent_shortfall(rent_due, sil_amt, dache_amt):
-    """대체는 당월 월세 부족분(rent_due - sil)까지만. 관리비까지 넣어도 월세를 넘지 않음."""
-    rent = _to_int_amt(rent_due)
+def _cap_dache_to_rent_shortfall(due_amt, sil_amt, dache_amt):
+    """대체는 당월 (월세+관리비) 부족분(due - sil)까지만."""
+    due = _to_int_amt(due_amt)
     sil = _to_int_amt(sil_amt)
     raw = _to_int_amt(dache_amt)
     if raw <= 0:
         return 0
-    return min(raw, max(0, rent - sil))
+    return min(raw, max(0, due - sil))
 
 
 def _shift_month(year_month, delta):
