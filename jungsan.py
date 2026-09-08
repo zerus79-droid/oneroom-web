@@ -29,6 +29,12 @@ from utils import (
     table_columns as _table_columns,
     to_int_amt as _to_int_amt,
 )
+from building import (
+    _common_cost_tot as _building_common_cost_tot,
+    _common_costs_map as _building_common_costs_map,
+    _ensure_bd01_common_cost as _ensure_bd01_common_cost,
+    _load_common_costs as _building_load_common_costs,
+)
 
 
 _G_COST_COLS_READY = False
@@ -169,17 +175,12 @@ def _ensure_g_cost_cols():
                WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
         )
     _G_COST_COLS_READY = True
+    _ensure_bd01_common_cost()
 
 
 def _g_extra_costs(building, is_resp):
-    """일반관리 기초관리 추가비용. 책임관리는 0."""
-    if is_resp or not building:
-        return 0, 0, 0
-    return (
-        _to_int_amt(building.get("stair_cost")),
-        _to_int_amt(building.get("inet_cost")),
-        _to_int_amt(building.get("option_cost")),
-    )
+    """레거시 stair/inet/option. 공용비용은 bd01_common_cost 사용."""
+    return 0, 0, 0
 
 
 def _ensure_month_adjustment_table():
@@ -957,13 +958,28 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     else:
         pay_base = ipkum_sum
         summary["ipkum_tot"] = ipkum_sum
-    stair_cost, inet_cost, option_cost = _g_extra_costs(building, is_resp)
-    summary["stair_cost"] = stair_cost
-    summary["inet_cost"] = inet_cost
-    summary["option_cost"] = option_cost
+    if "common_costs" in preload:
+        common_costs = list(preload.get("common_costs") or [])
+    else:
+        _ensure_bd01_common_cost()
+        common_costs = [
+            {
+                "item_nm": c.get("item_nm") or "",
+                "cost_amt": _to_int_amt(c.get("cost_amt")),
+            }
+            for c in _building_load_common_costs(b1, b2)
+            if (c.get("item_nm") or "").strip() and _to_int_amt(c.get("cost_amt")) > 0
+        ]
+    common_cost_tot = _building_common_cost_tot(common_costs)
+    summary["common_costs"] = common_costs
+    summary["common_cost_tot"] = common_cost_tot
+    summary["stair_cost"] = 0
+    summary["inet_cost"] = 0
+    summary["option_cost"] = 0
     cost_sum = (
         _to_int_amt(summary.get("man_cost"))
         + _to_int_amt(summary.get("owner_suri"))
+        + common_cost_tot
         + _to_int_amt(summary.get("jungke_cost"))
     )
     summary["cost_sum"] = cost_sum
@@ -976,6 +992,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 pay_base
                 - _to_int_amt(summary.get("man_cost"))
                 - _to_int_amt(summary.get("owner_suri"))
+                - common_cost_tot
                 - _to_int_amt(summary.get("jungke_cost"))
                 - claim_sum
             )
@@ -1598,6 +1615,8 @@ def jungsan_list():
             buildings.append(b_use)
 
         page_buildings, pager = _paginate(buildings)
+        page_keys = [(b.get("bunji1"), b.get("bunji2")) for b in page_buildings]
+        common_by = _building_common_costs_map(page_keys)
 
         saved_rows = db.query(
             """
@@ -1650,12 +1669,10 @@ def jungsan_list():
                     pay = _to_int_amt(r.get("pay_amt"))
                     pay = (pay // 1000) * 1000
                 else:
-                    stair, inet, option = _g_extra_costs(r, is_resp)
+                    common_tot = _building_common_cost_tot(common_by.get(key) or [])
                     pay = (
                         _to_int_amt(r.get("man_cost"))
-                        + stair
-                        + inet
-                        + option
+                        + common_tot
                         + _to_int_amt(r.get("owner_suri"))
                         + _to_int_amt(r.get("jungke_cost"))
                     )
@@ -1697,6 +1714,7 @@ def jungsan_list():
                     "terms_map": terms_all.get(key) or {},
                     "owner_suri": suri_all.get(key, 0),
                     "jungke_cost": jungke_all.get(key, 0),
+                    "common_costs": common_by.get(key) or [],
                     "skip_adjustments": True,
                 },
             )

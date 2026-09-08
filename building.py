@@ -84,6 +84,14 @@ BANK_OPTIONS = [
 # the compatibility migration lazy, but run it once per worker process.
 _BUILDING_SCHEMA_READY = False
 _BUILDING_SCHEMA_LOCK = Lock()
+_COMMON_COST_TABLE_READY = False
+_COMMON_COST_TABLE_LOCK = Lock()
+
+_LEGACY_COMMON_COST_COLS = (
+    ("stair_cost", "계단청소"),
+    ("inet_cost", "인터넷+유선"),
+    ("option_cost", "옵션비"),
+)
 
 
 def _bank_name_set():
@@ -180,12 +188,15 @@ def _normalize_sukum_acct_gb(value, mgmt_gb="R"):
 def _ensure_g_cost_cols():
     global _BUILDING_SCHEMA_READY
     if _BUILDING_SCHEMA_READY:
+        _ensure_bd01_common_cost()
         return
     with _BUILDING_SCHEMA_LOCK:
         if _BUILDING_SCHEMA_READY:
+            _ensure_bd01_common_cost()
             return
         _ensure_g_cost_cols_once()
         _BUILDING_SCHEMA_READY = True
+    _ensure_bd01_common_cost()
 
 
 def _ensure_g_cost_cols_once():
@@ -232,6 +243,239 @@ def _ensure_g_cost_cols_once():
         )
 
 
+def _ensure_bd01_common_cost():
+    """공용비용 테이블 보장 + 레거시 stair/inet/option 1회 이관."""
+    global _COMMON_COST_TABLE_READY
+    if _COMMON_COST_TABLE_READY:
+        return
+    with _COMMON_COST_TABLE_LOCK:
+        if _COMMON_COST_TABLE_READY:
+            return
+        _ensure_bd01_common_cost_once()
+        _COMMON_COST_TABLE_READY = True
+
+
+def _ensure_bd01_common_cost_once():
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bd01_common_cost (
+          bunji1 CHAR(4) NOT NULL,
+          bunji2 CHAR(4) NOT NULL,
+          cost_seq CHAR(2) NOT NULL,
+          item_nm VARCHAR(40) NOT NULL DEFAULT '',
+          cost_amt DECIMAL(18,0) NOT NULL DEFAULT 0,
+          del_yn CHAR(1) DEFAULT 'N',
+          uid CHAR(5) DEFAULT NULL,
+          sys_dt DATETIME DEFAULT NULL,
+          PRIMARY KEY (bunji1, bunji2, cost_seq)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+    try:
+        rows = db.query(
+            """
+            SELECT bunji1, bunji2, stair_cost, inet_cost, option_cost
+              FROM bd01
+             WHERE COALESCE(stair_cost,0) > 0
+                OR COALESCE(inet_cost,0) > 0
+                OR COALESCE(option_cost,0) > 0
+            """
+        ) or []
+    except Exception:
+        rows = []
+    for b in rows:
+        b1 = _pad_bunji(b.get("bunji1"))
+        b2 = _pad_bunji(b.get("bunji2"))
+        if not b1 or not b2:
+            continue
+        try:
+            exists = db.query_one(
+                """
+                SELECT 1 AS ok FROM bd01_common_cost
+                 WHERE bunji1=%s AND bunji2=%s
+                 LIMIT 1
+                """,
+                (b1, b2),
+            )
+        except Exception:
+            continue
+        if exists:
+            continue
+        seq = 1
+        for col, label in _LEGACY_COMMON_COST_COLS:
+            try:
+                amt = int(b.get(col) or 0)
+            except (TypeError, ValueError):
+                amt = 0
+            if amt <= 0:
+                continue
+            try:
+                db.execute(
+                    """
+                    INSERT INTO bd01_common_cost
+                      (bunji1, bunji2, cost_seq, item_nm, cost_amt, del_yn, uid, sys_dt)
+                    VALUES (%s, %s, %s, %s, %s, 'N', '', NOW())
+                    """,
+                    (b1, b2, f"{seq:02d}", label, amt),
+                )
+                seq += 1
+            except Exception:
+                pass
+
+
+def _migrate_legacy_common_for_building(bunji1, bunji2):
+    """편집 로드 시 해당 건물만 레거시 이관(중복 방지)."""
+    _ensure_bd01_common_cost()
+    b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
+    if not b1 or not b2:
+        return
+    exists = db.query_one(
+        """
+        SELECT 1 AS ok FROM bd01_common_cost
+         WHERE bunji1=%s AND bunji2=%s
+         LIMIT 1
+        """,
+        (b1, b2),
+    )
+    if exists:
+        return
+    b = db.query_one(
+        "SELECT stair_cost, inet_cost, option_cost FROM bd01 WHERE bunji1=%s AND bunji2=%s",
+        (b1, b2),
+    )
+    if not b:
+        return
+    seq = 1
+    for col, label in _LEGACY_COMMON_COST_COLS:
+        try:
+            amt = int(b.get(col) or 0)
+        except (TypeError, ValueError):
+            amt = 0
+        if amt <= 0:
+            continue
+        db.execute(
+            """
+            INSERT INTO bd01_common_cost
+              (bunji1, bunji2, cost_seq, item_nm, cost_amt, del_yn, uid, sys_dt)
+            VALUES (%s, %s, %s, %s, %s, 'N', '', NOW())
+            """,
+            (b1, b2, f"{seq:02d}", label, amt),
+        )
+        seq += 1
+
+
+def _load_common_costs(bunji1, bunji2, *, migrate=True):
+    _ensure_bd01_common_cost()
+    b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
+    if not b1 or not b2:
+        return []
+    if migrate:
+        _migrate_legacy_common_for_building(b1, b2)
+    rows = db.query(
+        """
+        SELECT item_nm, cost_amt, cost_seq
+          FROM bd01_common_cost
+         WHERE bunji1=%s AND bunji2=%s
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+         ORDER BY cost_seq
+        """,
+        (b1, b2),
+    ) or []
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "item_nm": (r.get("item_nm") or "").strip(),
+                "cost_amt": int(r.get("cost_amt") or 0),
+                "cost_seq": r.get("cost_seq"),
+            }
+        )
+    return out
+
+
+def _common_costs_map(keys):
+    """(bunji1,bunji2) -> [{item_nm, cost_amt}, ...] 배치 로드."""
+    _ensure_bd01_common_cost()
+    if not keys:
+        return {}
+    pair_placeholders = ", ".join(["(%s, %s)"] * len(keys))
+    args = [part for key in keys for part in key]
+    rows = db.query(
+        f"""
+        SELECT bunji1, bunji2, item_nm, cost_amt
+          FROM bd01_common_cost
+         WHERE (bunji1, bunji2) IN ({pair_placeholders})
+           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+         ORDER BY bunji1, bunji2, cost_seq
+        """,
+        args,
+    ) or []
+    result = {}
+    for r in rows:
+        key = (_pad_bunji(r.get("bunji1")), _pad_bunji(r.get("bunji2")))
+        result.setdefault(key, []).append(
+            {
+                "item_nm": (r.get("item_nm") or "").strip(),
+                "cost_amt": int(r.get("cost_amt") or 0),
+            }
+        )
+    return result
+
+
+def _common_cost_tot(rows):
+    return sum(int(r.get("cost_amt") or 0) for r in (rows or []))
+
+
+def _parse_common_costs_from_form(form):
+    items = form.getlist("common_item") if hasattr(form, "getlist") else []
+    amts = form.getlist("common_amt") if hasattr(form, "getlist") else []
+    rows = []
+    for i, raw_nm in enumerate(items):
+        nm = (raw_nm or "").strip()
+        raw_amt = amts[i] if i < len(amts) else None
+        amt = _parse_money(raw_amt)
+        if amt is None:
+            amt = 0
+        if not nm:
+            continue
+        if amt <= 0:
+            continue
+        rows.append({"item_nm": nm[:40], "cost_amt": int(amt)})
+    return rows
+
+
+def _rewrite_common_costs(bunji1, bunji2, rows, uid=""):
+    _ensure_bd01_common_cost()
+    b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
+    db.execute(
+        "DELETE FROM bd01_common_cost WHERE bunji1=%s AND bunji2=%s",
+        (b1, b2),
+    )
+    for i, r in enumerate(rows or [], start=1):
+        db.execute(
+            """
+            INSERT INTO bd01_common_cost
+              (bunji1, bunji2, cost_seq, item_nm, cost_amt, del_yn, uid, sys_dt)
+            VALUES (%s, %s, %s, %s, %s, 'N', %s, NOW())
+            """,
+            (
+                b1,
+                b2,
+                f"{i:02d}",
+                (r.get("item_nm") or "")[:40],
+                int(r.get("cost_amt") or 0),
+                (uid or "")[:5],
+            ),
+        )
+
+
+def _common_costs_sig(rows):
+    return [
+        ((r.get("item_nm") or "").strip(), int(r.get("cost_amt") or 0))
+        for r in (rows or [])
+    ]
+
+
 def _extract_building_form_values(form):
     return {
         "bunji1": _pad_bunji(form.get("bunji1")),
@@ -250,9 +494,10 @@ def _extract_building_form_values(form):
         "floor_no": _coerce_building_floor_no(form.get("floor_no")),
         "man_cost": _parse_money(form.get("man_cost")),
         "first_amt": _parse_money(form.get("first_amt")),
-        "stair_cost": _parse_money(form.get("stair_cost")),
-        "inet_cost": _parse_money(form.get("inet_cost")),
-        "option_cost": _parse_money(form.get("option_cost")),
+        # 레거시 컬럼 유지. 의미 있는 값은 bd01_common_cost 로 이전.
+        "stair_cost": 0,
+        "inet_cost": 0,
+        "option_cost": 0,
     }
 
 
@@ -262,12 +507,9 @@ def _building_from_form(form, *, for_insert=False):
         {
             "del_yn": "N",
             "uid": session.get("sabun") or "",
+            "common_costs": _parse_common_costs_from_form(form),
         }
     )
-    if data.get("mgmt_gb") != "G":
-        data["stair_cost"] = 0
-        data["inet_cost"] = 0
-        data["option_cost"] = 0
     return data
 
 
@@ -814,9 +1056,10 @@ def building_new():
         "bank_acc": "",
         "man_cost": "",
         "first_amt": "",
-        "stair_cost": "",
-        "inet_cost": "",
-        "option_cost": "",
+        "stair_cost": 0,
+        "inet_cost": 0,
+        "option_cost": 0,
+        "common_costs": [],
         "elec_gb": "B",
         "mgmt_gb": "R",
         "sukum_acct_gb": "M",
@@ -832,9 +1075,10 @@ def building_new():
                 "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
                 "man_cost": data["man_cost"],
                 "first_amt": data["first_amt"],
-                "stair_cost": data["stair_cost"],
-                "inet_cost": data["inet_cost"],
-                "option_cost": data["option_cost"],
+                "stair_cost": 0,
+                "inet_cost": 0,
+                "option_cost": 0,
+                "common_costs": data.get("common_costs") or [],
             }
         )
         err = _validate_building(data, for_insert=True)
@@ -879,11 +1123,14 @@ def building_new():
                     data["sukum_bojung_acct_gb"],
                     data["sukum_rent_acct_gb"],
                     data["sukum_manage_acct_gb"],
-                    data.get("stair_cost") or 0,
-                    data.get("inet_cost") or 0,
-                    data.get("option_cost") or 0,
+                    0,
+                    0,
+                    0,
                     data["uid"],
                 ),
+            )
+            _rewrite_common_costs(
+                data["bunji1"], data["bunji2"], data.get("common_costs") or [], data["uid"]
             )
             # 캐시 무효화
             invalidate_building_cache(cache, data["bunji1"], data["bunji2"])
@@ -1094,11 +1341,13 @@ def building_detail(bunji1, bunji2):
         })
     floors = sorted(floor_map.items(), key=lambda item: item[0], reverse=True)
     cascade_counts = _building_cascade_counts(bunji1, bunji2)
+    common_costs = _load_common_costs(bunji1, bunji2)
     return render_template(
         "building_detail.html",
         building=b,
         floors=floors,
         cascade_counts=cascade_counts,
+        common_costs=common_costs,
         **_building_selects(),
     )
 
@@ -1329,6 +1578,7 @@ def _cascade_delete_building(bunji1, bunji2):
         ("building_access", "DELETE FROM building_access WHERE bunji1=%s AND bunji2=%s"),
         ("sukum_import_exclude", "DELETE FROM sukum_import_exclude WHERE bunji1=%s AND bunji2=%s"),
         ("sukum_import_match", "DELETE FROM sukum_import_match WHERE bunji1=%s AND bunji2=%s"),
+        ("bd01_common_cost", "DELETE FROM bd01_common_cost WHERE bunji1=%s AND bunji2=%s"),
         ("bd01", "DELETE FROM bd01 WHERE bunji1=%s AND bunji2=%s"),
     ]
     deleted = {}
@@ -1416,9 +1666,10 @@ def _building_form_from_row(b):
         "bank_cd": b.get("bank_cd") or "",
         "man_cost": b.get("man_cost"),
         "first_amt": b.get("first_amt"),
-        "stair_cost": b.get("stair_cost"),
-        "inet_cost": b.get("inet_cost"),
-        "option_cost": b.get("option_cost"),
+        "stair_cost": 0,
+        "inet_cost": 0,
+        "option_cost": 0,
+        "common_costs": _load_common_costs(b.get("bunji1"), b.get("bunji2")),
         "elec_gb": (b.get("elec_gb") or "").strip().upper(),
         "mgmt_gb": _normalize_mgmt_gb(b.get("mgmt_gb")),
         "sukum_acct_gb": _normalize_sukum_acct_gb(b.get("sukum_acct_gb"), b.get("mgmt_gb")),
@@ -1448,9 +1699,13 @@ def _building_orig_for_js(form):
         "sukum_manage_acct_gb": form.get("sukum_manage_acct_gb") or "",
         "first_amt": money(form.get("first_amt")),
         "man_cost": money(form.get("man_cost")),
-        "stair_cost": money(form.get("stair_cost")),
-        "inet_cost": money(form.get("inet_cost")),
-        "option_cost": money(form.get("option_cost")),
+        "common_costs": [
+            {
+                "item_nm": (c.get("item_nm") or "").strip(),
+                "cost_amt": int(c.get("cost_amt") or 0),
+            }
+            for c in (form.get("common_costs") or [])
+        ],
     }
 
 
@@ -1469,14 +1724,11 @@ _BUILDING_CHANGE_FIELDS = (
     ("sukum_manage_acct_gb", "관리비 수금통장"),
     ("first_amt", "최초보증금"),
     ("man_cost", "관리수수료"),
-    ("stair_cost", "계단청소"),
-    ("inet_cost", "인터넷+유선"),
-    ("option_cost", "옵션비"),
 )
 
 
 def _norm_building_val(key, v):
-    if key in ("first_amt", "man_cost", "stair_cost", "inet_cost", "option_cost"):
+    if key in ("first_amt", "man_cost"):
         if v is None or v == "":
             return None
         return int(v)
@@ -1492,7 +1744,7 @@ def _norm_building_val(key, v):
 
 
 def _disp_building_val(key, v):
-    if key in ("first_amt", "man_cost", "stair_cost", "inet_cost", "option_cost"):
+    if key in ("first_amt", "man_cost"):
         return money(v) if v is not None else "빈값"
     if key == "elec_gb":
         return _elec_label(v)
@@ -1509,16 +1761,15 @@ def _disp_building_val(key, v):
 
 def _building_changes(orig, data):
     rows = []
-    orig_g = _normalize_mgmt_gb(orig.get("mgmt_gb")) == "G"
-    data_g = data.get("mgmt_gb") == "G"
-    skip_g_cost = not orig_g and not data_g
     for key, label in _BUILDING_CHANGE_FIELDS:
-        if skip_g_cost and key in ("stair_cost", "inet_cost", "option_cost"):
-            continue
         before = _norm_building_val(key, orig.get(key))
         after = _norm_building_val(key, data.get(key))
         if before != after:
             rows.append((label, _disp_building_val(key, before), _disp_building_val(key, after)))
+    orig_cc = _common_costs_sig(orig.get("common_costs"))
+    data_cc = _common_costs_sig(data.get("common_costs"))
+    if orig_cc != data_cc:
+        rows.append(("공용비용", "변경 전", "변경됨"))
     return rows
 
 
@@ -1554,9 +1805,10 @@ def building_edit(bunji1, bunji2):
                 "floor_no": "" if data["floor_no"] is None else str(data["floor_no"]),
                 "man_cost": data["man_cost"],
                 "first_amt": data["first_amt"],
-                "stair_cost": data["stair_cost"],
-                "inet_cost": data["inet_cost"],
-                "option_cost": data["option_cost"],
+                "stair_cost": 0,
+                "inet_cost": 0,
+                "option_cost": 0,
+                "common_costs": data.get("common_costs") or [],
             }
         )
         err = _validate_building(data, for_insert=False)
@@ -1613,13 +1865,16 @@ def building_edit(bunji1, bunji2):
                     data["sukum_bojung_acct_gb"],
                     data["sukum_rent_acct_gb"],
                     data["sukum_manage_acct_gb"],
-                    data.get("stair_cost") or 0,
-                    data.get("inet_cost") or 0,
-                    data.get("option_cost") or 0,
+                    0,
+                    0,
+                    0,
                     data["uid"],
                     bunji1,
                     bunji2,
                 ),
+            )
+            _rewrite_common_costs(
+                bunji1, bunji2, data.get("common_costs") or [], data["uid"]
             )
             # 캐시 무효화
             invalidate_building_cache(cache, bunji1, bunji2)

@@ -148,20 +148,29 @@
         <input type="text" name="man_cost" value="{{ form.man_cost|money }}" inputmode="numeric" placeholder="예: 250,000" class="money-input ls-money-in">
       </div>
     </div>
-    <div class="ls-row js-g-cost" hidden>
-      <label class="ls-lab">계단청소</label>
-      <div class="ls-val">
-        <input type="text" name="stair_cost" value="{{ form.stair_cost|money }}" inputmode="numeric" placeholder="예: 50,000" class="money-input ls-money-in">
+    <div id="common-cost-wrap">
+      {% set cc_rows = form.common_costs or [] %}
+      {% for c in cc_rows %}
+      <div class="ls-row js-common-row">
+        <label class="ls-lab">{% if loop.first %}공용{% endif %}</label>
+        <div class="ls-val">
+          <input type="text" name="common_item" value="{{ c.item_nm or '' }}" maxlength="40" placeholder="항목명" class="ls-box" autocomplete="off">
+        </div>
+        <div class="ls-val">
+          <input type="text" name="common_amt" value="{{ c.cost_amt|money }}" inputmode="numeric" placeholder="금액" class="money-input ls-money-in" autocomplete="off">
+        </div>
+        <div class="ls-val"></div>
       </div>
-      <label class="ls-lab">인터넷+유선</label>
-      <div class="ls-val">
-        <input type="text" name="inet_cost" value="{{ form.inet_cost|money }}" inputmode="numeric" placeholder="예: 30,000" class="money-input ls-money-in">
-      </div>
-    </div>
-    <div class="ls-row ls-row-span js-g-cost" hidden>
-      <label class="ls-lab">옵션비</label>
-      <div class="ls-val">
-        <input type="text" name="option_cost" value="{{ form.option_cost|money }}" inputmode="numeric" placeholder="예: 20,000" class="money-input ls-money-in">
+      {% endfor %}
+      <div class="ls-row js-common-row">
+        <label class="ls-lab">{% if not cc_rows %}공용{% endif %}</label>
+        <div class="ls-val">
+          <input type="text" name="common_item" value="" maxlength="40" placeholder="항목명" class="ls-box" autocomplete="off">
+        </div>
+        <div class="ls-val">
+          <input type="text" name="common_amt" value="" inputmode="numeric" placeholder="금액" class="money-input ls-money-in" autocomplete="off">
+        </div>
+        <div class="ls-val"></div>
       </div>
     </div>
 
@@ -183,16 +192,33 @@
 </div>
 <script>
 (function () {
-  function syncGCostRows() {
-    var sel = document.querySelector('select[name="mgmt_gb"]');
-    var show = sel && String(sel.value || "").toUpperCase() === "G";
-    document.querySelectorAll(".js-g-cost").forEach(function (row) {
-      row.hidden = !show;
-    });
+  var wrap = document.getElementById("common-cost-wrap");
+  if (!wrap) return;
+  function rowFilled(row) {
+    var item = row.querySelector('input[name="common_item"]');
+    var amt = row.querySelector('input[name="common_amt"]');
+    var hasItem = item && String(item.value || "").trim() !== "";
+    var hasAmt = amt && String(amt.value || "").replace(/,/g, "").trim() !== "";
+    return hasItem || hasAmt;
   }
-  var mgmtSel = document.querySelector('select[name="mgmt_gb"]');
-  if (mgmtSel) mgmtSel.addEventListener("change", syncGCostRows);
-  syncGCostRows();
+  function ensureEmptyRow() {
+    var rows = wrap.querySelectorAll(".js-common-row");
+    if (!rows.length) return;
+    var last = rows[rows.length - 1];
+    if (!rowFilled(last)) return;
+    var clone = last.cloneNode(true);
+    clone.querySelectorAll("input").forEach(function (inp) { inp.value = ""; });
+    var lab = clone.querySelector(".ls-lab");
+    if (lab) lab.textContent = "";
+    wrap.appendChild(clone);
+    if (window.rebindPageWidgets) window.rebindPageWidgets();
+  }
+  wrap.addEventListener("input", function (e) {
+    var t = e.target;
+    if (!t || !t.name) return;
+    if (t.name !== "common_item" && t.name !== "common_amt") return;
+    ensureEmptyRow();
+  });
 })();
 </script>
 
@@ -267,10 +293,7 @@
     { name: "mgmt_gb", label: "관리형태", display: mgmtLabel },
     { name: "sukum_acct_gb", label: "입금통장 주체", display: sukumAcctLabel },
     { name: "first_amt", label: "최초보증금", normalize: moneyNorm, display: moneyDisp },
-    { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp },
-    { name: "stair_cost", label: "계단청소", normalize: moneyNorm, display: moneyDisp },
-    { name: "inet_cost", label: "인터넷+유선", normalize: moneyNorm, display: moneyDisp },
-    { name: "option_cost", label: "옵션비", normalize: moneyNorm, display: moneyDisp }
+    { name: "man_cost", label: "관리수수료", normalize: moneyNorm, display: moneyDisp }
   ];
   function syncDateHidden() {
     var root = document.getElementById("building_dt_parts");
@@ -297,6 +320,24 @@
     var y = normalize ? normalize(b) : String(b == null ? "" : b).trim();
     return x === y;
   }
+  function collectCommon() {
+    var items = form.querySelectorAll('input[name="common_item"]');
+    var amts = form.querySelectorAll('input[name="common_amt"]');
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      var nm = String(items[i].value || "").trim();
+      var amtRaw = String((amts[i] && amts[i].value) || "").replace(/,/g, "").trim();
+      var amt = amtRaw === "" ? 0 : Number(amtRaw);
+      if (!nm || !isFinite(amt) || amt <= 0) continue;
+      out.push({ item_nm: nm, cost_amt: amt });
+    }
+    return out;
+  }
+  function commonSig(list) {
+    return (list || []).map(function (c) {
+      return String(c.item_nm || "").trim() + "|" + String(Number(c.cost_amt || 0));
+    }).join(";");
+  }
   function buildDiff() {
     syncDateHidden();
     var rows = [];
@@ -311,6 +352,9 @@
         after: show(after)
       });
     });
+    if (commonSig(orig.common_costs) !== commonSig(collectCommon())) {
+      rows.push({ label: "공용비용", before: "변경 전", after: "변경됨" });
+    }
     return rows;
   }
   function showConfirm(diff) {
