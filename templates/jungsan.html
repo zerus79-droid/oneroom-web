@@ -107,7 +107,8 @@
     {% if data.summary.claim_tot %}
     <div class="js-item"><span class="js-lab">선불청구</span><span class="js-val">{{ data.summary.claim_tot|money }}</span></div>
     {% endif %}
-    <div class="js-item"><span class="js-lab">임대료대체·입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
+    <div class="js-item"><span class="js-lab">임대료대체</span><span class="js-val">{{ data.summary.imdae_dache|money }}</span></div>
+    <div class="js-item"><span class="js-lab">입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
     <div class="js-item warn"><span class="js-lab">미수 합계</span><span class="js-val">{{ data.summary.misu_tot|money }}</span></div>
     {% if can_dache_edit %}
     <button type="button" class="js-item js-dache-btn no-print" name="dache_mode" value="apply"

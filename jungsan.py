@@ -563,7 +563,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             "manage_tot": _to_int_amt(saved.get("manage_tot")),
             "bojung_tot": _to_int_amt(saved.get("bojung_tot")),
             "misu_tot": _to_int_amt(saved.get("misu_tot")),
-            "imdae_dache": _to_int_amt(saved.get("misu_tot")),  # 인쇄: 임대료대체 ≈ 미수합
+            # 임대료대체는 공통 구간에서 당월 01 su_dache_amt(raw) 전체 합으로 설정
+            "imdae_dache": 0,
             "bojung_dache": 0,
             "rent_manager_account": _is_item_manager_account(building, "rent"),
             "manage_manager_account": _is_item_manager_account(building, "manage"),
@@ -757,7 +758,11 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             jungke_cost = _to_int_amt((jungke or {}).get("a"))
         man_cost = _to_int_amt(building.get("man_cost"))
         # 지급액은 아래 공통 구간에서 월세분으로 다시 계산.
-        dache_sum = sum(_to_int_amt(r.get("dache_amt")) for r in rows)
+        dache_sum = sum(
+            _to_int_amt(r.get("dache_amt_raw", r.get("dache_amt")))
+            for r in rows
+            if not r.get("is_empty")
+        )
         claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
         pay_amt = 0
         summary = {
@@ -920,15 +925,15 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             r.setdefault("company_comp_amt", 0)
             r.setdefault("company_pay_amt", 0)
     ipkum_sum = sum(_to_int_amt(r.get("ipkum_amt")) for r in rows)
+    # 임대료대체 = 당월 월세(01) 기록된 대체액 전체 합 (dache_gb/상한으로 0이 된 행도 raw 포함)
     dache_sum = sum(
-        _to_int_amt(r.get("dache_amt"))
+        _to_int_amt(r.get("dache_amt_raw", r.get("dache_amt")))
         for r in rows
-        if str(r.get("dache_gb") or "").strip()
+        if not r.get("is_empty")
     )
     claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
     summary["claim_tot"] = claim_sum
-    if source != "saved":
-        summary["imdae_dache"] = dache_sum
+    summary["imdae_dache"] = dache_sum
     # 보증금은 건물 계약의 최초 보증금과 현재 계약 보증금의 차이만 대체로 표시한다.
     # 건물주 통장(O)이면 보증금대체를 만들지 않는다.
     if _is_item_manager_account(building, "bojung"):
@@ -945,8 +950,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     # - 관리실(M): bojung_dache = bojung_tot - first_amt (+/-)
     # - 건물주(O): bojung_dache = 0 (최초보증금·총액 정합만, 대체 없음)
     if manager_account:
-        # 당월지급액 산정 베이스: 그 달 대체가 있는 호의 계약 월세만.
-        # 입금액 표시는 실입+대체 임대료분을 유지한다.
+        # 당월지급액: 전 호 실입+대체 임대료분(+관리비실입/보증대체) − 비용.
+        # 입금액 표시도 동일하게 실입+대체 임대료분을 유지한다.
         pay_base = _to_int_amt(summary.get("bojung_dache")) if bojung_manager else 0
         ipkum_display_tot = 0
         for r in rows:
@@ -974,10 +979,10 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             ipkum_display_tot += rent_ipkum
             r["ipkum_amt"] = rent_ipkum
             r["ipkum_disp"] = money(rent_ipkum) if rent_ipkum else ""
-            # 지급액 베이스: 대체 있는 행의 계약 월세(+ 회사부담 월세조정)
-            has_dache = bool(str(r.get("dache_gb") or "").strip()) or dache_amt > 0
-            if has_dache and out_settle_amt is None:
-                pay_base += rent_due + _to_int_amt(r.get("company_pay_amt"))
+            # 지급액 베이스: 대체 유무와 관계없이 전 호의 실입+대체 임대료분
+            if out_settle_amt is None:
+                pay_base += _rent_ipkum_for_pay(sil_amt, dache_amt, rent_due)
+                pay_base += _to_int_amt(r.get("company_pay_amt"))
             # 관리비 통장이 관리실이면 관리비 실입도 지급 경로에 포함 (기존 유지)
             if manage_manager:
                 pay_base += manage_ipkum
