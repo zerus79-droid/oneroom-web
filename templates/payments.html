@@ -972,7 +972,11 @@ function applyToday() {
           fetch('/api/payments/delete', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': (window.getCsrfToken && window.getCsrfToken()) ||
+                ((document.querySelector('meta[name="csrf-token"]') || {}).content || '')
+            },
             body: JSON.stringify({ items: items })
           })
             .then(function (r) { return r.json(); })
