@@ -34,14 +34,21 @@
       right: 0;
       z-index: 10;
       display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 6px;
       align-items: center;
       justify-content: center;
       padding: 10px 12px;
       background: #1e293b;
       color: #f8fafc;
       font-size: 0.9rem;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
     }
     .toolbar button,
     .toolbar a {
@@ -57,7 +64,7 @@
       background: #2563eb;
     }
     .toolbar a.secondary { background: #64748b; }
-    .toolbar .hint { color: #94a3b8; font-size: 0.82rem; }
+    .toolbar .hint { width: 100%; text-align: center; color: #94a3b8; font-size: 0.82rem; }
 
     h1.title {
       text-align: center;
@@ -129,10 +136,12 @@
 </head>
 <body>
   <div class="toolbar">
+    <div class="toolbar-actions">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="secondary" href="{{ url_for('payments_print_excel') }}?{{ request.query_string.decode() }}">엑셀 다운로드</a>
     <a class="secondary" href="{{ url_for('payments', fresh=1) }}"
        onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
+    </div>
     <span class="hint">Ctrl+P · 용지 A4 · 머리글/바닥글 끄면 더 깔끔함</span>
   </div>
 

@@ -19,8 +19,15 @@
     }
     .toolbar {
       position: sticky; top: 0; z-index: 5;
-      display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: center;
+      display: flex; flex-direction: column; gap: 6px;
+      align-items: center; justify-content: center;
       padding: 10px; background: #1e293b; color: #fff;
+    }
+    .toolbar-actions {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: center;
+    }
+    .toolbar .hint {
+      width: 100%; text-align: center; opacity: .75; font-size: .85rem;
     }
     .toolbar button, .toolbar a {
       border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; font-weight: 600;
@@ -163,9 +170,11 @@
 </head>
 <body>
   <div class="toolbar">
+    <div class="toolbar-actions">
     <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
     <a class="sec" href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of) }}" onclick="window.close(); setTimeout(function(){ if (!window.closed) location.href=this.href; }.bind(this), 150); return false;">닫기</a>
-    <span style="opacity:.75;font-size:.85rem">Ctrl+P · PDF로 저장</span>
+    </div>
+    <span class="hint">Ctrl+P · PDF로 저장</span>
   </div>
 
   {% if data.error %}
