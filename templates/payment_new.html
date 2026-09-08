@@ -422,7 +422,27 @@ window.addEventListener('pageshow', function (e) {
   }
 
   function normHosu(h) {
-    return String(h == null ? '' : h).trim().toUpperCase();
+    return String(h == null ? '' : h).replace(/ㅠ/g, 'B').trim().toUpperCase();
+  }
+
+  function resolveHosuAgainstRoomMap(bkey, raw) {
+    var h = String(raw == null ? '' : raw).replace(/ㅠ/g, 'B').replace(/\s+/g, '').trim().toUpperCase();
+    if (!h) return h;
+    if (roomMap[bkey + '|' + h]) return h;
+    if (h.charAt(0) !== 'B') {
+      if (roomMap[bkey + '|B' + h]) return 'B' + h;
+      var d = h.replace(/^0+/, '') || '0';
+      var pad = 'B' + (d.length >= 2 ? d : ('0' + d).slice(-2));
+      if (roomMap[bkey + '|' + pad]) return pad;
+    }
+    if (typeof window.resolveHosuForBuilding === 'function') {
+      var rooms = [];
+      Object.keys(roomMap).forEach(function (k) {
+        if (k.indexOf(bkey + '|') === 0) rooms.push(k.slice(bkey.length + 1));
+      });
+      return window.resolveHosuForBuilding(h, rooms) || h;
+    }
+    return h;
   }
 
   function focusHosu() {
@@ -463,6 +483,8 @@ window.addEventListener('pageshow', function (e) {
     var a = onlyDigits(bunji1El, 4);
     var b = onlyDigits(bunji2El, 4);
     var bkey = pad4(a) + '-' + pad4(b);
+    h = resolveHosuAgainstRoomMap(bkey, h);
+    hosuEl.value = h;
     var key = bkey + '|' + h;
     var display = dispBunji(a) + '-' + dispBunji(b);
 

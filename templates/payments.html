@@ -511,6 +511,27 @@ function applyToday() {
     if (!h) return;
     roomMap[pad4(r.bunji1) + '-' + pad4(r.bunji2) + '|' + h] = true;
   });
+
+  function resolveHosuAgainstRoomMap(bkey, raw) {
+    var h = String(raw == null ? '' : raw).replace(/ㅠ/g, 'B').replace(/\s+/g, '').trim().toUpperCase();
+    if (!h) return h;
+    if (roomMap[bkey + '|' + h]) return h;
+    if (h.charAt(0) !== 'B') {
+      if (roomMap[bkey + '|B' + h]) return 'B' + h;
+      var d = h.replace(/^0+/, '') || '0';
+      var pad = 'B' + (d.length >= 2 ? d : ('0' + d).slice(-2));
+      if (roomMap[bkey + '|' + pad]) return pad;
+    }
+    if (typeof window.resolveHosuForBuilding === 'function') {
+      var rooms = [];
+      Object.keys(roomMap).forEach(function (k) {
+        if (k.indexOf(bkey + '|') === 0) rooms.push(k.slice(bkey.length + 1));
+      });
+      return window.resolveHosuForBuilding(h, rooms) || h;
+    }
+    return h;
+  }
+
   // 건물·호실 휠 데이터만 등록 (조회 화면: 빈 칸을 기본 주소로 채우지 않음)
   if (typeof window.registerBuildingWheelData === 'function') {
     window.registerBuildingWheelData(BUILDINGS, ROOMS);
@@ -708,7 +729,10 @@ function applyToday() {
     if (bres && bres.found === false) return { found: false, reenter: true };
     var a = onlyDigits(b1, 4);
     var b = onlyDigits(b2, 4);
-    var key = pad4(a) + '-' + pad4(b) + '|' + h;
+    var bkey = pad4(a) + '-' + pad4(b);
+    h = resolveHosuAgainstRoomMap(bkey, h);
+    if (hosu) hosu.value = h;
+    var key = bkey + '|' + h;
     var display = dispBunji(a) + '-' + dispBunji(b);
     if (roomMap[key]) {
       lastHosuPopupKey = '';
