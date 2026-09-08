@@ -4,7 +4,7 @@
 화면뿐 아니라 `base.html`의 전역 주소 드롭다운 등 여러 화면이 함께 쓰는
 API라서 화면 파일(`payments.py`/`payment_register.py`)과 분리했습니다.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import jsonify, request, session
 
@@ -185,7 +185,9 @@ def api_current_tenant():
     rent = _to_int_amt(row.get("rent_amt"))
     manage = _to_int_amt(row.get("manage_amt"))
     monthly = rent + manage
-    # 전월미수총액 ≈ 누적 미수
+    # 전월 말일까지 누적 + 금월 미입금 (오늘 기준 calc에 금월을 또 더하면 이중가산)
+    today = date.today()
+    end_prev = today.replace(day=1) - timedelta(days=1)
     prev_misu = _calc_misu_amt(
         bunji1,
         bunji2,
@@ -194,8 +196,8 @@ def api_current_tenant():
         rent_amt=rent,
         manage_amt=manage,
         ipju_dt=row.get("ipju_dt"),
+        as_of=end_prev,
     )
-    # 미수총액 = 이번 달 미입금액
     month_misu = _calc_month_misu_amt(
         bunji1,
         bunji2,
@@ -203,7 +205,9 @@ def api_current_tenant():
         seq,
         rent_amt=rent,
         manage_amt=manage,
+        as_of=today,
     )
+    total_misu = prev_misu + month_misu
     tel = (row.get("ipju_tel1") or row.get("ipju_tel2") or "").strip()
     ipju_dt = row.get("ipju_dt")
     if isinstance(ipju_dt, datetime):
@@ -232,11 +236,11 @@ def api_current_tenant():
             "yechi_amt": _to_int_amt(row.get("yechi_amt")),
             "ipju_dt": ipju_dt_s,
             "ipju_tel": tel,
-            # 미수총액 = 전월 누적 + 금월 미입금 (지금 받을 금액)
-            "misu_amt": prev_misu + month_misu,
-            "misu_display": money(prev_misu + month_misu),
-            "prev_misu_amt": prev_misu + month_misu,
-            "prev_misu_display": money(prev_misu + month_misu),
+            # 미수총액 = 전월말 누적 + 금월 미입금 (지금 받을 금액)
+            "misu_amt": total_misu,
+            "misu_display": money(total_misu),
+            "prev_misu_amt": total_misu,
+            "prev_misu_display": money(total_misu),
             "arrears_amt": prev_misu,
             "month_misu_amt": month_misu,
             "month_misu_display": money(month_misu),
