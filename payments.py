@@ -233,36 +233,12 @@ def _resolve_list_period(
 
 
 def _search_tenants_by_name(name_q, tenant_status):
-    """이름 매칭: 정확 일치 우선 → 접두 → 포함 (+ 현거주/과거 필터)"""
+    """이름 매칭: 포함 전체 반환, 정확→접두→포함 순 정렬 (+ 현거주/과거 필터).
+
+    동명이인·괄호 표기(예: 김나영(주미경))가 정확 일치 티어에 가려지지 않도록
+    LIKE %name% 한 번으로 모은 뒤 매칭 강도순으로 정렬한다.
+    """
     status_sql = _tenant_status_sql(tenant_status, "d")
-    tenants = db.query(
-        f"""
-        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
-               d.ipju_dt, d.out_dt, b.juso
-        FROM bd03_det d
-        LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
-        WHERE TRIM(d.ipju_nm)=%s
-          AND {status_sql}
-        ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-        """,
-        (name_q,),
-    )
-    if tenants:
-        return tenants
-    tenants = db.query(
-        f"""
-        SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
-               d.ipju_dt, d.out_dt, b.juso
-        FROM bd03_det d
-        LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
-        WHERE d.ipju_nm LIKE %s
-          AND {status_sql}
-        ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
-        """,
-        (f"{name_q}%",),
-    )
-    if tenants:
-        return tenants
     return db.query(
         f"""
         SELECT d.bunji1, d.bunji2, d.hosu, d.ipju_seq, d.ipju_nm,
@@ -271,11 +247,16 @@ def _search_tenants_by_name(name_q, tenant_status):
         LEFT JOIN bd01 b ON b.bunji1=d.bunji1 AND b.bunji2=d.bunji2
         WHERE d.ipju_nm LIKE %s
           AND {status_sql}
-        ORDER BY d.bunji1, d.bunji2, d.hosu, d.ipju_seq
+        ORDER BY
+          CASE
+            WHEN TRIM(d.ipju_nm)=%s THEN 0
+            WHEN d.ipju_nm LIKE %s THEN 1
+            ELSE 2
+          END,
+          d.bunji1, d.bunji2, d.hosu, d.ipju_seq
         """,
-        (f"%{name_q}%",),
+        (f"%{name_q}%", name_q, f"{name_q}%"),
     )
-
 
 def _list_room_tenants(bunji1, bunji2, hosu, tenant_status):
     """한 호실의 입주 이력. 과거=퇴실자만, 전체=전원, 현=거주 중."""
