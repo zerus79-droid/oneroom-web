@@ -71,10 +71,7 @@
     </div>
     {% endif %}
     <div class="ls-actions">
-      <button type="button" class="btn" id="building-delete-open"
-              style="background:#c0392b;border-color:#c0392b">삭제</button>
-      <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}"
-         style="margin-left:auto">수정</a>
+      <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}">수정</a>
       <a class="btn secondary" href="{{ url_for('buildings') }}">목록</a>
     </div>
   </div>
@@ -124,11 +121,10 @@
 <script>
 (function () {
   var overlay = document.getElementById('building-delete-overlay');
-  var openBtn = document.getElementById('building-delete-open');
   var cancelBtn = document.getElementById('building-delete-cancel');
   var form = document.getElementById('building-delete-form');
   var expected = {{ confirm_name|tojson }};
-  if (!overlay || !openBtn || !form) return;
+  if (!overlay || !form) return;
   function show() {
     overlay.hidden = false;
     var name = document.getElementById('building-delete-confirm-name');
@@ -137,7 +133,7 @@
     if (pw) pw.value = '';
   }
   function hide() { overlay.hidden = true; }
-  openBtn.addEventListener('click', show);
+  /* 정보 화면엔 삭제 버튼 없음. 수정 화면 「삭제…」→ ?delete=1 로만 연다. */
   if (new URLSearchParams(location.search).get('delete') === '1') show();
   if (cancelBtn) cancelBtn.addEventListener('click', hide);
   overlay.addEventListener('click', function (e) {
