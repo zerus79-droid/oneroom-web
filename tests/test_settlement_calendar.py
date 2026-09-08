@@ -258,4 +258,47 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
         self.assertEqual(row["dache_amt"], 250000)
         self.assertEqual(row["dache_gb"], "대체")
 
+    def test_imdae_dache_sums_raw_even_when_gb_cleared(self):
+        """실입≥월세로 dache_gb가 비어도 기록된 su_dache_amt(raw)는 임대료대체 합에 포함한다."""
+        rows = [
+            {"is_empty": False, "dache_amt": 450000, "dache_amt_raw": 450000, "dache_gb": "대체"},
+            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 300000, "dache_gb": ""},
+            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 280000, "dache_gb": ""},
+            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 250000, "dache_gb": ""},
+            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 200000, "dache_gb": ""},
+            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 200000, "dache_gb": ""},
+            {"is_empty": True, "dache_amt": 0, "dache_amt_raw": 999, "dache_gb": ""},
+        ]
+        old = sum(
+            int(r.get("dache_amt") or 0)
+            for r in rows
+            if str(r.get("dache_gb") or "").strip()
+        )
+        self.assertEqual(old, 450000)
+        imdae = sum(
+            int(r.get("dache_amt_raw", r.get("dache_amt")) or 0)
+            for r in rows
+            if not r.get("is_empty")
+        )
+        self.assertEqual(imdae, 1680000)
+
+    def test_pay_base_uses_rent_ipkum_for_all_rooms(self):
+        """당월지급액 임대료분은 대체 체크와 무관하게 전 호 실입+대체 임대료분."""
+        rooms = [
+            # 순수 대체
+            (0, 450000, 450000),
+            # 실입 완납 (gb 클리어 케이스) — 구로직이면 지급에서 빠짐
+            (300000, 0, 300000),
+            (200000, 50000, 250000),  # 부분 실입+대체
+        ]
+        old_has_dache_only = 0
+        new_all = 0
+        for sil, dache, rent in rooms:
+            put = _rent_ipkum_for_pay(sil, dache, rent)
+            has_dache = dache > 0 and not (rent > 0 and sil >= rent)
+            if has_dache:
+                old_has_dache_only += rent
+            new_all += put
+        self.assertEqual(old_has_dache_only, 450000 + 250000)
+        self.assertEqual(new_all, 450000 + 300000 + 250000)
 
