@@ -71,10 +71,11 @@
     </div>
     {% endif %}
     <div class="ls-actions">
-      <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}">수정</a>
-      <a class="btn secondary" href="{{ url_for('buildings') }}">목록</a>
       <button type="button" class="btn" id="building-delete-open"
-              style="background:#c0392b;border-color:#c0392b;margin-left:auto">삭제</button>
+              style="background:#c0392b;border-color:#c0392b">삭제</button>
+      <a class="btn" href="{{ url_for('building_edit', bunji1=building.bunji1, bunji2=building.bunji2) }}"
+         style="margin-left:auto">수정</a>
+      <a class="btn secondary" href="{{ url_for('buildings') }}">목록</a>
     </div>
   </div>
 </div>
