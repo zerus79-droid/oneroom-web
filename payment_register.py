@@ -323,10 +323,11 @@ def payment_new():
                 if clash:
                     new_seq = _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu)
             try:
+                # 금액/호실만 수정할 때 은행 거래 시각을 자정으로 덮어쓰지 않는다.
                 n = db.execute(
                     """
                     UPDATE sukum01 SET
-                      sukum_dt=%s,
+                      sukum_dt=CASE WHEN DATE(sukum_dt)=%s THEN sukum_dt ELSE %s END,
                       sukum_seq=%s,
                       bunji1=%s, bunji2=%s, hosu=%s, ipju_seq=%s,
                       sukum_char=%s, sukum_gb=%s, manage_desc=%s,
@@ -339,6 +340,7 @@ def payment_new():
                       AND (del_yn IS NULL OR del_yn='' OR del_yn='N')
                     """,
                     (
+                        sukum_dt,
                         sukum_dt + " 00:00:00",
                         new_seq,
                         bunji1,
