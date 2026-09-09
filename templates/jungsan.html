@@ -99,9 +99,6 @@
     {% if not data.is_resp %}
     {% endif %}
     <div class="js-item"><span class="js-lab">수리비</span><span class="js-val">{{ data.summary.owner_suri|money }}</span></div>
-    {% for c in data.summary.common_costs or [] %}
-    <div class="js-item"><span class="js-lab">{{ c.item_nm }}</span><span class="js-val">{{ c.cost_amt|money }}</span></div>
-    {% endfor %}
     <div class="js-item"><span class="js-lab">중개보수</span><span class="js-val">{{ data.summary.jungke_cost|money }}</span></div>
     <div class="js-item highlight"><span class="js-lab">{{ data.summary.pay_label or '당월지급액' }}</span><span class="js-val">{{ data.summary.pay_amt|money }}</span></div>
     {% if data.summary.claim_tot %}

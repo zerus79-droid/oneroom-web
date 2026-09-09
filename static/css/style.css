@@ -305,6 +305,9 @@ tr:hover td {
 .legacy-grid tfoot th.tc {
   text-align: center !important;
 }
+.legacy-grid tfoot th.num {
+  text-align: right !important;
+}
 .table-scroll {
   overflow-x: auto;
   border-radius: 10px;

@@ -167,8 +167,7 @@
           <th>실수금액</th>
           <th>대체금액</th>
           <th>보증/예치</th>
-          <th>임대료</th>
-          <th>관리비</th>
+          <th>임+관</th>
         </tr>
       </thead>
       <tbody>
@@ -181,9 +180,8 @@
           <td>{{ r.ipju_dt|fmt_ipju_short if r.ipju_dt else '' }}</td>
           <td class="num">{{ r.su_sil_amt|money if r.su_sil_amt else '' }}</td>
           <td class="num">{{ r.su_dache_amt|money if r.su_dache_amt else '' }}</td>
-          <td class="num">{% if (r.sukum_char or '')|trim in ('02', '03') %}{% set dep = (r.su_sil_amt or 0) + (r.su_dache_amt or 0) %}{{ dep|money if dep else '' }}{% endif %}</td>
-          <td class="num">{% if (r.sukum_char or '')|trim == '01' %}{{ r.rent_amt|money if r.rent_amt else '' }}{% endif %}</td>
-          <td class="num">{% if (r.sukum_char or '')|trim == '01' %}{{ r.manage_amt|money if r.manage_amt else '' }}{% endif %}</td>
+          <td class="num">{% if r.deposit_disp %}{{ r.deposit_disp|money }}{% endif %}</td>
+          <td class="num">{% if r.rent_manage_disp %}{{ r.rent_manage_disp|money }}{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -194,7 +192,7 @@
           <td class="num">{{ total_sil|money }}</td>
           <td class="num">{{ total_dache|money }}</td>
           <td class="num">{{ total_deposit|money }}</td>
-          <td class="num" colspan="2">{{ (total_rent + total_manage)|money }}</td>
+          <td class="num">{{ total_rent_manage|money }}</td>
         </tr>
       </tfoot>
       {% endif %}

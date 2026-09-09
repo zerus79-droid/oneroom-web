@@ -2,6 +2,14 @@
 
 이 문서는 작업 중인 AI가 바뀌어도 현재 상태와 변경 이유를 빠르게 파악하기 위한 기록이다.
 
+## 2026-09-10: 공용=수리공용, 수금 임+관, 월정산 대체 XP
+
+- **공용**: `bd01_common_cost` 드롭. 마스터는 `bd05_suri` 호수 `공용` + `YEAR=1000`. 월정산/목록에서 그달 말일 행이 없으면 복사. 수리 합·목록은 `YEAR(suri_dt)>1000`.
+- **수금**: 목록·인쇄·엑셀 헤더를 XP처럼. 종류 01은 `rent_manage_disp`=실입+대체 전액. `_split_char01_payment`는 테스트만 남김(화면 미사용).
+- **월정산**: 책임관리 입금액 due=월세. 대체 호 `(대체)`. `imdae_dache = misu_tot`. 대체 버튼 대상은 여전히 월세+관리비 부족분.
+- 검증: `tests.test_settlement_calendar`, `tests.test_payments_print`, 508-88 2018-09 인쇄·2026-08 화면 test client.
+- 남은 정산 이슈는 `docs/TODO.md` (퇴실월 예외, `jungsan_det.manage_amt` 복사 버그, `calc_misu_amt` 과거단가, 일반관리 화면).
+
 ## 2026-09-09: 수금 수정 시 거래 시간 보존
 
 - 대상: `payment_register.py`, `/payments/new` 수정 저장 분기(PR #68 후속 수정).

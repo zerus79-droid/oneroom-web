@@ -3,7 +3,7 @@
 건물 목록·공실 현황 조회, 건물 신규 등록·수정, 호수 신규 등록 라우트와
 그 전용 도우미 함수들을 모아둔 모듈입니다. (기초 내역 관리 메뉴)
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from threading import Lock
 
 from flask import flash, redirect, render_template, request, session, url_for
@@ -84,8 +84,10 @@ BANK_OPTIONS = [
 # the compatibility migration lazy, but run it once per worker process.
 _BUILDING_SCHEMA_READY = False
 _BUILDING_SCHEMA_LOCK = Lock()
-_COMMON_COST_TABLE_READY = False
-_COMMON_COST_TABLE_LOCK = Lock()
+_COMMON_SURI_READY = False
+_COMMON_SURI_LOCK = Lock()
+_COMMON_SURI_HOSU = "공용"
+_COMMON_SURI_TEMPLATE_YEAR = 1000
 
 _LEGACY_COMMON_COST_COLS = (
     ("stair_cost", "계단청소"),
@@ -188,15 +190,15 @@ def _normalize_sukum_acct_gb(value, mgmt_gb="R"):
 def _ensure_g_cost_cols():
     global _BUILDING_SCHEMA_READY
     if _BUILDING_SCHEMA_READY:
-        _ensure_bd01_common_cost()
+        _ensure_common_suri_master()
         return
     with _BUILDING_SCHEMA_LOCK:
         if _BUILDING_SCHEMA_READY:
-            _ensure_bd01_common_cost()
+            _ensure_common_suri_master()
             return
         _ensure_g_cost_cols_once()
         _BUILDING_SCHEMA_READY = True
-    _ensure_bd01_common_cost()
+    _ensure_common_suri_master()
 
 
 def _ensure_g_cost_cols_once():
@@ -243,36 +245,137 @@ def _ensure_g_cost_cols_once():
         )
 
 
-def _ensure_bd01_common_cost():
-    """공용비용 테이블 보장 + 레거시 stair/inet/option 1회 이관."""
-    global _COMMON_COST_TABLE_READY
-    if _COMMON_COST_TABLE_READY:
-        return
-    with _COMMON_COST_TABLE_LOCK:
-        if _COMMON_COST_TABLE_READY:
-            return
-        _ensure_bd01_common_cost_once()
-        _COMMON_COST_TABLE_READY = True
-
-
-def _ensure_bd01_common_cost_once():
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS bd01_common_cost (
-          bunji1 CHAR(4) NOT NULL,
-          bunji2 CHAR(4) NOT NULL,
-          cost_seq CHAR(2) NOT NULL,
-          item_nm VARCHAR(40) NOT NULL DEFAULT '',
-          cost_amt DECIMAL(18,0) NOT NULL DEFAULT 0,
-          del_yn CHAR(1) DEFAULT 'N',
-          uid CHAR(5) DEFAULT NULL,
-          sys_dt DATETIME DEFAULT NULL,
-          PRIMARY KEY (bunji1, bunji2, cost_seq)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """
-    )
+def _common_suri_template_dt(bunji1, bunji2):
+    """건물별 공용 마스터 행 날짜. 수리 PK(일자+순번) 99 한도를 피한다."""
     try:
-        rows = db.query(
+        n = int(str(bunji1 or "0") or "0") * 10000 + int(str(bunji2 or "0") or "0")
+    except ValueError:
+        n = 0
+    return date(_COMMON_SURI_TEMPLATE_YEAR, 1, 1) + timedelta(days=n % 365)
+
+
+def _next_suri_seq(suri_dt):
+    day = suri_dt.isoformat()[:10] if hasattr(suri_dt, "isoformat") else str(suri_dt)[:10]
+    row = db.query_one(
+        """
+        SELECT MAX(CAST(suri_seq AS UNSIGNED)) AS mx
+        FROM bd05_suri
+        WHERE suri_dt >= %s AND suri_dt < %s + INTERVAL 1 DAY
+        """,
+        (day + " 00:00:00", day),
+    )
+    mx = int((row or {}).get("mx") or 0)
+    nxt = mx + 1
+    if nxt > 99:
+        raise ValueError("그날 수리 순번이 99를 넘었습니다.")
+    return str(nxt).zfill(2)
+
+
+def _insert_common_suri(b1, b2, suri_dt, item_nm, cost_amt, uid=""):
+    seq = _next_suri_seq(suri_dt)
+    dt = suri_dt.isoformat()[:10] if hasattr(suri_dt, "isoformat") else str(suri_dt)[:10]
+    amt = int(cost_amt or 0)
+    nm = (item_nm or "").strip()[:50]
+    uid = (uid or "")[:5]
+    try:
+        db.execute(
+            """
+            INSERT INTO bd05_suri (
+              suri_dt, suri_seq, bunji1, bunji2, hosu, ipju_seq,
+              suri_desc, suri_won_amt, owner_budam, ipjuja_budam, manage_budam,
+              biyong_gb, ipju_su_churi, js_print_yn, uid, sys_dt
+            ) VALUES (
+              %s,%s,%s,%s,%s,'00',
+              %s,%s,%s,0,0,
+              'A','','Y',%s,NOW()
+            )
+            """,
+            (dt, seq, b1, b2, _COMMON_SURI_HOSU, nm, amt, amt, uid),
+        )
+    except Exception:
+        db.execute(
+            """
+            INSERT INTO bd05_suri (
+              suri_dt, suri_seq, bunji1, bunji2, hosu, ipju_seq,
+              suri_desc, suri_won_amt, owner_budam, ipjuja_budam, manage_budam,
+              biyong_gb, ipju_su_churi, uid, sys_dt
+            ) VALUES (
+              %s,%s,%s,%s,%s,'00',
+              %s,%s,%s,0,0,
+              'A','',%s,NOW()
+            )
+            """,
+            (dt, seq, b1, b2, _COMMON_SURI_HOSU, nm, amt, amt, uid),
+        )
+
+
+def _building_has_common_templates(b1, b2):
+    row = db.query_one(
+        """
+        SELECT 1 AS ok FROM bd05_suri
+         WHERE bunji1=%s AND bunji2=%s AND TRIM(hosu)=%s
+           AND YEAR(suri_dt)=%s
+         LIMIT 1
+        """,
+        (b1, b2, _COMMON_SURI_HOSU, _COMMON_SURI_TEMPLATE_YEAR),
+    )
+    return bool(row)
+
+
+def _ensure_common_suri_master():
+    """건물 공용항목은 수리(bd05_suri) 공용 마스터 행으로 둔다. 옛 테이블은 1회 이관 후 삭제."""
+    global _COMMON_SURI_READY
+    if _COMMON_SURI_READY:
+        return
+    with _COMMON_SURI_LOCK:
+        if _COMMON_SURI_READY:
+            return
+        _migrate_common_into_suri_once()
+        _COMMON_SURI_READY = True
+
+
+def _migrate_common_into_suri_once():
+    grouped = {}
+    if _table_exists("bd01_common_cost"):
+        try:
+            rows = db.query(
+                """
+                SELECT bunji1, bunji2, item_nm, cost_amt
+                  FROM bd01_common_cost
+                 WHERE (del_yn IS NULL OR del_yn='N' OR del_yn='')
+                   AND COALESCE(cost_amt,0) > 0
+                 ORDER BY bunji1, bunji2, cost_seq
+                """
+            ) or []
+        except Exception:
+            rows = []
+        for r in rows:
+            b1, b2 = _pad_bunji(r.get("bunji1")), _pad_bunji(r.get("bunji2"))
+            if not b1 or not b2:
+                continue
+            grouped.setdefault((b1, b2), []).append(
+                {
+                    "item_nm": (r.get("item_nm") or "").strip(),
+                    "cost_amt": int(r.get("cost_amt") or 0),
+                }
+            )
+    for (b1, b2), items in grouped.items():
+        if _building_has_common_templates(b1, b2):
+            continue
+        dt = _common_suri_template_dt(b1, b2)
+        for it in items:
+            if not it["item_nm"] or it["cost_amt"] <= 0:
+                continue
+            try:
+                _insert_common_suri(b1, b2, dt, it["item_nm"], it["cost_amt"])
+            except Exception:
+                pass
+    try:
+        db.execute("DROP TABLE IF EXISTS bd01_common_cost")
+    except Exception:
+        pass
+    try:
+        brows = db.query(
             """
             SELECT bunji1, bunji2, stair_cost, inet_cost, option_cost
               FROM bd01
@@ -282,26 +385,12 @@ def _ensure_bd01_common_cost_once():
             """
         ) or []
     except Exception:
-        rows = []
-    for b in rows:
-        b1 = _pad_bunji(b.get("bunji1"))
-        b2 = _pad_bunji(b.get("bunji2"))
-        if not b1 or not b2:
+        brows = []
+    for b in brows:
+        b1, b2 = _pad_bunji(b.get("bunji1")), _pad_bunji(b.get("bunji2"))
+        if not b1 or not b2 or _building_has_common_templates(b1, b2):
             continue
-        try:
-            exists = db.query_one(
-                """
-                SELECT 1 AS ok FROM bd01_common_cost
-                 WHERE bunji1=%s AND bunji2=%s
-                 LIMIT 1
-                """,
-                (b1, b2),
-            )
-        except Exception:
-            continue
-        if exists:
-            continue
-        seq = 1
+        dt = _common_suri_template_dt(b1, b2)
         for col, label in _LEGACY_COMMON_COST_COLS:
             try:
                 amt = int(b.get(col) or 0)
@@ -310,34 +399,16 @@ def _ensure_bd01_common_cost_once():
             if amt <= 0:
                 continue
             try:
-                db.execute(
-                    """
-                    INSERT INTO bd01_common_cost
-                      (bunji1, bunji2, cost_seq, item_nm, cost_amt, del_yn, uid, sys_dt)
-                    VALUES (%s, %s, %s, %s, %s, 'N', '', NOW())
-                    """,
-                    (b1, b2, f"{seq:02d}", label, amt),
-                )
-                seq += 1
+                _insert_common_suri(b1, b2, dt, label, amt)
             except Exception:
                 pass
 
 
 def _migrate_legacy_common_for_building(bunji1, bunji2):
     """편집 로드 시 해당 건물만 레거시 이관(중복 방지)."""
-    _ensure_bd01_common_cost()
+    _ensure_common_suri_master()
     b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
-    if not b1 or not b2:
-        return
-    exists = db.query_one(
-        """
-        SELECT 1 AS ok FROM bd01_common_cost
-         WHERE bunji1=%s AND bunji2=%s
-         LIMIT 1
-        """,
-        (b1, b2),
-    )
-    if exists:
+    if not b1 or not b2 or _building_has_common_templates(b1, b2):
         return
     b = db.query_one(
         "SELECT stair_cost, inet_cost, option_cost FROM bd01 WHERE bunji1=%s AND bunji2=%s",
@@ -345,7 +416,7 @@ def _migrate_legacy_common_for_building(bunji1, bunji2):
     )
     if not b:
         return
-    seq = 1
+    dt = _common_suri_template_dt(b1, b2)
     for col, label in _LEGACY_COMMON_COST_COLS:
         try:
             amt = int(b.get(col) or 0)
@@ -353,19 +424,12 @@ def _migrate_legacy_common_for_building(bunji1, bunji2):
             amt = 0
         if amt <= 0:
             continue
-        db.execute(
-            """
-            INSERT INTO bd01_common_cost
-              (bunji1, bunji2, cost_seq, item_nm, cost_amt, del_yn, uid, sys_dt)
-            VALUES (%s, %s, %s, %s, %s, 'N', '', NOW())
-            """,
-            (b1, b2, f"{seq:02d}", label, amt),
-        )
-        seq += 1
+        _insert_common_suri(b1, b2, dt, label, amt)
 
 
 def _load_common_costs(bunji1, bunji2, *, migrate=True):
-    _ensure_bd01_common_cost()
+    if migrate:
+        _ensure_common_suri_master()
     b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
     if not b1 or not b2:
         return []
@@ -373,13 +437,13 @@ def _load_common_costs(bunji1, bunji2, *, migrate=True):
         _migrate_legacy_common_for_building(b1, b2)
     rows = db.query(
         """
-        SELECT item_nm, cost_amt, cost_seq
-          FROM bd01_common_cost
-         WHERE bunji1=%s AND bunji2=%s
-           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-         ORDER BY cost_seq
+        SELECT suri_desc AS item_nm, owner_budam AS cost_amt, suri_seq AS cost_seq
+          FROM bd05_suri
+         WHERE bunji1=%s AND bunji2=%s AND TRIM(hosu)=%s
+           AND YEAR(suri_dt)=%s
+         ORDER BY suri_seq
         """,
-        (b1, b2),
+        (b1, b2, _COMMON_SURI_HOSU, _COMMON_SURI_TEMPLATE_YEAR),
     ) or []
     out = []
     for r in rows:
@@ -394,19 +458,20 @@ def _load_common_costs(bunji1, bunji2, *, migrate=True):
 
 
 def _common_costs_map(keys):
-    """(bunji1,bunji2) -> [{item_nm, cost_amt}, ...] 배치 로드."""
-    _ensure_bd01_common_cost()
+    """(bunji1,bunji2) -> [{item_nm, cost_amt}, ...] 공용 마스터 배치 로드."""
+    _ensure_common_suri_master()
     if not keys:
         return {}
     pair_placeholders = ", ".join(["(%s, %s)"] * len(keys))
-    args = [part for key in keys for part in key]
+    args = [_COMMON_SURI_HOSU, _COMMON_SURI_TEMPLATE_YEAR]
+    args.extend(part for key in keys for part in key)
     rows = db.query(
         f"""
-        SELECT bunji1, bunji2, item_nm, cost_amt
-          FROM bd01_common_cost
-         WHERE (bunji1, bunji2) IN ({pair_placeholders})
-           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-         ORDER BY bunji1, bunji2, cost_seq
+        SELECT bunji1, bunji2, suri_desc AS item_nm, owner_budam AS cost_amt
+          FROM bd05_suri
+         WHERE TRIM(hosu)=%s AND YEAR(suri_dt)=%s
+           AND (bunji1, bunji2) IN ({pair_placeholders})
+         ORDER BY bunji1, bunji2, suri_seq
         """,
         args,
     ) or []
@@ -420,10 +485,6 @@ def _common_costs_map(keys):
             }
         )
     return result
-
-
-def _common_cost_tot(rows):
-    return sum(int(r.get("cost_amt") or 0) for r in (rows or []))
 
 
 def _parse_common_costs_from_form(form):
@@ -445,28 +506,23 @@ def _parse_common_costs_from_form(form):
 
 
 def _rewrite_common_costs(bunji1, bunji2, rows, uid=""):
-    _ensure_bd01_common_cost()
+    _ensure_common_suri_master()
     b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
     db.execute(
-        "DELETE FROM bd01_common_cost WHERE bunji1=%s AND bunji2=%s",
-        (b1, b2),
+        """
+        DELETE FROM bd05_suri
+         WHERE bunji1=%s AND bunji2=%s AND TRIM(hosu)=%s
+           AND YEAR(suri_dt)=%s
+        """,
+        (b1, b2, _COMMON_SURI_HOSU, _COMMON_SURI_TEMPLATE_YEAR),
     )
-    for i, r in enumerate(rows or [], start=1):
-        db.execute(
-            """
-            INSERT INTO bd01_common_cost
-              (bunji1, bunji2, cost_seq, item_nm, cost_amt, del_yn, uid, sys_dt)
-            VALUES (%s, %s, %s, %s, %s, 'N', %s, NOW())
-            """,
-            (
-                b1,
-                b2,
-                f"{i:02d}",
-                (r.get("item_nm") or "")[:40],
-                int(r.get("cost_amt") or 0),
-                (uid or "")[:5],
-            ),
-        )
+    dt = _common_suri_template_dt(b1, b2)
+    for r in rows or []:
+        nm = (r.get("item_nm") or "").strip()
+        amt = int(r.get("cost_amt") or 0)
+        if not nm or amt <= 0:
+            continue
+        _insert_common_suri(b1, b2, dt, nm, amt, uid)
 
 
 def _common_costs_sig(rows):
@@ -474,6 +530,65 @@ def _common_costs_sig(rows):
         ((r.get("item_nm") or "").strip(), int(r.get("cost_amt") or 0))
         for r in (rows or [])
     ]
+
+
+def _month_common_desc_map(keys, month_start, month_end_s):
+    if not keys:
+        return {}
+    pair_placeholders = ", ".join(["(%s, %s)"] * len(keys))
+    ms = month_start.isoformat() if hasattr(month_start, "isoformat") else str(month_start)[:10]
+    args = [_COMMON_SURI_HOSU, ms, month_end_s, _COMMON_SURI_TEMPLATE_YEAR]
+    args.extend(part for key in keys for part in key)
+    rows = db.query(
+        f"""
+        SELECT bunji1, bunji2, suri_desc
+          FROM bd05_suri
+         WHERE TRIM(hosu)=%s
+           AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+           AND YEAR(suri_dt) > %s
+           AND (bunji1, bunji2) IN ({pair_placeholders})
+        """,
+        args,
+    ) or []
+    out = {}
+    for r in rows:
+        key = (_pad_bunji(r.get("bunji1")), _pad_bunji(r.get("bunji2")))
+        out.setdefault(key, set()).add((r.get("suri_desc") or "").strip())
+    return out
+
+
+def _ensure_month_common_repairs(bunji1, bunji2, month_end, uid=""):
+    """해당 월 수리 공용에 마스터 항목이 없으면 말일로 넣는다(월정산 누락 방지)."""
+    b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
+    if not b1 or not b2:
+        return
+    _ensure_month_common_repairs_many([(b1, b2)], month_end, uid)
+
+
+def _ensure_month_common_repairs_many(keys, month_end, uid=""):
+    _ensure_common_suri_master()
+    if not keys:
+        return
+    if hasattr(month_end, "isoformat"):
+        month_end_d = month_end
+    else:
+        month_end_d = datetime.strptime(str(month_end)[:10], "%Y-%m-%d").date()
+    month_start = month_end_d.replace(day=1)
+    month_end_s = month_end_d.isoformat()
+    templates_by = _common_costs_map(keys)
+    existing_by = _month_common_desc_map(keys, month_start, month_end_s)
+    for key in keys:
+        have = existing_by.get(key) or set()
+        for t in templates_by.get(key) or []:
+            nm = (t.get("item_nm") or "").strip()
+            amt = int(t.get("cost_amt") or 0)
+            if not nm or amt <= 0 or nm in have:
+                continue
+            try:
+                _insert_common_suri(key[0], key[1], month_end_d, nm, amt, uid)
+                have.add(nm)
+            except Exception:
+                pass
 
 
 def _extract_building_form_values(form):
@@ -494,7 +609,7 @@ def _extract_building_form_values(form):
         "floor_no": _coerce_building_floor_no(form.get("floor_no")),
         "man_cost": _parse_money(form.get("man_cost")),
         "first_amt": _parse_money(form.get("first_amt")),
-        # 레거시 컬럼 유지. 의미 있는 값은 bd01_common_cost 로 이전.
+        # 레거시 컬럼 유지. 공용항목은 수리 공용(bd05_suri) 마스터 행.
         "stair_cost": 0,
         "inet_cost": 0,
         "option_cost": 0,
@@ -1578,7 +1693,6 @@ def _cascade_delete_building(bunji1, bunji2):
         ("building_access", "DELETE FROM building_access WHERE bunji1=%s AND bunji2=%s"),
         ("sukum_import_exclude", "DELETE FROM sukum_import_exclude WHERE bunji1=%s AND bunji2=%s"),
         ("sukum_import_match", "DELETE FROM sukum_import_match WHERE bunji1=%s AND bunji2=%s"),
-        ("bd01_common_cost", "DELETE FROM bd01_common_cost WHERE bunji1=%s AND bunji2=%s"),
         ("bd01", "DELETE FROM bd01 WHERE bunji1=%s AND bunji2=%s"),
     ]
     deleted = {}

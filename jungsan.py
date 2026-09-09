@@ -29,10 +29,9 @@ from utils import (
     to_int_amt as _to_int_amt,
 )
 from building import (
-    _common_cost_tot as _building_common_cost_tot,
-    _common_costs_map as _building_common_costs_map,
-    _ensure_bd01_common_cost as _ensure_bd01_common_cost,
-    _load_common_costs as _building_load_common_costs,
+    _ensure_common_suri_master as _ensure_common_suri_master,
+    _ensure_month_common_repairs as _ensure_month_common_repairs,
+    _ensure_month_common_repairs_many as _ensure_month_common_repairs_many,
 )
 
 
@@ -174,11 +173,11 @@ def _ensure_g_cost_cols():
                WHERE sukum_acct_gb IS NULL OR TRIM(sukum_acct_gb)=''"""
         )
     _G_COST_COLS_READY = True
-    _ensure_bd01_common_cost()
+    _ensure_common_suri_master()
 
 
 def _g_extra_costs(building, is_resp):
-    """레거시 stair/inet/option. 공용비용은 bd01_common_cost 사용."""
+    """레거시 stair/inet/option. 공용은 수리 공용(bd05_suri)만 사용."""
     return 0, 0, 0
 
 
@@ -269,7 +268,7 @@ def _apply_month_adjustments(rows, b1, b2, month_start):
         raw_dache = _to_int_amt(r.get("dache_amt_raw", r.get("dache_amt")))
         r["dache_amt_raw"] = raw_dache
         r["dache_amt"] = _cap_dache_to_rent_shortfall(due, sil, raw_dache)
-        r["dache_gb"] = _dache_flag(sil, r.get("dache_amt"), due)
+        r["dache_gb"] = _dache_flag(sil, r.get("dache_amt"), rent_due)
         if adjs:
             r["company_pay_amt"] = sum(
                 _to_int_amt(a.get("adj_amt")) for a in adjs
@@ -328,16 +327,16 @@ def _jungsan_decorate_rows(rows):
             rent = _to_int_amt(
                 r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
             )
-            due = rent + _to_int_amt(r.get("manage_amt"))
+            # XP 결산현황: 입금액·(대체) 판정은 월세. 관리비는 넣지 않는다.
             is_dache = ("대체" in dache) or (dache.upper() in ("Y", "1"))
-            if is_dache and due > 0 and sil >= due:
+            if is_dache and rent > 0 and sil >= rent:
                 is_dache = False
             r["dache_gb"] = "대체" if is_dache else ""
             sil_in = _to_int_amt(r.get("ipkum_amt"))
             if is_dache:
-                put = _rent_ipkum_for_pay(sil, dache_amt, due)
+                put = _rent_ipkum_for_pay(sil, dache_amt, rent)
                 if put <= 0:
-                    put = due
+                    put = rent
                 r["ipkum_disp"] = money(put) if put else ""
             elif sil_in != 0:
                 r["ipkum_disp"] = money(sil_in)
@@ -364,7 +363,6 @@ def _jungsan_decorate_rows(rows):
                 r["manage_desc"] = "청구"
                 r["jisi_disp"] = "청구"
             elif is_dache:
-                # 월세+관리비가 대체됐으면 관리지시의 미납/부족 표시는 지운다.
                 r["manage_desc"] = "(대체)"
                 r["jisi_disp"] = "(대체)"
             elif sil <= 0 and rent > 0:
@@ -554,9 +552,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             rent_flag = _to_int_amt(
                 r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
             )
-            r["dache_gb"] = _dache_flag(
-                sil_amt, dache_amt, rent_flag + _to_int_amt(r.get("manage_amt"))
-            )
+            r["dache_gb"] = _dache_flag(sil_amt, dache_amt, rent_flag)
         summary = {
             "first_amt": _to_int_amt(saved.get("first_amt")),
             "man_cost": _to_int_amt(saved.get("man_cost")),
@@ -568,7 +564,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             "manage_tot": _to_int_amt(saved.get("manage_tot")),
             "bojung_tot": _to_int_amt(saved.get("bojung_tot")),
             "misu_tot": _to_int_amt(saved.get("misu_tot")),
-            # 임대료대체는 공통 구간에서 당월 01 su_dache_amt(raw) 전체 합으로 설정
+            # 임대료대체는 공통 구간에서 미수 합계로 설정 (XP 결산현황)
             "imdae_dache": 0,
             "bojung_dache": 0,
             "rent_manager_account": _is_item_manager_account(building, "rent"),
@@ -683,7 +679,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             dache_amt = _cap_dache_to_rent_shortfall(due_for_cap, sil_amt, dache_amt_raw)
             # 선불 퇴실 청구는 대체금이 있을 때만. 대체 없으면 청구 없음.
             claim_amt = min(claim_raw, dache_amt) if (claim_raw > 0 and dache_amt > 0 and sil_amt <= 0) else 0
-            dache_gb = _dache_flag(sil_amt, dache_amt, due_for_cap)
+            dache_gb = _dache_flag(sil_amt, dache_amt, rent_calc)
             if out_d and month_start <= out_d <= month_end:
                 claim_amt = 0
                 jisi = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
@@ -738,6 +734,10 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             sum_ipkum += ipkum
             sum_misu += misu
 
+        if not list_mode:
+            _ensure_month_common_repairs(
+                b1, b2, month_end, session.get("sabun") or ""
+            )
         if "owner_suri" in preload and "jungke_cost" in preload:
             owner_suri = _to_int_amt(preload.get("owner_suri"))
             jungke_cost = _to_int_amt(preload.get("jungke_cost"))
@@ -748,6 +748,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 FROM bd05_suri
                 WHERE bunji1=%s AND bunji2=%s
                   AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+                  AND YEAR(suri_dt) > 1000
                 """,
                 (b1, b2, month_start.isoformat(), month_end_s),
             )
@@ -763,12 +764,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             owner_suri = _to_int_amt((suri or {}).get("a"))
             jungke_cost = _to_int_amt((jungke or {}).get("a"))
         man_cost = _to_int_amt(building.get("man_cost"))
-        # 지급액은 아래 공통 구간에서 월세분으로 다시 계산.
-        dache_sum = sum(
-            _to_int_amt(r.get("dache_amt_raw", r.get("dache_amt")))
-            for r in rows
-            if not r.get("is_empty")
-        )
+        # 지급액·임대료대체는 아래 공통 구간에서 XP 결산현황 규칙으로 다시 계산.
         claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
         pay_amt = 0
         summary = {
@@ -782,7 +778,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             "manage_tot": sum_manage,
             "bojung_tot": sum_bojung,
             "misu_tot": sum_misu,
-            "imdae_dache": dache_sum,
+            "imdae_dache": 0,
             "bojung_dache": 0,
             "rent_manager_account": _is_item_manager_account(building, "rent"),
             "manage_manager_account": _is_item_manager_account(building, "manage"),
@@ -841,6 +837,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             FROM bd05_suri
             WHERE bunji1=%s AND bunji2=%s
               AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+              AND YEAR(suri_dt) > 1000
             ORDER BY suri_dt, suri_seq
             """,
             (b1, b2, month_start.isoformat(), month_end_s),
@@ -931,15 +928,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             r.setdefault("company_comp_amt", 0)
             r.setdefault("company_pay_amt", 0)
     ipkum_sum = sum(_to_int_amt(r.get("ipkum_amt")) for r in rows)
-    # 임대료대체 = 당월 월세(01) 기록된 대체액 전체 합 (dache_gb/상한으로 0이 된 행도 raw 포함)
-    dache_sum = sum(
-        _to_int_amt(r.get("dache_amt_raw", r.get("dache_amt")))
-        for r in rows
-        if not r.get("is_empty")
-    )
     claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
     summary["claim_tot"] = claim_sum
-    summary["imdae_dache"] = dache_sum
     # 보증금은 건물 계약의 최초 보증금과 현재 계약 보증금의 차이만 대체로 표시한다.
     # 건물주 통장(O)이면 보증금대체를 만들지 않는다.
     if _is_item_manager_account(building, "bojung"):
@@ -956,8 +946,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     # - 관리실(M): bojung_dache = bojung_tot - first_amt (+/-)
     # - 건물주(O): bojung_dache = 0 (최초보증금·총액 정합만, 대체 없음)
     if manager_account:
-        # 당월지급액: 전 호 실입+대체(월세+관리비 due, +보증대체) − 비용.
-        # 입금액 표시도 동일하게 실입+대체를 due까지 반영한다.
+        # XP 결산현황: 입금액은 월세(관리비 제외). 대체 호도 월세. 미납은 빈칸.
         pay_base = _to_int_amt(summary.get("bojung_dache")) if bojung_manager else 0
         ipkum_display_tot = 0
         for r in rows:
@@ -967,8 +956,6 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
             )
             rent_due = max(0, rent_calc - _to_int_amt(r.get("adjustment_rent_amt")))
-            # 입금/지급: 실입+대체를 월세+관리비 due까지 반영 (동일 01 풀 이중합산 방지)
-            due = rent_due + _to_int_amt(r.get("manage_amt"))
             sil_amt = _to_int_amt(r.get("sil_amt"))
             dache_amt = _to_int_amt(r.get("dache_amt"))
             out_settle_amt = r.get("out_settle_amt")
@@ -976,45 +963,31 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 # 퇴실정산 확정액은 날짜 재계산하지 않고 그대로 표시
                 rent_ipkum = int(out_settle_amt)
             else:
-                rent_ipkum = _rent_ipkum_for_pay(sil_amt, dache_amt, due)
+                rent_ipkum = _rent_ipkum_for_pay(sil_amt, dache_amt, rent_due)
             rent_ipkum += _to_int_amt(r.get("company_pay_amt"))
             ipkum_display_tot += rent_ipkum
             r["ipkum_amt"] = rent_ipkum
             r["ipkum_disp"] = money(rent_ipkum) if rent_ipkum else ""
-            # 지급액 베이스: 대체 유무와 관계없이 전 호 실입+대체(월세+관리비 due)
             if out_settle_amt is None:
-                pay_base += _rent_ipkum_for_pay(sil_amt, dache_amt, due)
-                pay_base += _to_int_amt(r.get("company_pay_amt"))
+                pay_base += rent_ipkum
         summary["ipkum_tot"] = ipkum_display_tot
     else:
         pay_base = ipkum_sum
         summary["ipkum_tot"] = ipkum_sum
-    if "common_costs" in preload:
-        common_costs = list(preload.get("common_costs") or [])
-    else:
-        _ensure_bd01_common_cost()
-        common_costs = [
-            {
-                "item_nm": c.get("item_nm") or "",
-                "cost_amt": _to_int_amt(c.get("cost_amt")),
-            }
-            for c in _building_load_common_costs(b1, b2)
-            if (c.get("item_nm") or "").strip() and _to_int_amt(c.get("cost_amt")) > 0
-        ]
-    common_cost_tot = _building_common_cost_tot(common_costs)
-    summary["common_costs"] = common_costs
-    summary["common_cost_tot"] = common_cost_tot
+    summary["common_costs"] = []
+    summary["common_cost_tot"] = 0
     summary["stair_cost"] = 0
     summary["inet_cost"] = 0
     summary["option_cost"] = 0
     cost_sum = (
         _to_int_amt(summary.get("man_cost"))
         + _to_int_amt(summary.get("owner_suri"))
-        + common_cost_tot
         + _to_int_amt(summary.get("jungke_cost"))
     )
     summary["cost_sum"] = cost_sum
     summary["misu_tot"] = sum(_to_int_amt(r.get("misu_amt")) for r in rows)
+    # XP 결산현황: 하단 임대료대체 = 미수 합계 (당월 01 대체전표 합이 아님)
+    summary["imdae_dache"] = _to_int_amt(summary.get("misu_tot"))
     company_comp_tot = sum(_to_int_amt(r.get("company_comp_amt")) for r in rows)
     summary["company_comp_tot"] = company_comp_tot
     if manager_account:
@@ -1023,7 +996,6 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 pay_base
                 - _to_int_amt(summary.get("man_cost"))
                 - _to_int_amt(summary.get("owner_suri"))
-                - common_cost_tot
                 - _to_int_amt(summary.get("jungke_cost"))
                 - claim_sum
             )
@@ -1652,7 +1624,9 @@ def jungsan_list():
 
         page_buildings, pager = _paginate(buildings)
         page_keys = [(b.get("bunji1"), b.get("bunji2")) for b in page_buildings]
-        common_by = _building_common_costs_map(page_keys)
+        _ensure_month_common_repairs_many(
+            page_keys, month_end, session.get("sabun") or ""
+        )
 
         saved_rows = db.query(
             """
@@ -1705,10 +1679,8 @@ def jungsan_list():
                     pay = _to_int_amt(r.get("pay_amt"))
                     pay = (pay // 1000) * 1000
                 else:
-                    common_tot = _building_common_cost_tot(common_by.get(key) or [])
                     pay = (
                         _to_int_amt(r.get("man_cost"))
-                        + common_tot
                         + _to_int_amt(r.get("owner_suri"))
                         + _to_int_amt(r.get("jungke_cost"))
                     )
@@ -1750,7 +1722,6 @@ def jungsan_list():
                     "terms_map": terms_all.get(key) or {},
                     "owner_suri": suri_all.get(key, 0),
                     "jungke_cost": jungke_all.get(key, 0),
-                    "common_costs": common_by.get(key) or [],
                     "skip_adjustments": True,
                 },
             )

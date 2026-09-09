@@ -276,6 +276,70 @@ def _list_room_tenants(bunji1, bunji2, hosu, tenant_status):
     )
 
 
+def _split_char01_payment(sil, dache, rent_amt, manage_amt):
+    """01 전표 1건을 임대료/관리비로 나눈다. 계약 월세 먼저, 나머지는 관리비, 초과분은 임대료."""
+    paid = _to_int_amt(sil) + _to_int_amt(dache)
+    if paid <= 0:
+        return 0, 0
+    rent = _to_int_amt(rent_amt)
+    manage = _to_int_amt(manage_amt)
+    rent_part = min(paid, rent) if rent > 0 else 0
+    rest = paid - rent_part
+    manage_part = min(rest, manage) if manage > 0 else 0
+    return rent_part + (rest - manage_part), manage_part
+
+
+def _annotate_payment_amount_cols(rows):
+    """인쇄·목록 공용. 종류01은 임대료+관리비 한 칸에 전표 전액(XP)."""
+    total_sil = total_dache = total_deposit = total_rent_manage = 0
+    for r in rows or []:
+        sil = _to_int_amt(r.get("su_sil_amt"))
+        dache = _to_int_amt(r.get("su_dache_amt"))
+        char = str(r.get("sukum_char") or "").strip()
+        paid = sil + dache
+        total_sil += sil
+        total_dache += dache
+        r["deposit_disp"] = 0
+        r["rent_manage_disp"] = 0
+        if char in ("02", "03"):
+            r["deposit_disp"] = paid
+            total_deposit += paid
+        elif char == "01":
+            r["rent_manage_disp"] = paid
+            total_rent_manage += paid
+    return {
+        "total_sil": total_sil,
+        "total_dache": total_dache,
+        "total_deposit": total_deposit,
+        "total_rent_manage": total_rent_manage,
+    }
+
+
+def _maybe_focus_current_room_tenant(q, today):
+    """인쇄·조회 공용: 주소+호실만 있으면 현 입주자 순번·기간으로 고정."""
+    if not (q.get("bunji1") and q.get("bunji2") and q.get("hosu")):
+        return q
+    if q.get("ipju_seq_f") or q.get("tenant_status") != "current":
+        return q
+    cur = _lookup_current_tenant(q["bunji1"], q["bunji2"], q["hosu"])
+    if not cur or not _tenant_is_current(cur):
+        return q
+    hit = _focus_single_tenant(cur, q.get("name_display") or q.get("name_raw") or "", today)
+    out = dict(q)
+    out["bunji1"] = hit["bunji1"] or q["bunji1"]
+    out["bunji2"] = hit["bunji2"] or q["bunji2"]
+    out["hosu"] = hit["hosu"] or q["hosu"]
+    out["ipju_seq_f"] = hit["ipju_seq_f"]
+    out["name_display"] = hit["name_display"]
+    out["name_raw"] = hit["name_display"]
+    out["date_from"] = hit["date_from"]
+    out["date_to"] = hit["date_to"]
+    out["ym_year"] = hit["ym_year"]
+    out["ym_month"] = hit["ym_month"]
+    out["all_hist"] = True
+    return out
+
+
 def _focus_single_tenant(t, name_q, today):
     bunji1 = t.get("bunji1") or ""
     bunji2 = t.get("bunji2") or ""
@@ -448,6 +512,31 @@ def _count_payment_rows(
     return int((row or {}).get("c") or 0)
 
 
+def _query_payment_amount_totals(
+    bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to,
+    tenant_status="all",
+    include_dache=False,
+):
+    where, args = _payment_row_filters(
+        bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to,
+        tenant_status, include_dache,
+    )
+    need_tenant = (not ipju_seq_f) and tenant_status in ("current", "past")
+    join_kw = "INNER JOIN" if need_tenant else "LEFT JOIN"
+    rows = db.query(
+        f"""
+        SELECT s.sukum_char, s.su_sil_amt, s.su_dache_amt, d.rent_amt, d.manage_amt
+        FROM sukum01 s
+        {join_kw} bd03_det d
+          ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
+         AND d.hosu_norm=s.hosu_norm AND d.ipju_seq=s.ipju_seq
+        WHERE {' AND '.join(where)}
+        """,
+        tuple(args),
+    ) or []
+    return _annotate_payment_amount_cols(rows)
+
+
 def _query_payment_rows(
     bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to, all_hist,
     tenant_status="all",
@@ -618,6 +707,12 @@ def payments():
                 picker_kind = "room"
 
     pager = None
+    pay_totals = {
+        "total_sil": 0,
+        "total_dache": 0,
+        "total_deposit": 0,
+        "total_rent_manage": 0,
+    }
     if name_list_mode:
         payment_groups, pager = _paginate(payment_groups)
     elif not empty_hint:
@@ -647,9 +742,15 @@ def payments():
                 limit=pager["per_page"],
                 offset=pager["offset"],
             )
+            pay_totals = _query_payment_amount_totals(
+                bunji1, bunji2, hosu, ipju_seq_f, date_from, date_to,
+                tenant_status, include_dache,
+            )
+            _annotate_payment_amount_cols(rows)
 
     ctx = dict(
         payments=rows if not name_list_mode else [],
+        pay_totals=pay_totals,
         payment_groups=payment_groups,
         name_list_mode=name_list_mode,
         picker_kind=picker_kind,
@@ -689,7 +790,7 @@ def _resolve_payment_print_context(args):
     인쇄와 엑셀 양쪽 결과가 항상 같이 맞는다.
     """
     today = date.today()
-    q = _read_payment_list_args(args)
+    q = _maybe_focus_current_room_tenant(_read_payment_list_args(args), today)
     bunji1 = q["bunji1"]
     bunji2 = q["bunji2"]
     hosu = q["hosu"]
@@ -718,20 +819,7 @@ def _resolve_payment_print_context(args):
         include_dache,
     )
 
-    total_sil = sum(int(r.get("su_sil_amt") or 0) for r in rows)
-    total_dache = sum(int(r.get("su_dache_amt") or 0) for r in rows)
-    total_deposit = 0
-    total_rent = 0
-    total_manage = 0
-    for r in rows:
-        char = str(r.get("sukum_char") or "").strip()
-        if char in ("02", "03"):
-            total_deposit += _to_int_amt(r.get("su_sil_amt")) + _to_int_amt(
-                r.get("su_dache_amt")
-            )
-        elif char == "01":
-            total_rent += _to_int_amt(r.get("rent_amt"))
-            total_manage += _to_int_amt(r.get("manage_amt"))
+    totals = _annotate_payment_amount_cols(rows)
 
     return {
         "rows": rows,
@@ -739,14 +827,13 @@ def _resolve_payment_print_context(args):
         "bunji2": bunji2,
         "building_name": _building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
         "addr_label": _fmt_bunji_pair(bunji1, bunji2) if bunji1 and bunji2 else "",
-        "name_display": q["name_raw"],
+        "name_display": q["name_raw"] or q.get("name_display") or "",
         "date_from": date_from,
         "date_to": date_to,
-        "total_sil": total_sil,
-        "total_dache": total_dache,
-        "total_deposit": total_deposit,
-        "total_rent": total_rent,
-        "total_manage": total_manage,
+        "total_sil": totals["total_sil"],
+        "total_dache": totals["total_dache"],
+        "total_deposit": totals["total_deposit"],
+        "total_rent_manage": totals["total_rent_manage"],
     }
 
 
@@ -778,8 +865,7 @@ def payments_print():
         total_sil=ctx["total_sil"],
         total_dache=ctx["total_dache"],
         total_deposit=ctx["total_deposit"],
-        total_rent=ctx["total_rent"],
-        total_manage=ctx["total_manage"],
+        total_rent_manage=ctx["total_rent_manage"],
     )
 
 
@@ -798,7 +884,7 @@ def _build_payments_excel(ctx):
 
     headers = [
         "수금일자", "번지", "호수", "성명", "입주일자",
-        "실수금액", "대체금액", "보증/예치", "임대료", "관리비",
+        "실수금액", "대체금액", "보증/예치", "임+관",
     ]
     ws.append(headers)
 
@@ -812,19 +898,12 @@ def _build_payments_excel(ctx):
         cell.alignment = center
         cell.border = thin_border
 
-    money_cols = (6, 7, 8, 9, 10)  # 실수금액~관리비
+    money_cols = (6, 7, 8, 9)
     row_idx = 1
     for r in ctx["rows"]:
         row_idx += 1
-        char = str(r.get("sukum_char") or "").strip()
-        deposit = None
-        rent = None
-        manage = None
-        if char in ("02", "03"):
-            deposit = _to_int_amt(r.get("su_sil_amt")) + _to_int_amt(r.get("su_dache_amt"))
-        elif char == "01":
-            rent = _to_int_amt(r.get("rent_amt"))
-            manage = _to_int_amt(r.get("manage_amt"))
+        deposit = _to_int_amt(r.get("deposit_disp")) or None
+        rent_manage = _to_int_amt(r.get("rent_manage_disp")) or None
 
         ws.append([
             _fmt_date(r.get("sukum_dt")),
@@ -835,8 +914,7 @@ def _build_payments_excel(ctx):
             _to_int_amt(r.get("su_sil_amt")) or None,
             _to_int_amt(r.get("su_dache_amt")) or None,
             deposit,
-            rent,
-            manage,
+            rent_manage,
         ])
         for col in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col)
@@ -857,7 +935,7 @@ def _build_payments_excel(ctx):
             cell.number_format = "#,##0"
         cell.font = Font(bold=True)
 
-    widths = [12, 10, 8, 10, 12, 12, 12, 12, 12, 12]
+    widths = [12, 10, 8, 10, 12, 12, 12, 12, 14]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 

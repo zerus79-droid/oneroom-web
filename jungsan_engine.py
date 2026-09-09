@@ -51,7 +51,7 @@ def _prorate_amt(amt, days, month_days):
 
 
 def _dache_flag(sil_amt, dache_amt, due_amt=None):
-    """대체 표시. due_amt=당월 월세+관리비. 실입이 due 이상이면 대체 해제."""
+    """대체 표시. due_amt=당월 월세. 실입이 월세 이상이면 대체 해제."""
     sil, dache, due = _to_int_amt(sil_amt), _to_int_amt(dache_amt), _to_int_amt(due_amt)
     if dache <= 0 or (due > 0 and sil >= due):
         return ""
@@ -67,7 +67,7 @@ def _dache_rent_remain(due_amt, sil_amt, dache_amt):
 
 
 def _rent_ipkum_for_pay(sil_amt, dache_amt, due_amt):
-    """실입+대체를 due(월세+관리비)까지만 입금/지급에 반영."""
+    """실입+대체를 due(책임관리 입금액=월세)까지만 입금/지급에 반영."""
     paid, due = _to_int_amt(sil_amt) + _to_int_amt(dache_amt), _to_int_amt(due_amt)
     if paid <= 0 or due <= 0:
         return 0
@@ -524,6 +524,7 @@ def _month_cost_maps(month_start, month_end_s, keys=None):
             SELECT bunji1, bunji2, COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
               FROM bd05_suri
              WHERE suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+               AND YEAR(suri_dt) > 1000
                {ksql}
              GROUP BY bunji1, bunji2
             """,

@@ -250,9 +250,10 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
     def test_rent_ipkum_counts_dache_like_sil(self):
         self.assertEqual(_rent_ipkum_for_pay(100000, 200000, 300000), 300000)
         self.assertEqual(_rent_ipkum_for_pay(0, 270000, 270000), 270000)
-        # due=월세+관리비(500k): sil+dache를 500k까지
-        self.assertEqual(_rent_ipkum_for_pay(0, 400000, 500000), 400000)
-        self.assertEqual(_rent_ipkum_for_pay(100000, 400000, 500000), 500000)
+        # XP 입금액 due=월세. 01 전표가 월세+관리비여도 월세까지만.
+        self.assertEqual(_rent_ipkum_for_pay(0, 400000, 340000), 340000)
+        self.assertEqual(_rent_ipkum_for_pay(400000, 0, 340000), 340000)
+        self.assertEqual(_rent_ipkum_for_pay(0, 0, 340000), 0)
 
     @patch("jungsan._month_adjustment_map")
     def test_dache_capped_without_rent_adjustment(self, adjustment_map):
@@ -280,47 +281,56 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
         _apply_month_adjustments([row2], "0001", "0001", date(2026, 8, 1))
         self.assertEqual(row2["dache_amt"], 300000)
 
-    def test_imdae_dache_sums_raw_even_when_gb_cleared(self):
-        """실입≥월세로 dache_gb가 비어도 기록된 su_dache_amt(raw)는 임대료대체 합에 포함한다."""
-        rows = [
-            {"is_empty": False, "dache_amt": 450000, "dache_amt_raw": 450000, "dache_gb": "대체"},
-            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 300000, "dache_gb": ""},
-            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 280000, "dache_gb": ""},
-            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 250000, "dache_gb": ""},
-            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 200000, "dache_gb": ""},
-            {"is_empty": False, "dache_amt": 0, "dache_amt_raw": 200000, "dache_gb": ""},
-            {"is_empty": True, "dache_amt": 0, "dache_amt_raw": 999, "dache_gb": ""},
-        ]
-        old = sum(
-            int(r.get("dache_amt") or 0)
-            for r in rows
-            if str(r.get("dache_gb") or "").strip()
-        )
-        self.assertEqual(old, 450000)
-        imdae = sum(
-            int(r.get("dache_amt_raw", r.get("dache_amt")) or 0)
-            for r in rows
-            if not r.get("is_empty")
-        )
-        self.assertEqual(imdae, 1680000)
+    def test_dache_room_ipkum_is_rent_only(self):
+        """XP: 대체 호 입금액=월세, 관리지시 (대체), 미수는 대체로 안 깎음."""
+        row = {
+            "hosu": "101", "ipju_nm": "강석원", "ipju_dt": date(2015, 12, 27),
+            "napbu_gb": "A", "rent_amt": 260000, "manage_amt": 70000,
+            "bojung_amt": 2600000, "ipkum_amt": 330000, "sil_amt": 0,
+            "dache_amt": 330000, "dache_gb": "대체", "rent_calc": 260000,
+            "misu_amt": 330000, "manage_desc": "", "is_empty": False,
+        }
+        _jungsan_decorate_rows([row])
+        self.assertEqual(row["ipkum_disp"], "260,000")
+        self.assertEqual(row["jisi_disp"], "(대체)")
+        self.assertEqual(row["misu_disp"], "330,000")
+        self.assertEqual(row["dache_gb"], "대체")
+
+    def test_cash_full_rent_clears_dache_flag(self):
+        """월세 실입이 채워지면 관리비 대체만 있어도 (대체)를 찍지 않는다."""
+        row = {
+            "hosu": "103", "ipju_nm": "박연석", "ipju_dt": date(2019, 2, 26),
+            "napbu_gb": "A", "rent_amt": 340000, "manage_amt": 60000,
+            "bojung_amt": 0, "ipkum_amt": 340000, "sil_amt": 340000,
+            "dache_amt": 60000, "dache_gb": "대체", "rent_calc": 340000,
+            "misu_amt": 0, "manage_desc": "", "is_empty": False,
+        }
+        _jungsan_decorate_rows([row])
+        self.assertEqual(row["dache_gb"], "")
+        self.assertEqual(row["ipkum_disp"], "340,000")
+        self.assertEqual(row["jisi_disp"], "")
 
     def test_pay_base_uses_rent_ipkum_for_all_rooms(self):
-        """당월지급액 임대료분은 대체 체크와 무관하게 전 호 실입+대체 임대료분."""
+        """당월지급액 임대료분은 대체 여부 없이 전 호 월세분(실입+대체, 관리비 제외)."""
         rooms = [
-            # 순수 대체
-            (0, 450000, 450000),
-            # 실입 완납 (gb 클리어 케이스) — 구로직이면 지급에서 빠짐
-            (300000, 0, 300000),
+            (0, 400000, 340000),      # 순수 대체: 01이 월세+관리비여도 월세
+            (400000, 0, 340000),      # 실입 완납
             (200000, 50000, 250000),  # 부분 실입+대체
+            (0, 0, 340000),           # 미납: 입금액 없음
         ]
-        old_has_dache_only = 0
         new_all = 0
         for sil, dache, rent in rooms:
-            put = _rent_ipkum_for_pay(sil, dache, rent)
-            has_dache = dache > 0 and not (rent > 0 and sil >= rent)
-            if has_dache:
-                old_has_dache_only += rent
-            new_all += put
-        self.assertEqual(old_has_dache_only, 450000 + 250000)
-        self.assertEqual(new_all, 450000 + 300000 + 250000)
+            new_all += _rent_ipkum_for_pay(sil, dache, rent)
+        self.assertEqual(new_all, 340000 + 340000 + 250000 + 0)
+
+
+class CommonSuriMasterTests(unittest.TestCase):
+    def test_template_dt_stays_in_year_1000(self):
+        from building import _COMMON_SURI_TEMPLATE_YEAR, _common_suri_template_dt
+
+        a = _common_suri_template_dt("1139", "0004")
+        b = _common_suri_template_dt("0508", "0088")
+        self.assertEqual(a.year, _COMMON_SURI_TEMPLATE_YEAR)
+        self.assertEqual(b.year, _COMMON_SURI_TEMPLATE_YEAR)
+        self.assertNotEqual(a, b)
 

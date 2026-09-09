@@ -31,15 +31,14 @@
       <tr>
         <th class="tc"><input type="checkbox" id="pay-del-all" aria-label="전체 선택"></th>
         <th class="tc">수금일자</th>
-        <th class="tc">주소</th>
+        <th class="tc">번지</th>
         <th class="tc">호수</th>
-        <th class="tc">순번</th>
         <th class="tc">성명</th>
-        <th class="tc">구분</th>
-        <th class="tc">항목</th>
-        <th class="tc">적요</th>
-        <th class="tc">실입금액</th>
+        <th class="tc">입주일자</th>
+        <th class="tc">실수금액</th>
         <th class="tc">대체금액</th>
+        <th class="tc">보증/예치</th>
+        <th class="tc">임+관</th>
       </tr>
     </thead>
     <tbody>
@@ -56,18 +55,28 @@
                  data-hosu="{{ p.hosu }}"
                  aria-label="선택">
         </td>
-        <td class="tc col-nowrap">{{ p.sukum_dt|fmt_date }}</td>
+        <td class="tc col-nowrap">{{ p.sukum_dt|fmt_ipju_short }}</td>
         <td class="tc col-nowrap">{{ p.bunji1|bunji_pair(p.bunji2) }}</td>
         <td class="tc">{{ p.hosu }}</td>
-        <td class="tc">{{ p.ipju_seq }}</td>
         <td>{{ p.ipju_nm or '' }}</td>
-        <td class="tc">{{ p.char_nm or '' }}</td>
-        <td class="tc">{{ p.gb_nm or '' }}</td>
-        <td>{{ p.manage_desc or '' }}</td>
-        <td class="num">{{ p.su_sil_amt|money }}</td>
-        <td class="num">{{ p.su_dache_amt|money }}</td>
+        <td class="tc col-nowrap">{{ p.ipju_dt|fmt_ipju_short if p.ipju_dt else '' }}</td>
+        <td class="num">{% if p.su_sil_amt %}{{ p.su_sil_amt|money }}{% endif %}</td>
+        <td class="num">{% if p.su_dache_amt %}{{ p.su_dache_amt|money }}{% endif %}</td>
+        <td class="num">{% if p.deposit_disp %}{{ p.deposit_disp|money }}{% endif %}</td>
+        <td class="num">{% if p.rent_manage_disp %}{{ p.rent_manage_disp|money }}{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
+    {% if payments and pay_totals %}
+    <tfoot>
+      <tr>
+        <th class="tc" colspan="6">합 계 ({{ pager.total if pager else payments|length }}건)</th>
+        <th class="num">{{ pay_totals.total_sil|money }}</th>
+        <th class="num">{{ pay_totals.total_dache|money }}</th>
+        <th class="num">{{ pay_totals.total_deposit|money }}</th>
+        <th class="num">{{ pay_totals.total_rent_manage|money }}</th>
+      </tr>
+    </tfoot>
+    {% endif %}
   </table>
 </div>

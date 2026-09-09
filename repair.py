@@ -55,7 +55,11 @@ def _repair_list_filters():
 
 
 def _repair_list_sql(f):
-    where = ["s.suri_dt >= %s", "s.suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)"]
+    where = [
+        "s.suri_dt >= %s",
+        "s.suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)",
+        "YEAR(s.suri_dt) > 1000",
+    ]
     args = [f["date_from"], f["date_to"]]
     if f["bunji1"]:
         where.append("s.bunji1=%s")
@@ -286,6 +290,7 @@ def _recent_repairs():
                 SELECT COUNT(*) AS c
                 FROM bd05_suri
                 WHERE sys_dt >= %s AND sys_dt < %s + INTERVAL 1 DAY
+                  AND YEAR(suri_dt) > 1000
                 """,
                 (day_from, today),
             )
@@ -307,6 +312,7 @@ def _recent_repairs():
               ON d.bunji1=s.bunji1 AND d.bunji2=s.bunji2
              AND d.hosu=s.hosu AND d.ipju_seq=s.ipju_seq
             WHERE s.sys_dt >= %s AND s.sys_dt < %s + INTERVAL 1 DAY
+              AND YEAR(s.suri_dt) > 1000
             ORDER BY s.sys_dt DESC, s.suri_dt DESC, CAST(s.suri_seq AS UNSIGNED) DESC
             LIMIT %s OFFSET %s
             """,
