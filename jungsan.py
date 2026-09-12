@@ -257,7 +257,8 @@ def _apply_month_adjustments(rows, b1, b2, month_start):
         r["company_pay_amt"] = 0
         r["company_comp_amt"] = 0
         if adjs and r["adjustment_amt"] > 0:
-            r["misu_amt"] = max(0, _to_int_amt(r.get("misu_amt")) - r["adjustment_amt"])
+            # XP처럼 조정으로 발생한 음수 미수(환급)는 그대로 표시한다.
+            r["misu_amt"] = _to_int_amt(r.get("misu_amt")) - r["adjustment_amt"]
         # 대체 상한은 조정 후 당월 (월세+관리비) 부족분으로 항상 적용
         rent = _to_int_amt(
             r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
@@ -604,7 +605,12 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 if exit_misu is not None or out_adj_exists:
                     # 퇴실자는 누적 미수가 아니라 당월 퇴실정산 수금(종류 06)을
                     # 입금액으로 표시한다. 기존 누적 미수는 퇴실정산에서 정리된다.
-                    r["ipkum_amt"] = _to_int_amt(out_adj_amt) if out_adj_exists else 0
+                    exit_part = _month_sukum_breakdown(
+                        b1, b2, r.get("hosu"), str(r.get("ipju_seq") or "").zfill(2),
+                        month_start, month_end_s,
+                    ).get("06", {})
+                    exit_paid = _to_int_amt(exit_part.get("sil")) + _to_int_amt(exit_part.get("dache"))
+                    r["ipkum_amt"] = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else 0)
                     r["misu_amt"] = 0
                     r["out_settle_amt"] = r["ipkum_amt"]
             if out_d and month_start <= out_d <= month_end:
