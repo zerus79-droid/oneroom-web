@@ -494,7 +494,7 @@ def _jungsan_month_tenants_all(month_start, month_end, keys=None):
           FROM bd03_m m
           LEFT JOIN bd03_det d
             ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2
-           AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu))
+           AND d.hosu_norm=m.hosu_norm
            AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='')
            AND d.ipju_dt IS NOT NULL
            AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY)
@@ -552,7 +552,7 @@ def _month_cost_maps(month_start, month_end_s, keys=None):
     return suri, jungke
 
 def _jungsan_month_tenants(b1, b2, month_start, month_end):
-    return db.query("""SELECT m.hosu,d.ipju_seq,d.ipju_nm,d.ipju_dt,d.out_dt,d.bojung_amt,d.yechi_amt,d.rent_amt,d.manage_amt,d.napbu_gb FROM bd03_m m LEFT JOIN bd03_det d ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND UPPER(TRIM(d.hosu))=UPPER(TRIM(m.hosu)) AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='') AND d.ipju_dt IS NOT NULL AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY) AND (d.out_dt IS NULL OR d.out_dt < '1000-01-01' OR d.out_dt >= %s) WHERE m.bunji1=%s AND m.bunji2=%s ORDER BY m.hosu,d.ipju_dt""", (month_end.isoformat(),month_start.isoformat(),b1,b2))
+    return db.query("""SELECT m.hosu,d.ipju_seq,d.ipju_nm,d.ipju_dt,d.out_dt,d.bojung_amt,d.yechi_amt,d.rent_amt,d.manage_amt,d.napbu_gb FROM bd03_m m LEFT JOIN bd03_det d ON d.bunji1=m.bunji1 AND d.bunji2=m.bunji2 AND d.hosu_norm=m.hosu_norm AND (d.del_yn IS NULL OR d.del_yn='N' OR d.del_yn='') AND d.ipju_dt IS NOT NULL AND d.ipju_dt < DATE_ADD(%s, INTERVAL 1 DAY) AND (d.out_dt IS NULL OR d.out_dt < '1000-01-01' OR d.out_dt >= %s) WHERE m.bunji1=%s AND m.bunji2=%s ORDER BY m.hosu,d.ipju_dt""", (month_end.isoformat(),month_start.isoformat(),b1,b2))
 
 
 def _fmt_man_int(v):
