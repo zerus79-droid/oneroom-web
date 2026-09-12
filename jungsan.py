@@ -611,9 +611,9 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                     ).get("06", {})
                     exit_paid = _to_int_amt(exit_part.get("sil")) + _to_int_amt(exit_part.get("dache"))
                     exit_balance = _to_int_amt(exit_misu)
-                    # XP 기준: 퇴실정산 잔액이 양수면 미수, 음수면 환급액(입금액)이다.
-                    r["ipkum_amt"] = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else min(0, exit_balance))
-                    r["misu_amt"] = max(0, exit_balance)
+                    # 퇴실정산 잔액은 일반 월정산 미수가 아니라 입금액으로 표시한다.
+                    r["ipkum_amt"] = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else exit_balance)
+                    r["misu_amt"] = 0
                     r["out_settle_amt"] = r["ipkum_amt"]
             if out_d and month_start <= out_d <= month_end:
                 r["manage_desc"] = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
@@ -744,8 +744,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 if exit_misu is not None or out_adj_exists:
                     # 누적 미수는 표시하지 않고 당월 퇴실정산 수금(종류 06)만 표시한다.
                     exit_balance = _to_int_amt(exit_misu)
-                    ipkum = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else min(0, exit_balance))
-                    misu = max(0, exit_balance)
+                    ipkum = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else exit_balance)
+                    misu = 0
                     out_settle_amt = ipkum
             rent_calc, claim_raw = _jungsan_month_rent_split(
                 m.get("napbu_gb"), rent, m.get("ipju_dt"), m.get("out_dt"),
