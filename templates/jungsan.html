@@ -69,7 +69,11 @@
 {# ── 조회 결과: 화면에서 바로 읽기 (XP 좁은 그리드 대신 전체 폭) ── #}
 <div class="jungsan-sheet card">
   <div class="jungsan-sheet-head">
-    <div class="jungsan-title">{{ data.bunji_label }} 결산현황</div>
+    <div class="jungsan-title">{{ data.bunji_label }} 결산현황
+      <span class="st-badge {% if data.source == 'saved' %}info{% else %}overdue{% endif %}">
+        {{ '저장본' if data.source == 'saved' else '현재계산' }}
+      </span>
+    </div>
     <div class="jungsan-meta">
       <div class="jungsan-meta-line">
         <strong>{{ data.building.bunji1|bunji_pair(data.building.bunji2) }}</strong>
