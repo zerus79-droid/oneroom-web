@@ -1820,10 +1820,6 @@
       <a class="nav-label" href="{{ url_for('search') }}"
          {% if nav_section == 'tenant' %}aria-current="true"{% endif %}>입주자관리</a>
     </div>
-    <div class="nav-item{% if nav_section == 'month' %} is-active{% endif %}" data-nav="month">
-      <a class="nav-label" href="{{ url_for('jungsan') }}"
-         {% if nav_section == 'month' %}aria-current="true"{% endif %}>월정기보고</a>
-    </div>
     <div class="nav-item{% if nav_section == 'checkout' %} is-active{% endif %}" data-nav="checkout">
       <a class="nav-label" href="{{ url_for('checkout') }}"
          {% if nav_section == 'checkout' %}aria-current="true"{% endif %}>퇴실 정산 관리</a>
@@ -1835,6 +1831,10 @@
     <div class="nav-item{% if nav_section == 'payment' %} is-active{% endif %}" data-nav="payment">
       <a class="nav-label" href="{{ url_for('payment_new') }}"
          {% if nav_section == 'payment' %}aria-current="true"{% endif %}>수금/중개/미수금</a>
+    </div>
+    <div class="nav-item{% if nav_section == 'month' %} is-active{% endif %}" data-nav="month">
+      <a class="nav-label" href="{{ url_for('jungsan') }}"
+         {% if nav_section == 'month' %}aria-current="true"{% endif %}>월정기보고</a>
     </div>
     <div class="nav-item{% if nav_section == 'help' %} is-active{% endif %}" data-nav="help">
       <a class="nav-label" href="{{ url_for('docs') }}"
