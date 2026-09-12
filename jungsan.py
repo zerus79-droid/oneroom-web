@@ -15,6 +15,7 @@ from app_instance import app
 from utils import (
     building_label as _building_label,
     calc_contract_period_charge as _calc_contract_period_charge,
+    calc_checkout_day_amt as _calc_checkout_day_amt,
     fmt_bunji,
     fmt_date,
     fmt_ipju_short as _fmt_ipju_short,
@@ -739,14 +740,12 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             )
             exit_misu = None
             if out_d and month_start <= out_d <= month_end:
-                if not list_mode:
-                    exit_misu = _exit_settlement_misu(b1, b2, hosu, seq, m, out_d)
-                if exit_misu is not None or out_adj_exists:
-                    # 누적 미수는 표시하지 않고 당월 퇴실정산 수금(종류 06)만 표시한다.
-                    exit_balance = _to_int_amt(exit_misu)
-                    ipkum = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else exit_balance)
-                    misu = 0
-                    out_settle_amt = ipkum
+                # 현재계산의 퇴실행은 퇴실정산 화면과 같은 마지막 잔여일
+                # (임대료+관리비, 30일 기준·100원 올림)을 입금액으로 쓴다.
+                # 저장본은 위 저장된 jungsan_det 값을 보존한다.
+                ipkum = _calc_checkout_day_amt(m.get("ipju_dt"), out_d, rent, manage)
+                misu = 0
+                out_settle_amt = ipkum
             rent_calc, claim_raw = _jungsan_month_rent_split(
                 m.get("napbu_gb"), rent, m.get("ipju_dt"), m.get("out_dt"),
                 month_start, month_end,

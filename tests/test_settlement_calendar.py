@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
-from utils import calc_contract_period_charge, months_elapsed
+from utils import calc_checkout_day_amt, calc_contract_period_charge, months_elapsed
 from jungsan import (
     _apply_month_adjustments,
     _first_hosu_in_text,
@@ -63,6 +63,12 @@ class SettlementCalendarTests(unittest.TestCase):
         self.assertEqual(
             _period_mm_dd(date(2026, 8, 31), date(2026, 8, 31)),
             (0, 1),
+        )
+
+    def test_checkout_day_amount_matches_308_exit_example(self):
+        self.assertEqual(
+            calc_checkout_day_amt(date(2016, 11, 1), date(2026, 5, 14), 200000, 80000),
+            130700,
         )
 
     @patch("utils.db.execute")

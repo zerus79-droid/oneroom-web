@@ -653,6 +653,29 @@ def _add_months_clamped(d, months):
     return date(y, m0 + 1, min(d.day, monthrange(y, m0 + 1)[1]))
 
 
+def calc_checkout_day_amt(ipju_dt, out_dt, rent_amt=0, manage_amt=0):
+    """퇴실정산 화면의 마지막 잔여일(임대료+관리비) 일할금액.
+
+    계약월은 입주일 기준으로 세고, 남은 일수는 퇴실일을 포함해 30일 기준
+    100원 단위 올림으로 계산한다. 월정산의 당월 퇴실 표시도 이 값을 사용한다.
+    """
+    if isinstance(ipju_dt, datetime): ipju_dt = ipju_dt.date()
+    if isinstance(out_dt, datetime): out_dt = out_dt.date()
+    if not ipju_dt or not out_dt or out_dt < ipju_dt:
+        return 0
+    end_exclusive = out_dt + timedelta(days=1)
+    months = max(0, (end_exclusive.year - ipju_dt.year) * 12 + (end_exclusive.month - ipju_dt.month))
+    while months > 0 and _add_months_clamped(ipju_dt, months) > end_exclusive:
+        months -= 1
+    while _add_months_clamped(ipju_dt, months + 1) <= end_exclusive:
+        months += 1
+    days = (end_exclusive - _add_months_clamped(ipju_dt, months)).days
+    monthly = max(0, to_int_amt(rent_amt) + to_int_amt(manage_amt))
+    if not days or not monthly:
+        return 0
+    return min(monthly, ((monthly * days + 2999) // 3000) * 100)
+
+
 def calc_contract_period_charge(bunji1, bunji2, hosu, ipju_seq, ipju_dt, end_dt,
                                 rent_amt=0, manage_amt=0, *, terms_rows=None):
     """입주일~퇴실일(양끝 포함)의 임대료+관리비를 계약월+30일 일할로 계산한다."""

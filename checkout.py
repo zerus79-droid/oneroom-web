@@ -15,6 +15,7 @@ from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
     building_label as _building_label,
     calc_contract_period_charge,
+    calc_checkout_day_amt,
     make_pager as _make_pager,
     paginate as _paginate,
     fmt_bunji,
@@ -282,9 +283,7 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
 
     # XP/기존 장부 기준: 전체 계약월은 월액 그대로, 마지막 잔여일만 30일로 일할한다.
     # 따라서 2월·31일 달도 완전한 계약 주기는 1개월분이고, 15일은 월액의 절반이다.
-    day_amt = 0
-    if dd and monthly:
-        day_amt = min(monthly, _ceil_100(monthly * dd / 30.0))
+    day_amt = calc_checkout_day_amt(ipju_d, out_d, rent, manage)
     # ③거주기간(총액) = (임+관)×개월 + 일할. 보증/예치·수리는 넣지 않음.
     stay_amt_gross = calc_contract_period_charge(
         b1, b2, hosu, seq, ipju_d, out_d, rent, manage
