@@ -5,9 +5,11 @@ from unittest.mock import patch
 from utils import calc_contract_period_charge, months_elapsed
 from jungsan import (
     _apply_month_adjustments,
+    _first_hosu_in_text,
     _is_manager_account,
     _is_item_manager_account,
     _jungsan_decorate_rows,
+    _suri_detail_desc,
 )
 from jungsan_engine import (
     _cap_dache_to_rent_shortfall,
@@ -77,6 +79,41 @@ class SettlementCalendarTests(unittest.TestCase):
         )
         self.assertEqual(half_month, 200000)
         self.assertEqual(full_february_cycle, 400000)
+
+    def test_suri_desc_does_not_repeat_hosu(self):
+        self.assertEqual(_first_hosu_in_text("204호등외변기부속셑트"), "204")
+        self.assertEqual(_first_hosu_in_text("204호 305호 전등"), "204")
+        self.assertEqual(_first_hosu_in_text("변기부속"), "")
+        self.assertEqual(
+            _suri_detail_desc("204", "204호등외변기부속셑트"),
+            "204호등외변기부속셑트",
+        )
+        self.assertEqual(_suri_detail_desc("305", "204호 305호 전등"), "204호 305호 전등")
+        self.assertEqual(_suri_detail_desc("204", "변기부속세트"), "204호 변기부속세트")
+
+    def test_move_in_jisi_is_kept(self):
+        row = {
+            "hosu": "303", "ipju_nm": "OROZALIEVAMAN", "ipju_dt": date(2026, 5, 13),
+            "napbu_gb": "A", "rent_amt": 370000, "manage_amt": 50000,
+            "bojung_amt": 0, "ipkum_amt": 370000, "sil_amt": 420000,
+            "dache_amt": 0, "dache_gb": "", "rent_calc": 370000,
+            "misu_amt": 0, "manage_desc": "입실(05-13)", "is_empty": False,
+        }
+        _jungsan_decorate_rows([row])
+        self.assertEqual(row["jisi_disp"], "입실(05-13)")
+        self.assertEqual(row["ipkum_disp"], "370,000")
+
+    def test_carryover_misu_shows_jisi(self):
+        """당월 월세는 냈어도 누적 미수가 있으면 관리지시에 미수."""
+        row = {
+            "hosu": "B01", "ipju_nm": "이태우", "ipju_dt": date(2025, 2, 24),
+            "napbu_gb": "A", "rent_amt": 260000, "manage_amt": 40000,
+            "bojung_amt": 0, "ipkum_amt": 260000, "sil_amt": 300000,
+            "dache_amt": 0, "dache_gb": "", "rent_calc": 260000,
+            "misu_amt": 300000, "manage_desc": "", "is_empty": False,
+        }
+        _jungsan_decorate_rows([row])
+        self.assertEqual(row["jisi_disp"], "미수")
 
     def test_negative_checkout_adjustment_is_printed(self):
         row = {
@@ -311,7 +348,7 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
         self.assertEqual(row["jisi_disp"], "")
 
     def test_pay_base_uses_rent_ipkum_for_all_rooms(self):
-        """당월지급액 임대료분은 대체 여부 없이 전 호 월세분(실입+대체, 관리비 제외)."""
+        """당월지급액은 월세 입금액분만. 보증금대체(현재합−최초)는 넣지 않는다."""
         rooms = [
             (0, 400000, 340000),      # 순수 대체: 01이 월세+관리비여도 월세
             (400000, 0, 340000),      # 실입 완납

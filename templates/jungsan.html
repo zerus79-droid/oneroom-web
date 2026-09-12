@@ -155,7 +155,7 @@
            <td class="num">{% if not r.is_empty and not r.is_exit %}{{ r.manage_amt|money }}{% endif %}</td>
           <td class="tc">{% if not r.is_empty and r.ipkum_amt %}{{ r.ipkum_amt|money }}{% endif %}</td>
           <td class="left">
-            {% if not r.is_empty %}{% if r.manage_desc == '미납' %}<span class="st-badge overdue">미납</span>{% elif r.manage_desc in ('대체', '(대체)') %}<span class="st-badge info">대체</span>{% else %}{{ r.manage_desc or '' }}{% endif %}{% endif %}
+            {% if not r.is_empty %}{% if r.manage_desc == '미납' %}<span class="st-badge overdue">미납</span>{% elif r.manage_desc == '미수' %}<span class="st-badge overdue">미수</span>{% elif r.manage_desc in ('대체', '(대체)') %}<span class="st-badge info">대체</span>{% else %}{{ r.manage_desc or '' }}{% endif %}{% endif %}
           </td>
           <td class="tc">
             {% if can_dache_edit and r.can_dache %}
