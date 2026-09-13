@@ -38,6 +38,7 @@ from building import (
 
 _G_COST_COLS_READY = False
 _MONTH_ADJUSTMENT_TABLE_READY = False
+_MONTH_JISI_TABLE_READY = False
 _SJUNGKE_HOSU_READY = False
 
 
@@ -222,6 +223,41 @@ def _ensure_month_adjustment_table():
     except Exception:
         pass
     _MONTH_ADJUSTMENT_TABLE_READY = True
+
+
+_ADJ_LABELS = {
+    "RENT_DISCOUNT": "월세감면", "RENT_WAIVE": "월세면제",
+    "MANAGE_DISCOUNT": "관리비감면", "MANAGE_WAIVE": "관리비면제",
+    "OTHER": "기타조정",
+}
+
+def _ensure_month_jisi_table():
+    global _MONTH_JISI_TABLE_READY
+    if _MONTH_JISI_TABLE_READY:
+        return
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jungsan_month_jisi (
+          bunji1 CHAR(4) NOT NULL,
+          bunji2 CHAR(4) NOT NULL,
+          jisi_month DATE NOT NULL,
+          jisi_text VARCHAR(200) NOT NULL DEFAULT '',
+          uid CHAR(5) NOT NULL DEFAULT '',
+          sys_dt DATETIME NOT NULL,
+          PRIMARY KEY (bunji1, bunji2, jisi_month)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+    _MONTH_JISI_TABLE_READY = True
+
+def _month_jisi_text(b1, b2, month_start):
+    _ensure_month_jisi_table()
+    row = db.query_one(
+        """SELECT jisi_text FROM jungsan_month_jisi
+           WHERE bunji1=%s AND bunji2=%s AND jisi_month=%s""",
+        (b1, b2, month_start.isoformat()),
+    )
+    return ((row or {}).get("jisi_text") or "").strip()
 
 
 _ADJ_LABELS = {
@@ -1237,6 +1273,10 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
         )
 
     bunji_label = f"{fmt_bunji(b1)}-{fmt_bunji(b2)}"
+    if not list_mode:
+        summary["jisi_text"] = _month_jisi_text(b1, b2, month_start)
+    else:
+        summary.setdefault("jisi_text", "")
 
     return {
         "error": None,
@@ -1673,6 +1713,40 @@ def jungsan_dache_undo():
 
     return _jungsan_redirect(bunji1, bunji2, as_of_s)
 
+
+@app.route("/jungsan/jisi", methods=["POST"])
+@login_required
+@require_write_access
+def jungsan_jisi():
+    """건물·월 관리지시. 정산서 저장과 별도로 두고 인쇄에 넣는다."""
+    bunji1 = _pad_bunji(request.form.get("bunji1"))
+    bunji2 = _pad_bunji(request.form.get("bunji2"))
+    as_of_s = (request.form.get("as_of") or "").strip()
+    text = (request.form.get("jisi_text") or "").strip()[:200]
+    try:
+        as_of = datetime.strptime(as_of_s[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return _jungsan_redirect(bunji1, bunji2, as_of_s)
+    if not (bunji1 and bunji2):
+        return _jungsan_redirect(bunji1, bunji2, as_of_s)
+    month_start, _ = _month_bounds(as_of)
+    _ensure_month_jisi_table()
+    uid = session.get("sabun") or ""
+    if text:
+        db.execute(
+            """INSERT INTO jungsan_month_jisi
+                 (bunji1, bunji2, jisi_month, jisi_text, uid, sys_dt)
+               VALUES (%s,%s,%s,%s,%s,NOW())
+               ON DUPLICATE KEY UPDATE jisi_text=%s, uid=%s, sys_dt=NOW()""",
+            (bunji1, bunji2, month_start.isoformat(), text, uid, text, uid),
+        )
+    else:
+        db.execute(
+            """DELETE FROM jungsan_month_jisi
+               WHERE bunji1=%s AND bunji2=%s AND jisi_month=%s""",
+            (bunji1, bunji2, month_start.isoformat()),
+        )
+    return _jungsan_redirect(bunji1, bunji2, as_of_s)
 
 def _jungsan_write_snapshot(b1, b2, as_of, data):
     """현재계산을 그달 jungsan_m / jungsan_det 에 저장(덮어씀)."""

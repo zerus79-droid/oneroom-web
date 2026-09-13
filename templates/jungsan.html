@@ -160,6 +160,16 @@
     {% if data.summary.note %}
     <div class="js-item wide"><span class="js-lab">특기사항</span><span class="js-val left">{{ data.summary.note }}</span></div>
     {% endif %}
+    <div class="js-item wide js-jisi-item no-print">
+      <label class="js-lab" for="js-jisi-text">관리지시</label>
+      {% if can_dache_edit %}
+      <input type="text" id="js-jisi-text" name="jisi_text" class="js-jisi-input"
+             maxlength="200" value="{{ data.summary.jisi_text or '' }}"
+             placeholder="정산서 수리비내역 위에 출력됩니다" autocomplete="off">
+      {% else %}
+      <span class="js-val left">{{ data.summary.jisi_text or '' }}</span>
+      {% endif %}
+    </div>
   </div>
 
   <div class="table-scroll">
@@ -414,6 +424,34 @@ function restoreJungsanScroll() {
     syncHeader();
   });
   syncHeader();
+})();
+(function bindJungsanJisi() {
+  var input = document.getElementById("js-jisi-text");
+  if (!input) return;
+  var saveUrl = "{{ url_for('jungsan_jisi') }}";
+  var last = input.value;
+  function saveJisi() {
+    var text = (input.value || "").trim();
+    if (text === last) return;
+    last = text;
+    var fd = new FormData();
+    var csrf = document.querySelector('meta[name="csrf-token"]');
+    if (csrf) fd.append("csrf_token", csrf.getAttribute("content") || "");
+    var form = document.getElementById("js-dache-form");
+    ["bunji1", "bunji2", "as_of"].forEach(function (name) {
+      var el = form ? form.querySelector('input[name="' + name + '"]') : null;
+      fd.append(name, el ? el.value : "");
+    });
+    fd.append("jisi_text", text);
+    fetch(saveUrl, { method: "POST", body: fd, credentials: "same-origin" });
+  }
+  input.addEventListener("blur", saveJisi);
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    }
+  });
 })();
 (function bindJungsanAdjustments() {
   var form = document.getElementById("js-dache-form");

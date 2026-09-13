@@ -1683,6 +1683,7 @@ def _cascade_delete_building(bunji1, bunji2):
         ("bd05_suri", "DELETE FROM bd05_suri WHERE bunji1=%s AND bunji2=%s"),
         ("bd07_out", "DELETE FROM bd07_out WHERE bunji1=%s AND bunji2=%s"),
         ("jungsan_adjustment", "DELETE FROM jungsan_adjustment WHERE bunji1=%s AND bunji2=%s"),
+        ("jungsan_month_jisi", "DELETE FROM jungsan_month_jisi WHERE bunji1=%s AND bunji2=%s"),
         ("jungsan_det", "DELETE FROM jungsan_det WHERE bunji1=%s AND bunji2=%s"),
         ("jungsan_m", "DELETE FROM jungsan_m WHERE bunji1=%s AND bunji2=%s"),
         ("sjungke01", "DELETE FROM sjungke01 WHERE bunji1=%s AND bunji2=%s"),

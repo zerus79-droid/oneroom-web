@@ -4400,6 +4400,20 @@ a.jungsan-src-badge.is-on {
   color: #000 !important;
   -webkit-text-fill-color: #000;
 }
+.jungsan-summary .js-jisi-item {
+  min-height: auto;
+}
+.jungsan-summary .js-jisi-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--box-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #000;
+}
 .jungsan-grid th { white-space: nowrap; }
 .jungsan-grid th.tc,
 .jungsan-grid td.tc {
