@@ -8,7 +8,7 @@ import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 
-from flask import redirect, render_template, request, session, url_for
+from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
@@ -431,10 +431,30 @@ def _jungsan_decorate_rows(rows):
     return rows
 
 
-def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=None):
+def _jungsan_saved_header(b1, b2, as_of):
+    """해당 월 저장본 헤더(jungsan_m) 1건."""
+    if isinstance(as_of, str):
+        as_of = datetime.strptime(as_of[:10], "%Y-%m-%d").date()
+    month_start, month_end = _month_bounds(as_of)
+    return db.query_one(
+        """
+        SELECT * FROM jungsan_m
+        WHERE bunji1=%s AND bunji2=%s
+          AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+          AND (
+            DATE(jungsan_dt)=%s
+            OR (jungsan_dt >= %s AND jungsan_dt < DATE_ADD(%s, INTERVAL 1 DAY))
+          )
+        ORDER BY jungsan_dt DESC, jungsan_seq DESC
+        LIMIT 1
+        """,
+        (b1, b2, as_of.isoformat(), month_start.isoformat(), month_end.isoformat()),
+    )
+
+def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=None, prefer_saved=None):
     """
     주소별 정산서 조회 미리보기 (화면 표시용).
-    저장된 jungsan 이 있으면 그 데이터, 없으면 현재 호·입주·수금으로 계산.
+    prefer_saved True면 저장본, False면 현재계산, None이면 저장본 있으면 저장본.
     """
     b1, b2 = _pad_bunji(bunji1), _pad_bunji(bunji2)
     if not b1 or not b2:
@@ -474,27 +494,21 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     # 저장된 정산서 (기준일 또는 그 달 말일)
     if preload.get("skip_saved"):
         saved = None
+        has_saved = False
     else:
-        saved = db.query_one(
-            """
-            SELECT * FROM jungsan_m
-            WHERE bunji1=%s AND bunji2=%s
-              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-              AND (
-                DATE(jungsan_dt)=%s
-                OR (jungsan_dt >= %s AND jungsan_dt < DATE_ADD(%s, INTERVAL 1 DAY))
-              )
-            ORDER BY jungsan_dt DESC, jungsan_seq DESC
-            LIMIT 1
-            """,
-            (b1, b2, as_of_s, month_start.isoformat(), month_end_s),
-        )
+        saved = _jungsan_saved_header(b1, b2, as_of)
+        has_saved = bool(saved)
+    use_saved = bool(saved)
+    if prefer_saved is False:
+        use_saved = False
+    elif prefer_saved is True:
+        use_saved = bool(saved)
 
     source = "live"
     rows = []
     summary = {}
 
-    if saved:
+    if use_saved:
         source = "saved"
         det = db.query(
             """
@@ -1244,6 +1258,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
         "dache_target_amt": dache_target_amt,
         "dache_undo_cnt": dache_undo_cnt,
         "dache_undo_amt": dache_undo_amt,
+        "has_saved": has_saved,
     }
 
 
@@ -1266,21 +1281,29 @@ def _jungsan_request_common():
     today = date.today()
     # 월정기보고: 기본은 전월 말일 (당월은 수금이 아직 없어 지급액 0이 됨)
     default_as_of = (date(today.year, today.month, 1) - timedelta(days=1)).isoformat()
-    bunji1 = _pad_bunji(request.args.get("bunji1"))
-    bunji2 = _pad_bunji(request.args.get("bunji2"))
-    as_of_s = (request.args.get("as_of") or "").strip() or default_as_of
-    ran = "q" in request.args or (
+    bunji1 = _pad_bunji(request.args.get("bunji1") or request.form.get("bunji1"))
+    bunji2 = _pad_bunji(request.args.get("bunji2") or request.form.get("bunji2"))
+    as_of_s = (request.args.get("as_of") or request.form.get("as_of") or "").strip() or default_as_of
+    src = (request.args.get("src") or request.form.get("src") or "").strip().lower()
+    if src not in ("live", "saved"):
+        src = ""
+    prefer_saved = None
+    if src == "live":
+        prefer_saved = False
+    elif src == "saved":
+        prefer_saved = True
+    ran = "q" in request.args or "q" in request.form or (
         bunji1 and bunji2 and ("as_of" in request.args or "bunji1" in request.args)
     )
     data = None
     if ran and bunji1 and bunji2:
         try:
-            data = _jungsan_build_preview(bunji1, bunji2, as_of_s)
+            data = _jungsan_build_preview(bunji1, bunji2, as_of_s, prefer_saved=prefer_saved)
         except Exception as e:
             data = {"error": f"조회 실패: {e}", "building": None}
     elif ran and (not bunji1 or not bunji2):
         data = {"error": "주소를 입력하세요.", "building": None}
-    filters = {"bunji1": bunji1, "bunji2": bunji2, "as_of": as_of_s}
+    filters = {"bunji1": bunji1, "bunji2": bunji2, "as_of": as_of_s, "src": src}
     return filters, ran, data, bunji1, bunji2
 
 
@@ -1394,16 +1417,20 @@ def _selected_dache_keys(name="dache_sel"):
     return keys
 
 
-def _jungsan_redirect(bunji1, bunji2, as_of_s):
-    return redirect(
-        url_for(
-            "jungsan",
-            q=1,
-            bunji1=fmt_bunji(bunji1) if bunji1 else None,
-            bunji2=fmt_bunji(bunji2) if bunji2 else None,
-            as_of=as_of_s,
-        )
-    )
+def _jungsan_redirect(bunji1, bunji2, as_of_s, src=None, extra=None):
+    if src is None:
+        src = (request.form.get("src") or request.args.get("src") or "").strip().lower()
+    kw = {
+        "q": 1,
+        "bunji1": fmt_bunji(bunji1) if bunji1 else None,
+        "bunji2": fmt_bunji(bunji2) if bunji2 else None,
+        "as_of": as_of_s,
+    }
+    if src in ("live", "saved"):
+        kw["src"] = src
+    if extra:
+        kw.update(extra)
+    return redirect(url_for("jungsan", **kw))
 
 
 @app.route("/jungsan")
@@ -1647,6 +1674,133 @@ def jungsan_dache_undo():
     return _jungsan_redirect(bunji1, bunji2, as_of_s)
 
 
+def _jungsan_write_snapshot(b1, b2, as_of, data):
+    """현재계산을 그달 jungsan_m / jungsan_det 에 저장(덮어씀)."""
+    month_start, month_end = _month_bounds(as_of)
+    summary = data.get("summary") or {}
+    rows = data.get("rows") or []
+    uid = (session.get("sabun") or "")[:5]
+    existing = _jungsan_saved_header(b1, b2, as_of)
+    if existing:
+        jdt = existing.get("jungsan_dt")
+        seq = existing.get("jungsan_seq") or "01"
+        db.execute(
+            """UPDATE jungsan_m
+                  SET pay_amt=%s, ipkum_tot=%s, man_cost=%s, owner_suri=%s,
+                      jungke_cost=%s, jungke_desc=%s, misu_tot=%s, bojung_tot=%s,
+                      rent_tot=%s, manage_tot=%s, first_amt=%s,
+                      del_yn='N', uid=%s, sys_dt=NOW()
+                WHERE bunji1=%s AND bunji2=%s AND jungsan_dt=%s AND jungsan_seq=%s""",
+            (
+                _to_int_amt(summary.get("pay_amt")),
+                _to_int_amt(summary.get("ipkum_tot")),
+                _to_int_amt(summary.get("man_cost")),
+                _to_int_amt(summary.get("owner_suri")),
+                _to_int_amt(summary.get("jungke_cost")),
+                (summary.get("jisi_text") or summary.get("note") or "")[:200],
+                _to_int_amt(summary.get("misu_tot")),
+                _to_int_amt(summary.get("bojung_tot")),
+                _to_int_amt(summary.get("rent_tot") or (data.get("totals") or {}).get("rent_amt")),
+                _to_int_amt(summary.get("manage_tot") or (data.get("totals") or {}).get("manage_amt")),
+                _to_int_amt(summary.get("first_amt")),
+                uid,
+                b1, b2, jdt, seq,
+            ),
+        )
+        db.execute(
+            """DELETE FROM jungsan_det
+                WHERE bunji1=%s AND bunji2=%s AND jungsan_dt=%s AND jungsan_seq=%s""",
+            (b1, b2, jdt, seq),
+        )
+    else:
+        jdt = datetime.combine(month_end, datetime.min.time())
+        seq = "01"
+        db.execute(
+            """INSERT INTO jungsan_m (
+                   jungsan_dt, jungsan_seq, bunji1, bunji2, pay_amt, ipkum_tot,
+                   man_cost, owner_suri, jungke_cost, jungke_desc, misu_tot,
+                   bojung_tot, rent_tot, manage_tot, first_amt, del_yn,
+                   print_cnt, uid, sys_dt
+               ) VALUES (
+                   %s,%s,%s,%s,%s,%s,
+                   %s,%s,%s,%s,%s,
+                   %s,%s,%s,%s,'N',
+                   0,%s,NOW()
+               )""",
+            (
+                jdt, seq, b1, b2,
+                _to_int_amt(summary.get("pay_amt")),
+                _to_int_amt(summary.get("ipkum_tot")),
+                _to_int_amt(summary.get("man_cost")),
+                _to_int_amt(summary.get("owner_suri")),
+                _to_int_amt(summary.get("jungke_cost")),
+                (summary.get("jisi_text") or summary.get("note") or "")[:200],
+                _to_int_amt(summary.get("misu_tot")),
+                _to_int_amt(summary.get("bojung_tot")),
+                _to_int_amt(summary.get("rent_tot") or (data.get("totals") or {}).get("rent_amt")),
+                _to_int_amt(summary.get("manage_tot") or (data.get("totals") or {}).get("manage_amt")),
+                _to_int_amt(summary.get("first_amt")),
+                uid,
+            ),
+        )
+    for r in rows:
+        ipju_d = _as_date(r.get("ipju_dt"))
+        if not ipju_d or ipju_d.year < 1000:
+            ipju_sql = datetime(1900, 1, 1)
+        else:
+            ipju_sql = datetime.combine(ipju_d, datetime.min.time())
+        dache_raw = str(r.get("dache_gb") or "").strip()
+        dache_gb = "대체" if dache_raw else ""
+        desc = (r.get("jisi_disp") or r.get("manage_desc") or "")[:30]
+        nm = (r.get("ipju_nm") or "").strip()
+        if r.get("is_empty"):
+            nm = "공 실"
+        db.execute(
+            """INSERT INTO jungsan_det (
+                   jungsan_dt, jungsan_seq, bunji1, bunji2, hosu, ipju_nm, ipju_dt,
+                   ipju_seq, bojung_amt, rent_amt, manage_amt, misu_amt,
+                   manage_desc, dache_gb, uid, del_yn, sys_dt
+               ) VALUES (
+                   %s,%s,%s,%s,%s,%s,%s,
+                   %s,%s,%s,%s,%s,
+                   %s,%s,%s,'',NOW()
+               )""",
+            (
+                jdt, seq, b1, b2,
+                (r.get("hosu") or "")[:3],
+                nm[:100],
+                ipju_sql,
+                str(r.get("ipju_seq") or "").zfill(2) if not r.get("is_empty") else "",
+                _to_int_amt(r.get("bojung_amt")),
+                _to_int_amt(r.get("rent_amt")),
+                _to_int_amt(r.get("manage_amt")),
+                _to_int_amt(r.get("misu_amt")),
+                desc,
+                dache_gb[:2],
+                uid,
+            ),
+        )
+
+@app.route("/jungsan/save", methods=["POST"])
+@login_required
+@require_write_access
+def jungsan_save():
+    """현재계산을 그달 저장본으로 남긴다."""
+    bunji1 = _pad_bunji(request.form.get("bunji1"))
+    bunji2 = _pad_bunji(request.form.get("bunji2"))
+    as_of_s = (request.form.get("as_of") or "").strip()
+    try:
+        as_of = datetime.strptime(as_of_s[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return _jungsan_redirect(bunji1, bunji2, as_of_s)
+    if not (bunji1 and bunji2):
+        return _jungsan_redirect(bunji1, bunji2, as_of_s)
+    data = _jungsan_build_preview(bunji1, bunji2, as_of, prefer_saved=False)
+    if not data or data.get("error") or not data.get("building"):
+        return _jungsan_redirect(bunji1, bunji2, as_of_s, src="live")
+    _jungsan_write_snapshot(bunji1, bunji2, as_of, data)
+    return _jungsan_redirect(bunji1, bunji2, as_of_s, src="saved", extra={"saved": 1})
+
 @app.route("/jungsan/print")
 @login_required
 def jungsan_print():
@@ -1663,6 +1817,7 @@ def jungsan_print():
                 q=1 if bunji1 and bunji2 else None,
                 bunji1=fmt_bunji(bunji1) if bunji1 else None,
                 bunji2=fmt_bunji(bunji2) if bunji2 else None,
+                src=filters.get("src") or None,
                 as_of=filters["as_of"],
             )
         )

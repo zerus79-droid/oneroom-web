@@ -2272,6 +2272,11 @@ body.is-searching {
     max-height: 80px;
     height: 80px;
   }
+  .filter-bar-btns > .btn-stack {
+    height: 80px;
+    min-height: 80px;
+    max-height: 80px;
+  }
 }
 /* 1줄 필터용 버튼 (높이 축소) */
 .filter-bar-btns-single > .btn,
@@ -4264,6 +4269,26 @@ tr.name-summary-row:hover a {
   letter-spacing: 0.04em;
   color: var(--navy) !important;
   -webkit-text-fill-color: var(--navy);
+}
+
+.jungsan-src-badges {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+a.jungsan-src-badge {
+  text-decoration: none;
+  cursor: pointer;
+  opacity: 0.42;
+}
+a.jungsan-src-badge.is-on {
+  opacity: 1;
+  box-shadow: 0 0 0 2px currentColor;
+}
+.jungsan-src-badge.is-off {
+  opacity: 0.38;
+  cursor: default;
 }
 .jungsan-meta {
   font-size: 0.95rem;

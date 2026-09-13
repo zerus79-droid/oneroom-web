@@ -44,14 +44,34 @@
       </div>
     </div>
     </div>
+    {% if filters.src %}
+    <input type="hidden" name="src" value="{{ filters.src }}">
+    {% endif %}
     <div class="filter-bar-btns">
       <button type="submit" class="btn">조회</button>
-      <a class="btn" href="{{ url_for('jungsan') }}">초기화</a>
+      <div class="btn-stack">
+        <a class="btn btn-stack-item" href="{{ url_for('jungsan') }}">초기화</a>
+        {% set can_save = current_user and (current_user.grade or '')|upper != 'C' %}
+        {% if can_save and ran and data and not data.error and data.building %}
+        <button type="submit" class="btn btn-stack-item btn-accent" form="js-save-form"
+                {% if data.has_saved %}onclick="return confirm('이미 저장본이 있습니다. 현재계산으로 덮어쓸까요?');"{% endif %}>저장</button>
+        {% else %}
+        <button type="button" class="btn btn-stack-item" disabled title="조회 후 저장할 수 있습니다">저장</button>
+        {% endif %}
+      </div>
       <a class="btn btn-accent" id="jungsan-print-btn" target="_blank" rel="noopener"
-         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, as_of=filters.as_of) }}"
+         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, as_of=filters.as_of, src=filters.src or none) }}"
          title="결산현황 인쇄">인쇄</a>
     </div>
   </form>
+  {% if can_save and ran and data and not data.error and data.building %}
+  <form id="js-save-form" method="post" action="{{ url_for('jungsan_save') }}" class="no-print">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
+    <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
+    <input type="hidden" name="as_of" value="{{ filters.as_of }}">
+  </form>
+  {% endif %}
   {% if not ran or (ran and not data) or (ran and data and data.error) %}
   <div class="legacy-sukum-body">
     {% if ran and data and data.error %}
@@ -70,8 +90,17 @@
 <div class="jungsan-sheet card">
   <div class="jungsan-sheet-head">
     <div class="jungsan-title">{{ data.bunji_label }} 결산현황
-      <span class="st-badge {% if data.source == 'saved' %}info{% else %}overdue{% endif %}">
-        {{ '저장본' if data.source == 'saved' else '현재계산' }}
+      <span class="jungsan-src-badges">
+        <a class="st-badge jungsan-src-badge paid {% if data.source != 'saved' %}is-on{% endif %}"
+           href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of, src='live') }}"
+           title="지금 호실·수금으로 다시 계산">현재계산</a>
+        {% if data.has_saved %}
+        <a class="st-badge jungsan-src-badge info {% if data.source == 'saved' %}is-on{% endif %}"
+           href="{{ url_for('jungsan', q=1, bunji1=filters.bunji1|bunji, bunji2=filters.bunji2|bunji, as_of=filters.as_of, src='saved') }}"
+           title="이달 저장본과 비교">저장본</a>
+        {% else %}
+        <span class="st-badge jungsan-src-badge empty is-off" title="이달 저장본이 없습니다">저장본</span>
+        {% endif %}
       </span>
     </div>
     <div class="jungsan-meta">
@@ -96,6 +125,7 @@
     <input type="hidden" name="bunji1" value="{{ filters.bunji1|bunji }}">
     <input type="hidden" name="bunji2" value="{{ filters.bunji2|bunji }}">
     <input type="hidden" name="as_of" value="{{ filters.as_of }}">
+    {% if filters.src %}<input type="hidden" name="src" value="{{ filters.src }}">{% endif %}
   {% endif %}
   <div class="jungsan-summary">
     <div class="js-item"><span class="js-lab">최초보증금</span><span class="js-val">{{ data.summary.first_amt|money }}</span></div>
@@ -241,11 +271,15 @@
   </div>
   {% endif %}
 
+  {% if request.args.get('saved') == '1' %}
+  <p class="empty hint-box no-print">현재계산을 이달 저장본으로 저장했습니다. 「현재계산」과 「저장본」 배지로 비교할 수 있습니다.</p>
+  {% endif %}
   <p class="muted jungsan-note no-print">
     {% if data.source == 'saved' %}
-    저장된 정산서 기준입니다. 입금액은 해당 월 수금(월세+관리)으로 보강 표시합니다.
+    저장본입니다. 입금액은 해당 월 수금으로 보강합니다. 「현재계산」을 누르면 지금 자료와 비교합니다.
     {% else %}
-    실시간 미리보기입니다. 체크하면 바로 대체되고, 대체 체크를 빼면 바로 해제됩니다. 위 버튼은 대상 전체입니다. 대체는 임대료+관리비. 세입자 미수에서는 빼지 않습니다.
+    현재계산(실시간)입니다.{% if data.has_saved %} 「저장본」을 누르면 저장된 정산서와 비교합니다.{% endif %}
+    체크하면 바로 대체되고, 빼면 바로 해제됩니다. 대체는 임대료+관리비. 세입자 미수에서는 빼지 않습니다.
     {% endif %}
   </p>
 </div>
