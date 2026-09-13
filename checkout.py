@@ -136,12 +136,25 @@ def _cycle_label(start, end):
 
 def _pay_kind(char):
     c = str(char or "").strip().zfill(2)
-    return "임대" if c == "01" else "보증"
+    if c == "01":
+        return "임대"
+    if c in ("02", "03"):
+        return "보증"
+    if c == "06":
+        return "퇴실정산"
+    return "기타"
 
 
 def _pay_label(char):
     c = str(char or "").strip().zfill(2)
-    return {"01": "월세", "02": "보증금", "03": "예치금"}.get(c, "기타")
+    return {
+        "01": "월세",
+        "02": "보증금",
+        "03": "예치금",
+        "04": "수리비",
+        "05": "중개보수",
+        "06": "퇴실정산",
+    }.get(c, "기타")
 
 
 def _period_mm_dd(ipju_dt, out_dt):
@@ -318,8 +331,11 @@ def _checkout_build(bunji1, bunji2, hosu, ipju_seq, out_dt, extra=None):
         if kind == "임대":
             sukum_tot += sil
         gb = str(p.get("sukum_gb") or "").strip()
-        # 납부현황은 실입만. 대체전표(종류 02 또는 실입 0·대체>0)는 안 그림.
+        char = str(p.get("sukum_char") or "").strip().zfill(2)
+        # 납부현황은 실입만. 대체전표·퇴실정산(06/07) 전표는 월세 납부와 섞지 않는다.
         if gb == "02" or (dac > 0 and sil == 0):
+            continue
+        if char in ("06", "07"):
             continue
         cyc_s, cyc_e = _cycle_bounds(ipju_d, p.get("sukum_dt"), napbu)
         period = _cycle_label(cyc_s, cyc_e) if kind == "임대" else ""
@@ -534,6 +550,10 @@ def _checkout_to_print(data):
         if kind == "보증":
             pay_d = _to_date(p.get("dt_full") or p.get("dt"))
             item["yy1"] = "보증"
+            item["pay_md"] = pay_d.strftime("%y-%m-%d") if pay_d else (p.get("dt") or "")
+        elif kind != "임대":
+            pay_d = _to_date(p.get("dt_full") or p.get("dt"))
+            item["yy1"] = "퇴실" if kind == "퇴실정산" else (p.get("label") or kind)
             item["pay_md"] = pay_d.strftime("%y-%m-%d") if pay_d else (p.get("dt") or "")
         else:
             pay_n = amt_n

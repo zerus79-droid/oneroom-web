@@ -5,10 +5,13 @@ from unittest.mock import patch
 from utils import calc_checkout_day_amt, calc_contract_period_charge, months_elapsed
 from jungsan import (
     _apply_month_adjustments,
+    _bojung_disp_amt,
     _first_hosu_in_text,
+    _imdae_dache_amt,
     _is_manager_account,
     _is_item_manager_account,
     _jungsan_decorate_rows,
+    _row_bojung_for_tot,
     _suri_detail_desc,
 )
 from jungsan_engine import (
@@ -26,6 +29,22 @@ class SettlementCalendarTests(unittest.TestCase):
         self.assertTrue(_is_manager_account({"mgmt_gb": "G", "sukum_acct_gb": "M"}))
         self.assertEqual(_normalize_sukum_acct_gb("", "R"), "M")
         self.assertEqual(_normalize_sukum_acct_gb("", "G"), "O")
+
+    def test_bojung_total_includes_yechi_skips_exit(self):
+        """건물주 보관이면 보증 없을 때 예치금. 관리실 통장·퇴실·공실은 빼다."""
+        self.assertEqual(_bojung_disp_amt(0, 600000, True), 600000)
+        self.assertEqual(_bojung_disp_amt(5000000, 0, True), 5000000)
+        self.assertEqual(_bojung_disp_amt(0, 600000, False), 0)
+        self.assertEqual(_row_bojung_for_tot({"is_exit": True, "bojung_amt": 5000000}), 0)
+        self.assertEqual(_row_bojung_for_tot({"is_empty": True, "bojung_amt": 3000000}), 0)
+        self.assertEqual(_row_bojung_for_tot({"bojung_amt": 600000}), 600000)
+
+    def test_owner_rent_account_imdae_dache_is_month_dache(self):
+        """건물주 통장 임대료대체는 당월 대체(건물주 청구). 책임관리는 미수 합계."""
+        misu = 19759430
+        self.assertEqual(_imdae_dache_amt(False, misu, 0), 0)
+        self.assertEqual(_imdae_dache_amt(False, misu, 2780000), 2780000)
+        self.assertEqual(_imdae_dache_amt(True, misu, 2780000), misu)
 
     @patch("checkout.db.query_one")
     def test_checkout_includes_saved_tenant_adjustments(self, query_one):
