@@ -19,7 +19,8 @@ def create_limiter(app):
     limiter = Limiter(
         app=app,
         key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],  # 전역 기본값
+        # 정산 조회·대체·저장이 한 시간에 수십 회라 50/hour 는 업무 화면을 막는다.
+        default_limits=["2000 per hour", "200 per minute"],
         storage_uri="memory://",  # 개발: 메모리, 프로덕션: Redis 권장
     )
     return limiter

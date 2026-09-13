@@ -1820,13 +1820,13 @@
       <a class="nav-label" href="{{ url_for('search') }}"
          {% if nav_section == 'tenant' %}aria-current="true"{% endif %}>입주자관리</a>
     </div>
-    <div class="nav-item{% if nav_section == 'checkout' %} is-active{% endif %}" data-nav="checkout">
-      <a class="nav-label" href="{{ url_for('checkout') }}"
-         {% if nav_section == 'checkout' %}aria-current="true"{% endif %}>퇴실 정산 관리</a>
-    </div>
     <div class="nav-item{% if nav_section == 'repair' %} is-active{% endif %}" data-nav="repair">
       <a class="nav-label" href="{{ url_for('repair_new') }}"
          {% if nav_section == 'repair' %}aria-current="true"{% endif %}>수리등록</a>
+    </div>
+    <div class="nav-item{% if nav_section == 'checkout' %} is-active{% endif %}" data-nav="checkout">
+      <a class="nav-label" href="{{ url_for('checkout') }}"
+         {% if nav_section == 'checkout' %}aria-current="true"{% endif %}>퇴실 정산 관리</a>
     </div>
     <div class="nav-item{% if nav_section == 'payment' %} is-active{% endif %}" data-nav="payment">
       <a class="nav-label" href="{{ url_for('payment_new') }}"
