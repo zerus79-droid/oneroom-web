@@ -89,6 +89,8 @@ body.is-shell-nav #app-main {
   --st-wait-bg: #fff8e1;
   --st-overdue: #e57373;
   --st-overdue-bg: #fdecea;
+  --st-unpaid: #c62828;
+  --st-unpaid-bg: #ffcdd2;
   --st-info: #42a5f5;
   --st-info-bg: #e3f2fd;
   --st-empty: #90a4ae;
@@ -603,6 +605,7 @@ table td.num {
 .legacy-grid td .st-badge.empty { color: #455a64 !important; }
 .legacy-grid td .st-badge.wait { color: #e65100 !important; }
 .legacy-grid td .st-badge.overdue { color: #b71c1c !important; }
+.legacy-grid td .st-badge.unpaid { color: #7f0000 !important; }
 .legacy-grid td .st-badge.info { color: #0d47a1 !important; }
 .legacy-grid td .badge { color: #3730a3 !important; }
 .legacy-grid td .badge.out { color: #4b5563 !important; }
@@ -2255,6 +2258,35 @@ body.is-searching {
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0.04em;
+}
+.filter-bar-btns > .btn-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 6.4rem;
+  width: 6.4rem;
+  min-width: 6.4rem;
+  align-self: flex-start;
+  height: 92px;
+  min-height: 92px;
+  max-height: 92px;
+  box-sizing: border-box;
+}
+.btn-stack .btn-stack-item {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+  padding: 0 6px !important;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.15;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 !important;
 }
 
 @media (max-width: 640px) {
@@ -4270,7 +4302,6 @@ tr.name-summary-row:hover a {
   color: var(--navy) !important;
   -webkit-text-fill-color: var(--navy);
 }
-
 .jungsan-src-badges {
   display: inline-flex;
   gap: 6px;
@@ -4756,6 +4787,11 @@ a.dash-kpi:hover .dash-kpi-lab {
   color: #b71c1c;
   border-color: #ef9a9a;
 }
+.st-badge.unpaid {
+  background: var(--st-unpaid-bg);
+  color: #7f0000;
+  border-color: var(--st-unpaid);
+}
 .st-badge.empty {
   background: var(--st-empty-bg);
   color: #455a64;
@@ -4912,6 +4948,14 @@ a.dash-kpi:hover .dash-kpi-lab {
     height: 48px !important;
     font-size: 1rem;
     letter-spacing: 0;
+  }
+  .filter-bar-btns > .btn-stack {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    height: 48px !important;
+    min-height: 48px !important;
+    max-height: 48px !important;
   }
   .filter-bar-btns-single > .btn,
   .filter-bar-btns-single > a.btn,

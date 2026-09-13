@@ -51,11 +51,21 @@ def _prorate_amt(amt, days, month_days):
 
 
 def _dache_flag(sil_amt, dache_amt, due_amt=None):
-    """대체 표시. due_amt=당월 월세. 실입이 월세 이상이면 대체 해제."""
+    """대체 표시. due_amt=당월 월세+관리비. 실입이 그 이상이면 숨긴다."""
     sil, dache, due = _to_int_amt(sil_amt), _to_int_amt(dache_amt), _to_int_amt(due_amt)
-    if dache <= 0 or (due > 0 and sil >= due):
+    if dache <= 0:
+        return ""
+    if due > 0 and sil >= due:
         return ""
     return "대체"
+
+
+def _postpaid_move_in_month(napbu, ipju_dt, month_start, month_end):
+    """후불 입주월. 당월 월세·관리비 대체 대상이 아니다."""
+    if str(napbu or "B").strip().upper() == "A":
+        return False
+    d = _as_date(ipju_dt)
+    return bool(d and month_start <= d <= month_end)
 
 
 def _dache_rent_remain(due_amt, sil_amt, dache_amt):

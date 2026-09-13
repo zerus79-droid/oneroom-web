@@ -139,6 +139,7 @@
     <div class="js-item"><span class="js-lab">선불청구</span><span class="js-val">{{ data.summary.claim_tot|money }}</span></div>
     {% endif %}
     <div class="js-item"><span class="js-lab">임대료대체</span><span class="js-val">{{ data.summary.imdae_dache|money }}</span></div>
+    <div class="js-item"><span class="js-lab">지불수리비</span><span class="js-val">{{ data.summary.paid_suri|money }}</span></div>
     <div class="js-item"><span class="js-lab">입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
     <div class="js-item warn"><span class="js-lab">미수 합계</span><span class="js-val">{{ data.summary.misu_tot|money }}</span></div>
     {% if can_dache_edit %}
@@ -194,12 +195,12 @@
           <td class="tc col-nowrap"><strong>{{ r.hosu }}</strong></td>
           <td>{% if r.is_empty %}<span class="muted">공실</span>{% else %}{{ r.ipju_nm }}{% endif %}</td>
           <td class="tc col-nowrap">{% if not r.is_empty %}{{ r.ipju_dt|fmt_date }}{% endif %}</td>
-           <td class="tc">{% if not r.is_empty and not r.is_exit %}{{ r.bojung_amt|money }}{% endif %}</td>
-           <td class="tc">{% if not r.is_empty and not r.is_exit %}{% if r.rent_amt %}{{ r.rent_amt|money }}{% else %}-{% endif %}{% endif %}</td>
-           <td class="num">{% if not r.is_empty and not r.is_exit %}{{ r.manage_amt|money }}{% endif %}</td>
+           <td class="tc">{% if not r.is_empty and not r.is_exit and r.bojung_amt %}{{ r.bojung_amt|money }}{% endif %}</td>
+           <td class="tc col-nowrap num">{% if not r.is_empty %}{{ r.wolse_disp }}{% endif %}</td>
+           <td class="tc num">{% if not r.is_empty %}{{ r.manage_disp }}{% endif %}</td>
           <td class="tc">{% if not r.is_empty and r.ipkum_amt %}{{ r.ipkum_amt|money }}{% endif %}</td>
           <td class="left">
-            {% if not r.is_empty %}{% if r.manage_desc == '미납' %}<span class="st-badge overdue">미납</span>{% elif r.manage_desc == '미수' %}<span class="st-badge overdue">미수</span>{% elif r.manage_desc in ('대체', '(대체)') %}<span class="st-badge info">대체</span>{% else %}{{ r.manage_desc or '' }}{% endif %}{% endif %}
+            {% if not r.is_empty %}{% if r.manage_desc == '미납' %}<span class="st-badge unpaid">미납</span>{% elif r.manage_desc == '미수' %}<span class="st-badge overdue">미수</span>{% elif r.manage_desc in ('대체', '(대체)') %}<span class="st-badge info">대체</span>{% else %}{{ r.manage_desc or '' }}{% endif %}{% endif %}
           </td>
           <td class="tc">
             {% if can_dache_edit and r.can_dache %}
@@ -225,7 +226,7 @@
           <th></th>
           <th class="tc">{{ data.totals.bojung_amt|money }}</th>
           <th class="tc">{{ data.totals.rent_amt|money }}</th>
-          <th class="num">{{ data.totals.manage_amt|money }}</th>
+          <th class="tc">{{ data.totals.manage_amt|money }}</th>
           <th class="tc">{{ data.totals.ipkum_amt|money }}</th>
           <th></th>
           <th></th>

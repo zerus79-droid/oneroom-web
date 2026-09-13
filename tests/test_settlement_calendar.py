@@ -16,7 +16,9 @@ from jungsan import (
 )
 from jungsan_engine import (
     _cap_dache_to_rent_shortfall,
+    _dache_flag,
     _jungsan_calendar_misu_amt,
+    _postpaid_move_in_month,
     _rent_ipkum_for_pay,
 )
 from building import _normalize_sukum_acct_gb
@@ -128,8 +130,8 @@ class SettlementCalendarTests(unittest.TestCase):
         self.assertEqual(row["jisi_disp"], "입실(05-13)")
         self.assertEqual(row["ipkum_disp"], "370,000")
 
-    def test_carryover_misu_shows_jisi(self):
-        """당월 월세는 냈어도 누적 미수가 있으면 관리지시에 미수."""
+    def test_carryover_misu_does_not_show_jisi_when_month_paid(self):
+        """당월 실입이 월세+관리비 이상이면 누적 미수가 있어도 관리지시는 비운다."""
         row = {
             "hosu": "B01", "ipju_nm": "이태우", "ipju_dt": date(2025, 2, 24),
             "napbu_gb": "A", "rent_amt": 260000, "manage_amt": 40000,
@@ -138,7 +140,31 @@ class SettlementCalendarTests(unittest.TestCase):
             "misu_amt": 300000, "manage_desc": "", "is_empty": False,
         }
         _jungsan_decorate_rows([row])
-        self.assertEqual(row["jisi_disp"], "미수")
+        self.assertEqual(row["jisi_disp"], "")
+
+    def test_month_shortfall_shows_misu_jisi(self):
+        """당월 실입이 월세+관리비보다 작으면 미수. 월세만 채워도 관리비가 부족하면 미수."""
+        short = {
+            "hosu": "305", "ipju_nm": "백윤선", "ipju_dt": date(2021, 5, 29),
+            "napbu_gb": "B", "rent_amt": 320000, "manage_amt": 0,
+            "bojung_amt": 0, "ipkum_amt": 200000, "sil_amt": 200000,
+            "dache_amt": 0, "dache_gb": "", "rent_calc": 320000,
+            "misu_amt": 1480000, "manage_desc": "", "is_empty": False,
+        }
+        _jungsan_decorate_rows([short])
+        self.assertEqual(short["jisi_disp"], "미수")
+        paid = dict(short, sil_amt=1020000, ipkum_amt=1020000)
+        _jungsan_decorate_rows([paid])
+        self.assertEqual(paid["jisi_disp"], "")
+        rent_only = {
+            "hosu": "101", "ipju_nm": "세입자", "ipju_dt": date(2024, 1, 1),
+            "napbu_gb": "B", "rent_amt": 320000, "manage_amt": 50000,
+            "bojung_amt": 0, "ipkum_amt": 320000, "sil_amt": 320000,
+            "dache_amt": 0, "dache_gb": "", "rent_calc": 320000,
+            "misu_amt": 0, "manage_desc": "", "is_empty": False,
+        }
+        _jungsan_decorate_rows([rent_only])
+        self.assertEqual(rent_only["jisi_disp"], "미수")
 
     def test_negative_checkout_adjustment_is_printed(self):
         row = {
@@ -358,19 +384,44 @@ class AccountSubjectAndCalendarMisuTests(unittest.TestCase):
         self.assertEqual(row["misu_disp"], "330,000")
         self.assertEqual(row["dache_gb"], "대체")
 
-    def test_cash_full_rent_clears_dache_flag(self):
-        """월세 실입이 채워지면 관리비 대체만 있어도 (대체)를 찍지 않는다."""
+    def test_month_manage_shortfall_shows_in_misu_amt(self):
+        """월세만 실입되면 관리비 부족분이 미수금에 남는다. 대체해도 안 깎인다."""
         row = {
-            "hosu": "103", "ipju_nm": "박연석", "ipju_dt": date(2019, 2, 26),
-            "napbu_gb": "A", "rent_amt": 340000, "manage_amt": 60000,
-            "bojung_amt": 0, "ipkum_amt": 340000, "sil_amt": 340000,
-            "dache_amt": 60000, "dache_gb": "대체", "rent_calc": 340000,
-            "misu_amt": 0, "manage_desc": "", "is_empty": False,
+            "hosu": "304", "ipju_nm": "김승현", "ipju_dt": date(2021, 7, 3),
+            "napbu_gb": "A", "rent_amt": 300000, "manage_amt": 60000,
+            "bojung_amt": 0, "ipkum_amt": 300000, "sil_amt": 300000,
+            "dache_amt": 60000, "dache_gb": "대체", "rent_calc": 300000,
+            "misu_amt": 0, "manage_desc": "미수", "is_empty": False,
         }
         _jungsan_decorate_rows([row])
-        self.assertEqual(row["dache_gb"], "")
-        self.assertEqual(row["ipkum_disp"], "340,000")
-        self.assertEqual(row["jisi_disp"], "")
+        self.assertEqual(row["misu_amt"], 60000)
+        self.assertEqual(row["misu_disp"], "60,000")
+
+    def test_cash_full_rent_keeps_manage_dache_flag(self):
+        """월세만 실입되고 관리비 대체가 있으면 대체 체크를 남긴다."""
+        row = {
+            "hosu": "304", "ipju_nm": "김승현", "ipju_dt": date(2021, 7, 3),
+            "napbu_gb": "A", "rent_amt": 300000, "manage_amt": 60000,
+            "bojung_amt": 0, "ipkum_amt": 300000, "sil_amt": 300000,
+            "dache_amt": 60000, "dache_gb": "대체", "rent_calc": 300000,
+            "misu_amt": 0, "manage_desc": "미수", "is_empty": False,
+        }
+        _jungsan_decorate_rows([row])
+        self.assertEqual(row["dache_gb"], "대체")
+        self.assertEqual(_dache_flag(300000, 60000, 360000), "대체")
+        self.assertEqual(_dache_flag(360000, 60000, 360000), "")
+
+    def test_postpaid_move_in_month_has_no_dache(self):
+        """후불 입주월은 대체 대상이 아니다."""
+        self.assertTrue(
+            _postpaid_move_in_month("B", date(2026, 5, 30), date(2026, 5, 1), date(2026, 5, 31))
+        )
+        self.assertFalse(
+            _postpaid_move_in_month("A", date(2026, 5, 30), date(2026, 5, 1), date(2026, 5, 31))
+        )
+        self.assertFalse(
+            _postpaid_move_in_month("B", date(2026, 4, 1), date(2026, 5, 1), date(2026, 5, 31))
+        )
 
     def test_pay_base_uses_rent_ipkum_for_all_rooms(self):
         """당월지급액은 월세 입금액분만. 보증금대체(현재합−최초)는 넣지 않는다."""

@@ -14,8 +14,8 @@ import db
 from app_instance import app
 from utils import (
     building_label as _building_label,
-    calc_contract_period_charge as _calc_contract_period_charge,
     calc_checkout_day_amt as _calc_checkout_day_amt,
+    calc_contract_period_charge as _calc_contract_period_charge,
     fmt_bunji,
     fmt_date,
     fmt_ipju_short as _fmt_ipju_short,
@@ -225,12 +225,6 @@ def _ensure_month_adjustment_table():
     _MONTH_ADJUSTMENT_TABLE_READY = True
 
 
-_ADJ_LABELS = {
-    "RENT_DISCOUNT": "월세감면", "RENT_WAIVE": "월세면제",
-    "MANAGE_DISCOUNT": "관리비감면", "MANAGE_WAIVE": "관리비면제",
-    "OTHER": "기타조정",
-}
-
 def _ensure_month_jisi_table():
     global _MONTH_JISI_TABLE_READY
     if _MONTH_JISI_TABLE_READY:
@@ -249,6 +243,7 @@ def _ensure_month_jisi_table():
         """
     )
     _MONTH_JISI_TABLE_READY = True
+
 
 def _month_jisi_text(b1, b2, month_start):
     _ensure_month_jisi_table()
@@ -313,7 +308,7 @@ def _apply_month_adjustments(rows, b1, b2, month_start):
         raw_dache = _to_int_amt(r.get("dache_amt_raw", r.get("dache_amt")))
         r["dache_amt_raw"] = raw_dache
         r["dache_amt"] = _cap_dache_to_rent_shortfall(due, sil, raw_dache)
-        r["dache_gb"] = _dache_flag(sil, r.get("dache_amt"), rent_due)
+        r["dache_gb"] = _dache_flag(sil, r.get("dache_amt"), due)
         if adjs:
             r["company_pay_amt"] = sum(
                 _to_int_amt(a.get("adj_amt")) for a in adjs
@@ -376,6 +371,15 @@ def _ipju_month_jisi(ipju_dt, month_start, month_end):
     return ""
 
 
+def _month_charge_amt(r):
+    """당월 청구 = 월세+관리비 − 감면."""
+    rent = _to_int_amt(
+        r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
+    )
+    manage = _to_int_amt(r.get("manage_amt"))
+    return max(0, rent + manage - _to_int_amt(r.get("adjustment_amt")))
+
+
 def _jungsan_decorate_rows(rows):
     """인쇄·화면용 표시 문자열 채우기"""
     for r in rows:
@@ -406,7 +410,6 @@ def _jungsan_decorate_rows(rows):
                 r["bojung_disp"] = ""
                 r["wolse_disp"] = ""
                 r["manage_disp"] = ""
-            r["misu_disp"] = money(r.get("misu_amt")) if _to_int_amt(r.get("misu_amt")) else ""
             jisi = (r.get("manage_desc") or "").strip()
             dache = str(r.get("dache_gb") or "").strip()
             sil = _to_int_amt(r.get("sil_amt"))
@@ -414,9 +417,21 @@ def _jungsan_decorate_rows(rows):
             rent = _to_int_amt(
                 r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
             )
-            # XP 결산현황: 입금액·(대체) 판정은 월세. 관리비는 넣지 않는다.
+            month_due = _month_charge_amt(r)
+            # 누적 미수가 0이어도 당월 월세+관리비 부족분은 미수금에 남긴다. 대체는 안 깎음.
+            postpaid_ipju = (
+                str(r.get("napbu_gb") or "B").strip().upper() != "A"
+                and jisi.startswith("입실(")
+            )
+            if r.get("is_exit") or postpaid_ipju:
+                month_short = 0
+            else:
+                month_short = max(0, month_due - sil)
+            r["misu_amt"] = max(_to_int_amt(r.get("misu_amt")), month_short)
+            r["misu_disp"] = money(r.get("misu_amt")) if _to_int_amt(r.get("misu_amt")) else ""
+            # 실입이 월세+관리비 이상이면 대체 표시를 숨긴다. 월세만 채워도 관리비 대체는 남긴다.
             is_dache = ("대체" in dache) or (dache.upper() in ("Y", "1"))
-            if is_dache and rent > 0 and sil >= rent:
+            if is_dache and month_due > 0 and sil >= month_due:
                 is_dache = False
             r["dache_gb"] = "대체" if is_dache else ""
             sil_in = _to_int_amt(r.get("ipkum_amt"))
@@ -433,16 +448,13 @@ def _jungsan_decorate_rows(rows):
                 r["manage_desc"] = jisi
                 r["jisi_disp"] = jisi
             elif any(jisi.startswith(label) for label in _ADJ_LABELS.values()):
-                rent_due = rent
-                if str(r.get("adjustment_kind") or "").startswith("RENT_"):
-                    rent_due = max(0, rent - _to_int_amt(r.get("adjustment_amt")))
                 status = ""
                 if is_dache:
                     status = "대체"
-                elif rent_due > 0 and sil <= 0:
+                elif month_due > 0 and sil <= 0:
                     status = "미납"
-                elif rent_due > 0 and sil < rent_due:
-                    status = "부족"
+                elif month_due > 0 and sil < month_due:
+                    status = "미수"
                 detail = f"{jisi} ({status})" if status else jisi
                 r["manage_desc"] = detail
                 r["jisi_disp"] = detail
@@ -452,13 +464,10 @@ def _jungsan_decorate_rows(rows):
             elif is_dache:
                 r["manage_desc"] = "(대체)"
                 r["jisi_disp"] = "(대체)"
-            elif sil <= 0 and rent > 0:
+            elif month_due > 0 and sil <= 0:
                 r["manage_desc"] = "미납"
                 r["jisi_disp"] = "미납"
-            elif rent > 0 and sil < rent:
-                r["manage_desc"] = "부족"
-                r["jisi_disp"] = "부족"
-            elif _to_int_amt(r.get("misu_amt")) > 0:
+            elif month_due > 0 and sil < month_due:
                 r["manage_desc"] = "미수"
                 r["jisi_disp"] = "미수"
             else:
@@ -486,6 +495,7 @@ def _jungsan_saved_header(b1, b2, as_of):
         """,
         (b1, b2, as_of.isoformat(), month_start.isoformat(), month_end.isoformat()),
     )
+
 
 def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=None, prefer_saved=None):
     """
@@ -579,6 +589,8 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 )
                 nap = (trow or {}).get("napbu_gb") or ""
             yechi = _to_int_amt((trow or {}).get("yechi_amt")) if not empty else 0
+            out_d = _as_date((trow or {}).get("out_dt")) if not empty else None
+            is_exit = bool(out_d and month_start <= out_d <= month_end)
             # jungsan_det.manage_amt 는 임대료를 복사해 저장하는 XP 버그가 있다.
             # 대체 대상·화면 관리비는 입주 이력 금액을 쓴다.
             rent_amt = _to_int_amt(
@@ -593,6 +605,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                     "ipju_nm": "공실" if empty else nm,
                     "ipju_dt": d.get("ipju_dt"),
                     "out_dt": (trow or {}).get("out_dt") if not empty else None,
+                    "is_exit": is_exit,
                     "ipju_seq": d.get("ipju_seq"),
                     "napbu_gb": nap,
                     "yechi_amt": yechi,
@@ -690,7 +703,13 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             rent_flag = _to_int_amt(
                 r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
             )
-            r["dache_gb"] = _dache_flag(sil_amt, dache_amt, rent_flag)
+            due_flag = rent_flag + _to_int_amt(r.get("manage_amt"))
+            if _postpaid_move_in_month(
+                r.get("napbu_gb"), r.get("ipju_dt"), month_start, month_end
+            ):
+                due_flag = 0
+                r["dache_amt"] = 0
+            r["dache_gb"] = _dache_flag(sil_amt, r.get("dache_amt"), due_flag)
         summary = {
             "first_amt": _to_int_amt(saved.get("first_amt")),
             "man_cost": _to_int_amt(saved.get("man_cost")),
@@ -832,11 +851,13 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
             )
             # 라이브 행에서도 대체를 (월세+관리비) 부족분으로 상한 (조정 적용 전)
             due_for_cap = rent_calc + manage
+            if _postpaid_move_in_month(m.get("napbu_gb"), m.get("ipju_dt"), month_start, month_end):
+                due_for_cap = 0
             dache_amt_raw = dache_amt
             dache_amt = _cap_dache_to_rent_shortfall(due_for_cap, sil_amt, dache_amt_raw)
             # 선불 퇴실 청구는 대체금이 있을 때만. 대체 없으면 청구 없음.
             claim_amt = min(claim_raw, dache_amt) if (claim_raw > 0 and dache_amt > 0 and sil_amt <= 0) else 0
-            dache_gb = _dache_flag(sil_amt, dache_amt, rent_calc)
+            dache_gb = _dache_flag(sil_amt, dache_amt, due_for_cap)
             if out_d and month_start <= out_d <= month_end:
                 claim_amt = 0
                 jisi = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
@@ -995,7 +1016,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
         else db.query(
             """
             SELECT suri_dt, suri_won_amt, owner_budam, manage_budam, ipjuja_budam,
-                   suri_desc, hosu, js_print_yn
+                   suri_desc, hosu, js_print_yn, ipju_su_churi
             FROM bd05_suri
             WHERE bunji1=%s AND bunji2=%s
               AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
@@ -1006,7 +1027,15 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
         )
     )
     suri_detail = []
+    paid_suri = 0
     for s in suri_lines or []:
+        won_amt = _to_int_amt(s.get("suri_won_amt"))
+        if str(s.get("ipju_su_churi") or "").strip().upper() == "Y":
+            paid_suri += won_amt or (
+                _to_int_amt(s.get("owner_budam"))
+                + _to_int_amt(s.get("manage_budam"))
+                + _to_int_amt(s.get("ipjuja_budam"))
+            )
         owner_amt = _to_int_amt(s.get("owner_budam"))
         force_print = str(s.get("js_print_yn") or "").strip().upper() == "Y"
         if owner_amt <= 0 and not force_print:
@@ -1023,6 +1052,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 "desc": _suri_detail_desc(hosu, s.get("suri_desc")),
             }
         )
+    summary["paid_suri"] = paid_suri
 
     # 중개보수 내역 줄 (인쇄 하단, 수리 다음)
     if not list_mode:
@@ -1182,18 +1212,14 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
         adjs = r.get("adjustment_items") or []
         if r.get("is_empty") or not adjs:
             continue
-        rent = _to_int_amt(
-            r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
-        )
-        rent_due = rent
-        rent_due = max(0, rent - _to_int_amt(r.get("adjustment_rent_amt")))
+        month_due = _month_charge_amt(r)
         sil = _to_int_amt(r.get("sil_amt"))
         if str(r.get("dache_gb") or "").strip():
             r["print_jisi_disp"] = "(대체)"
-        elif rent_due > 0 and sil <= 0:
+        elif month_due > 0 and sil <= 0:
             r["print_jisi_disp"] = "미납"
-        elif rent_due > 0 and sil < rent_due:
-            r["print_jisi_disp"] = "부족"
+        elif month_due > 0 and sil < month_due:
+            r["print_jisi_disp"] = "미수"
         else:
             r["print_jisi_disp"] = ""
         for adj in adjs:
@@ -1222,7 +1248,11 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     dache_target_amt = 0
     for r in rows:
         rem = 0
-        if (
+        if _postpaid_move_in_month(
+            r.get("napbu_gb"), r.get("ipju_dt"), month_start, month_end
+        ):
+            rem = 0
+        elif (
             not r.get("is_empty")
             and not r.get("is_exit")
             and _to_int_amt(r.get("claim_amt")) <= 0
@@ -1304,6 +1334,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
 
 from jungsan_engine import (
     _as_date, _ceil_100, _dache_flag, _dache_rent_remain,
+    _postpaid_move_in_month,
     _fmt_man_dec, _fmt_man_int, _fmt_wolse_cell, _jungsan_month_rent_split,
     _jungsan_out_settle_amt, _month_bounds, _prorate_amt,
     _rent_ipkum_for_pay, _cap_dache_to_rent_shortfall,
@@ -1369,6 +1400,9 @@ def _jungsan_dache_targets(bunji1, bunji2, as_of):
         nap = str(m.get("napbu_gb") or "B").strip().upper()
         # 선불 당월퇴실: 신규 대체 없음. 기존 대체금이 있으면 화면에서만 청구.
         if left_this_month and nap == "A":
+            continue
+        # 후불 당월입실: 월세·관리비 모두 다음달부터. 대체 없음.
+        if _postpaid_move_in_month(nap, m.get("ipju_dt"), month_start, month_end):
             continue
         rent_calc, claim_amt = _jungsan_month_rent_split(
             m.get("napbu_gb"), m.get("rent_amt"), m.get("ipju_dt"), m.get("out_dt"),
@@ -1748,6 +1782,7 @@ def jungsan_jisi():
         )
     return _jungsan_redirect(bunji1, bunji2, as_of_s)
 
+
 def _jungsan_write_snapshot(b1, b2, as_of, data):
     """현재계산을 그달 jungsan_m / jungsan_det 에 저장(덮어씀)."""
     month_start, month_end = _month_bounds(as_of)
@@ -1855,6 +1890,7 @@ def _jungsan_write_snapshot(b1, b2, as_of, data):
             ),
         )
 
+
 @app.route("/jungsan/save", methods=["POST"])
 @login_required
 @require_write_access
@@ -1874,6 +1910,7 @@ def jungsan_save():
         return _jungsan_redirect(bunji1, bunji2, as_of_s, src="live")
     _jungsan_write_snapshot(bunji1, bunji2, as_of, data)
     return _jungsan_redirect(bunji1, bunji2, as_of_s, src="saved", extra={"saved": 1})
+
 
 @app.route("/jungsan/print")
 @login_required
