@@ -476,13 +476,12 @@ def _jungsan_decorate_rows(rows):
     return rows
 
 
-def _jungsan_saved_header(b1, b2, as_of):
+def _jungsan_saved_header(b1, b2, as_of, *, cursor=None):
     """해당 월 저장본 헤더(jungsan_m) 1건."""
     if isinstance(as_of, str):
         as_of = datetime.strptime(as_of[:10], "%Y-%m-%d").date()
     month_start, month_end = _month_bounds(as_of)
-    return db.query_one(
-        """
+    sql = """
         SELECT * FROM jungsan_m
         WHERE bunji1=%s AND bunji2=%s
           AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
@@ -492,9 +491,12 @@ def _jungsan_saved_header(b1, b2, as_of):
           )
         ORDER BY jungsan_dt DESC, jungsan_seq DESC
         LIMIT 1
-        """,
-        (b1, b2, as_of.isoformat(), month_start.isoformat(), month_end.isoformat()),
-    )
+        """
+    args = (b1, b2, as_of.isoformat(), month_start.isoformat(), month_end.isoformat())
+    if cursor is not None:
+        cursor.execute(sql, args)
+        return cursor.fetchone()
+    return db.query_one(sql, args)
 
 
 def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=None, prefer_saved=None):
@@ -1783,17 +1785,66 @@ def jungsan_jisi():
     return _jungsan_redirect(bunji1, bunji2, as_of_s)
 
 
+class _JungsanSaveError(RuntimeError):
+    """데이터 변경 전에 확인한 저장 불가 사유."""
+
+
 def _jungsan_write_snapshot(b1, b2, as_of, data):
-    """현재계산을 그달 jungsan_m / jungsan_det 에 저장(덮어씀)."""
+    """합계·상세를 같은 연결에서 저장하고 실패하면 모두 되돌린다."""
+    _, month_end = _month_bounds(as_of)
+    lock_name = f"jungsan-save:{b1}:{b2}:{month_end:%Y-%m}"
+    conn = db.get_conn()
+    locked = False
+    started = False
+    try:
+        with conn.cursor() as cur:
+            # MyISAM은 rollback을 무시한다. 두 테이블 모두 전환되기 전에는
+            # 합계 UPDATE나 기존 상세 DELETE를 시작하지 않는다.
+            cur.execute(
+                """SELECT TABLE_NAME AS table_name, ENGINE AS engine
+                     FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA=DATABASE()
+                      AND TABLE_NAME IN ('jungsan_m','jungsan_det')"""
+            )
+            engines = {r["table_name"]: str(r["engine"]).upper() for r in cur.fetchall()}
+            if any(engines.get(t) != "INNODB" for t in ("jungsan_m", "jungsan_det")):
+                raise _JungsanSaveError(
+                    "저장 안전성 보완이 필요합니다. 정산 테이블 전환 후 저장해 주세요."
+                )
+            # 아직 저장본이 없는 달도 같은 건물·월의 동시 저장을 직렬화한다.
+            cur.execute("SELECT GET_LOCK(%s, 5) AS acquired", (lock_name,))
+            locked = _to_int_amt((cur.fetchone() or {}).get("acquired")) == 1
+            if not locked:
+                raise _JungsanSaveError("같은 달 정산서를 저장 중입니다. 잠시 후 다시 시도해 주세요.")
+            conn.begin()
+            started = True
+            _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data)
+            conn.commit()
+            started = False
+    except Exception:
+        if started:
+            conn.rollback()
+        raise
+    finally:
+        try:
+            if locked:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+        finally:
+            conn.close()
+
+
+def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):
+    """호출자가 시작한 트랜잭션 안에서만 합계·상세를 교체한다."""
     month_start, month_end = _month_bounds(as_of)
     summary = data.get("summary") or {}
     rows = data.get("rows") or []
     uid = (session.get("sabun") or "")[:5]
-    existing = _jungsan_saved_header(b1, b2, as_of)
+    existing = _jungsan_saved_header(b1, b2, as_of, cursor=cur)
     if existing:
         jdt = existing.get("jungsan_dt")
         seq = existing.get("jungsan_seq") or "01"
-        db.execute(
+        cur.execute(
             """UPDATE jungsan_m
                   SET pay_amt=%s, ipkum_tot=%s, man_cost=%s, owner_suri=%s,
                       jungke_cost=%s, jungke_desc=%s, misu_tot=%s, bojung_tot=%s,
@@ -1816,7 +1867,7 @@ def _jungsan_write_snapshot(b1, b2, as_of, data):
                 b1, b2, jdt, seq,
             ),
         )
-        db.execute(
+        cur.execute(
             """DELETE FROM jungsan_det
                 WHERE bunji1=%s AND bunji2=%s AND jungsan_dt=%s AND jungsan_seq=%s""",
             (b1, b2, jdt, seq),
@@ -1824,7 +1875,7 @@ def _jungsan_write_snapshot(b1, b2, as_of, data):
     else:
         jdt = datetime.combine(month_end, datetime.min.time())
         seq = "01"
-        db.execute(
+        cur.execute(
             """INSERT INTO jungsan_m (
                    jungsan_dt, jungsan_seq, bunji1, bunji2, pay_amt, ipkum_tot,
                    man_cost, owner_suri, jungke_cost, jungke_desc, misu_tot,
@@ -1864,7 +1915,7 @@ def _jungsan_write_snapshot(b1, b2, as_of, data):
         nm = (r.get("ipju_nm") or "").strip()
         if r.get("is_empty"):
             nm = "공 실"
-        db.execute(
+        cur.execute(
             """INSERT INTO jungsan_det (
                    jungsan_dt, jungsan_seq, bunji1, bunji2, hosu, ipju_nm, ipju_dt,
                    ipju_seq, bojung_amt, rent_amt, manage_amt, misu_amt,
@@ -1908,7 +1959,15 @@ def jungsan_save():
     data = _jungsan_build_preview(bunji1, bunji2, as_of, prefer_saved=False)
     if not data or data.get("error") or not data.get("building"):
         return _jungsan_redirect(bunji1, bunji2, as_of_s, src="live")
-    _jungsan_write_snapshot(bunji1, bunji2, as_of, data)
+    try:
+        _jungsan_write_snapshot(bunji1, bunji2, as_of, data)
+    except _JungsanSaveError as exc:
+        flash(str(exc), "error")
+        return _jungsan_redirect(bunji1, bunji2, as_of_s, src="live")
+    except Exception:
+        app.logger.exception("월정산 저장 실패 (%s-%s, %s)", bunji1, bunji2, as_of_s)
+        flash("정산서를 저장하지 못했습니다. 기존 저장본을 확인한 뒤 다시 시도해 주세요.", "error")
+        return _jungsan_redirect(bunji1, bunji2, as_of_s, src="live")
     return _jungsan_redirect(bunji1, bunji2, as_of_s, src="saved", extra={"saved": 1})
 
 
