@@ -686,14 +686,16 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                 if exit_misu is not None or out_adj_exists:
                     # 퇴실자는 누적 미수가 아니라 당월 퇴실정산 수금(종류 06)을
                     # 입금액으로 표시한다. 기존 누적 미수는 퇴실정산에서 정리된다.
-                    exit_part = _month_sukum_breakdown(
+                    exit_parts = _month_sukum_breakdown(
                         b1, b2, r.get("hosu"), str(r.get("ipju_seq") or "").zfill(2),
                         month_start, month_end_s,
-                    ).get("06", {})
+                    )
+                    exit_part = exit_parts.get("06", {})
                     exit_paid = _to_int_amt(exit_part.get("sil")) + _to_int_amt(exit_part.get("dache"))
                     exit_balance = _to_int_amt(exit_misu)
                     # 퇴실정산 잔액은 일반 월정산 미수가 아니라 입금액으로 표시한다.
-                    r["ipkum_amt"] = exit_paid if exit_paid else (_to_int_amt(out_adj_amt) if out_adj_exists else exit_balance)
+                    # 실입+대체가 상계되어 0원인 경우도 저장 전표 금액을 보존한다.
+                    r["ipkum_amt"] = exit_paid if "06" in exit_parts else (_to_int_amt(out_adj_amt) if out_adj_exists else exit_balance)
                     r["misu_amt"] = 0
                     r["out_settle_amt"] = r["ipkum_amt"]
             if out_d and month_start <= out_d <= month_end:
@@ -830,7 +832,7 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
                     # 관리실 통장: 관리실이 선불 월세를 건물주에게 이미 지급했다.
                     # XP 종류 06은 건물주와 관리실 사이의 퇴실 조정액이다.
                     # 선불의 음수는 건물주가 관리실에 돌려줄 환급액이다.
-                    if exit_paid:
+                    if "06" in pay_parts:
                         ipkum = exit_paid
                     elif out_adj_exists:
                         ipkum = _to_int_amt(out_adj_amt)

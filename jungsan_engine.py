@@ -336,7 +336,7 @@ def _month_sukum_breakdown(b1, b2, hosu, seq, month_start, month_end_s, *, pay_m
     sukum_char는 수금 방식(sukum_gb)이 아니라 수금 성격이다.
     01=월세+관리비, 02=보증금, 03=예치금, 04=수리비,
     05=중개보수, 06=퇴실정산 임대료, 07=퇴실정산 관리비.
-    기존 호환을 위해 값이 없는 성격도 0으로 반환한다.
+    실제 전표가 있는 성격만 반환하며, 합계가 0원이어도 그 키를 유지한다.
     pay_map이 있으면 DB 재조회 없이 맵에서 꺼낸다.
     """
     if pay_map is not None:
@@ -369,9 +369,11 @@ def _month_sukum_breakdown(b1, b2, hosu, seq, month_start, month_end_s, *, pay_m
 
 def _month_out_adjustment(b1, b2, hosu, seq, month_start, month_end_s, *, pay_map=None):
     if pay_map is not None:
-        part = (pay_map.get((_hosu_key(hosu), _seq_key(seq))) or {}).get("06") or {}
+        parts = pay_map.get((_hosu_key(hosu), _seq_key(seq))) or {}
+        part = parts.get("06") or {}
         amt = _to_int_amt(part.get("sil"))
-        return amt > 0, amt, ""
+        # 직접 조회의 COUNT(*)와 동일하게 음수/0원도 '존재하는 전표'다.
+        return "06" in parts, amt, ""
     row = db.query_one(
         """SELECT COUNT(*) AS cnt,
                   COALESCE(SUM(COALESCE(su_sil_amt,0)),0) AS amt,
