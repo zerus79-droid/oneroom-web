@@ -3,10 +3,12 @@
 주소별 정산서 작성/미리보기, 결산현황 인쇄, 월별 정산서 목록 조회
 라우트와 그 전용 도우미 함수들을 모아둔 모듈입니다.
 """
+import json
 import math
 import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -499,6 +501,129 @@ def _jungsan_saved_header(b1, b2, as_of, *, cursor=None):
     return db.query_one(sql, args)
 
 
+def _snapshot_json_default(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else str(value)
+    raise TypeError(f"정산 저장 불가 자료형: {type(value).__name__}")
+
+
+def _jungsan_encode_snapshot(b1, b2, as_of, data):
+    """화면/인쇄에 사용한 값을 함께 보존한다. 현재계산만 명시적으로 저장한다."""
+    if data.get("source") != "live" or data.get("error"):
+        raise _JungsanSaveError("현재계산을 조회한 뒤 저장해 주세요.")
+    payload = json.dumps(
+        {"version": 1, "data": data}, ensure_ascii=False,
+        default=_snapshot_json_default, allow_nan=False, separators=(",", ":"),
+    )
+    # 잘못된 주소/월 또는 불완전한 자료는 기존 상세를 지우기 전에 거부한다.
+    _jungsan_decode_snapshot(b1, b2, as_of, payload)
+    return payload
+
+
+def _jungsan_decode_snapshot(b1, b2, as_of, payload):
+    try:
+        envelope = json.loads(payload)
+        data = envelope["data"]
+        if envelope["version"] != 1 or not isinstance(data, dict):
+            raise ValueError("version")
+        for key in ("building", "summary", "totals"):
+            if not isinstance(data[key], dict):
+                raise ValueError(key)
+        for key in ("rows", "manage_detail", "suri_detail", "jungke_detail"):
+            if not isinstance(data[key], list) or any(not isinstance(r, dict) for r in data[key]):
+                raise ValueError(key)
+        if (data["building"]["bunji1"], data["building"]["bunji2"]) != (b1, b2):
+            raise ValueError("building")
+        snap_date = date.fromisoformat(data["as_of"])
+        if _month_bounds(snap_date) != _month_bounds(_as_date(as_of)):
+            raise ValueError("month")
+        if not {"pay_amt", "ipkum_tot", "misu_tot", "pay_label"} <= data["summary"].keys():
+            raise ValueError("summary")
+        if not {"month_start", "month_end", "manager_account", "is_resp", "bunji_label"} <= data.keys():
+            raise ValueError("metadata")
+        return data
+    except (TypeError, ValueError, KeyError, AttributeError) as exc:
+        # 손상/지원하지 않는 저장본을 최신 값으로 몰래 대체하지 않는다.
+        raise ValueError("저장본 형식을 확인할 수 없습니다. 현재계산으로 자동 대체하지 않습니다.") from exc
+
+
+def _jungsan_legacy_saved_data(b1, b2, saved):
+    """옛 저장본은 m/det에 남아 있는 값만 표시. 누락된 항목은 복원하지 않는다."""
+    as_of = _as_date(saved["jungsan_dt"])
+    month_start, month_end = _month_bounds(as_of)
+    details = db.query(
+        """SELECT * FROM jungsan_det
+            WHERE bunji1=%s AND bunji2=%s AND jungsan_dt=%s AND jungsan_seq=%s
+              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
+            ORDER BY hosu""",
+        (b1, b2, saved["jungsan_dt"], saved["jungsan_seq"]),
+    ) or []
+    rows = []
+    for detail in details:
+        r = dict(detail)
+        nm = (r.get("ipju_nm") or "").strip()
+        empty = not nm or nm.replace(" ", "") == "공실"
+        desc = (r.get("manage_desc") or "").strip()
+        is_exit = desc.startswith("퇴실(")
+        r.update(
+            is_empty=empty, is_exit=is_exit, ipju_nm=nm, ipkum_amt=None,
+            ipju_nm_disp="공 실" if empty else nm,
+            ipju_dt_disp="" if empty else _fmt_ipju_short(r.get("ipju_dt")),
+            bojung_disp="" if empty or is_exit else _fmt_man_int(r.get("bojung_amt")),
+            # 옛 저장본에 선불/후불 구분이 없으므로 현재 계약의 구분도 붙이지 않는다.
+            wolse_disp="" if empty or is_exit or r.get("rent_amt") is None else _fmt_man_int(r["rent_amt"]),
+            manage_disp="" if empty or is_exit or r.get("manage_amt") is None else _fmt_man_dec(r["manage_amt"]),
+            ipkum_disp="", misu_disp="" if empty else money(r.get("misu_amt")),
+            jisi_disp=desc, print_jisi_disp=desc, can_dache=False, can_undo=False,
+        )
+        rows.append(r)
+    summary = {key: saved.get(key) for key in (
+        "first_amt", "man_cost", "owner_suri", "jungke_cost", "pay_amt", "ipkum_tot",
+        "rent_tot", "manage_tot", "bojung_tot", "misu_tot",
+    )}
+    costs = [summary[k] for k in ("man_cost", "owner_suri", "jungke_cost")]
+    summary.update(
+        pay_label="저장 정산액", imdae_dache=None, bojung_dache=None, paid_suri=None,
+        claim_tot=None, cost_sum=sum(costs) if all(v is not None for v in costs) else None,
+        note="", jisi_text=(saved.get("jungke_desc") or "").strip(),
+        jungsan_dt=fmt_date(saved["jungsan_dt"]), jungsan_seq=saved["jungsan_seq"],
+    )
+    totals = {key: summary.get(stored) for key, stored in (
+        ("bojung_amt", "bojung_tot"), ("rent_amt", "rent_tot"),
+        ("manage_amt", "manage_tot"), ("ipkum_amt", "ipkum_tot"), ("misu_amt", "misu_tot"),
+    )}
+    totals.update(
+        tenant_cnt=sum(not r["is_empty"] for r in rows),
+        bojung_man=int(round(_to_int_amt(summary.get("bojung_tot")) / 10000)),
+        rent_man=_fmt_man_int(summary.get("rent_tot")) if summary.get("rent_tot") is not None else "",
+        manage_man_disp=_fmt_man_dec(summary.get("manage_tot")) if summary.get("manage_tot") is not None else "",
+    )
+    return {
+        "error": None, "source": "saved", "has_saved": True, "snapshot_legacy": True,
+        "building": {"bunji1": b1, "bunji2": b2},
+        "bunji_label": f"{fmt_bunji(b1)}-{fmt_bunji(b2)}", "as_of": as_of.isoformat(),
+        "month_start": month_start.isoformat(), "month_end": month_end.isoformat(),
+        "rows": rows, "summary": summary, "totals": totals,
+        "manage_detail": [], "suri_detail": [], "jungke_detail": [],
+        "is_resp": None, "manager_account": None,
+        "dache_target_cnt": 0, "dache_target_amt": None, "dache_undo_cnt": 0, "dache_undo_amt": None,
+    }
+
+
+def _jungsan_read_saved(b1, b2, as_of, saved):
+    payload = saved.get("snapshot_json")
+    if payload is None:
+        return _jungsan_legacy_saved_data(b1, b2, saved)
+    data = _jungsan_decode_snapshot(b1, b2, as_of, payload)
+    data.update(source="saved", has_saved=True, snapshot_legacy=False)
+    data["summary"].update(
+        jungsan_dt=fmt_date(saved["jungsan_dt"]), jungsan_seq=saved["jungsan_seq"],
+    )
+    return data
+
+
 def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=None, prefer_saved=None):
     """
     주소별 정산서 조회 미리보기 (화면 표시용).
@@ -515,6 +640,11 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     month_end_s = month_end.isoformat()
 
     preload = preload or {}
+    saved = None if preload.get("skip_saved") else _jungsan_saved_header(b1, b2, as_of)
+    has_saved = bool(saved)
+    if saved and prefer_saved is not False:
+        # 저장된 금액에 최신 계약/수금/조정이나 현재 계산식을 섞지 않는다.
+        return _jungsan_read_saved(b1, b2, as_of, saved)
     if not preload.get("skip_ensure_cols"):
         _ensure_g_cost_cols()
     building = preload.get("building")
@@ -539,453 +669,260 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     manager_account = _is_item_manager_account(building, "rent")
     owner_holds_bojung = not _is_item_manager_account(building, "bojung")
 
-    # 저장된 정산서 (기준일 또는 그 달 말일)
-    if preload.get("skip_saved"):
-        saved = None
-        has_saved = False
-    else:
-        saved = _jungsan_saved_header(b1, b2, as_of)
-        has_saved = bool(saved)
-    use_saved = bool(saved)
-    if prefer_saved is False:
-        use_saved = False
-    elif prefer_saved is True:
-        use_saved = bool(saved)
-
     source = "live"
     rows = []
     summary = {}
 
-    if use_saved:
-        source = "saved"
-        det = db.query(
-            """
-            SELECT * FROM jungsan_det
-            WHERE bunji1=%s AND bunji2=%s
-              AND jungsan_dt=%s AND jungsan_seq=%s
-              AND (del_yn IS NULL OR del_yn='N' OR del_yn='')
-            ORDER BY hosu
-            """,
-            (b1, b2, saved["jungsan_dt"], saved["jungsan_seq"]),
-        )
-        for d in det:
-            nm = (d.get("ipju_nm") or "").strip()
-            empty = (not nm) or nm.replace(" ", "") == "공실"
-            # napbu: 입주 이력에서 보강
-            nap = ""
-            trow = None
-            if not empty and d.get("ipju_seq"):
-                trow = db.query_one(
-                    """
-                    SELECT napbu_gb, yechi_amt, bojung_amt, out_dt, out_jungsan_end,
-                           rent_amt, manage_amt
-                      FROM bd03_det
-                    WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s AND ipju_seq=%s
-                    """,
-                    (
-                        b1,
-                        b2,
-                        (d.get("hosu") or "").strip().upper(),
-                        str(d.get("ipju_seq") or "").zfill(2),
-                    ),
-                )
-                nap = (trow or {}).get("napbu_gb") or ""
-            yechi = _to_int_amt((trow or {}).get("yechi_amt")) if not empty else 0
-            out_d = _as_date((trow or {}).get("out_dt")) if not empty else None
-            is_exit = bool(out_d and month_start <= out_d <= month_end)
-            # jungsan_det.manage_amt 는 임대료를 복사해 저장하는 XP 버그가 있다.
-            # 대체 대상·화면 관리비는 입주 이력 금액을 쓴다.
-            rent_amt = _to_int_amt(
-                (trow or {}).get("rent_amt") if trow else d.get("rent_amt")
-            )
-            manage_amt = _to_int_amt(
-                (trow or {}).get("manage_amt") if trow else d.get("manage_amt")
-            )
-            rows.append(
-                {
-                    "hosu": d.get("hosu"),
-                    "ipju_nm": "공실" if empty else nm,
-                    "ipju_dt": d.get("ipju_dt"),
-                    "out_dt": (trow or {}).get("out_dt") if not empty else None,
-                    "is_exit": is_exit,
-                    "ipju_seq": d.get("ipju_seq"),
-                    "napbu_gb": nap,
-                    "yechi_amt": yechi,
-                    "bojung_amt": _bojung_disp_amt(d.get("bojung_amt"), yechi, owner_holds_bojung),
-                    "rent_amt": rent_amt,
-                    "manage_amt": manage_amt,
-                    "ipkum_amt": 0,
-                    "sil_amt": 0,
-                    "manage_desc": d.get("manage_desc") or "",
-                    "dache_gb": d.get("dache_gb") or "",
-                    "dache_rent": 0,
-                    "dache_amt": 0,
-                    "rent_calc": rent_amt,
-                    "claim_amt": 0,
-                    "misu_amt": _to_int_amt(d.get("misu_amt")),
-                    "is_empty": empty,
-                }
-            )
+    # 라이브: 호수 + 당월 거주자(현재 입주 · 당월 퇴실)
+    rooms = preload.get("rooms")
+    if rooms is None:
+        rooms = _jungsan_month_tenants(b1, b2, month_start, month_end)
+    # N+1 제거: 당월 수금·누적실입·계약이력을 건물 단위(또는 목록 사전적재)로 로드
+    pay_map = preload.get("pay_map")
+    if pay_map is None:
+        pay_map = _month_sukum_breakdown_map(b1, b2, month_start, month_end_s)
+    # 월정산 미수는 금액 running balance (occupancy cycle calc_misu_amt 사용 안 함)
+    sil_paid_map = preload.get("sil_paid_map")
+    if sil_paid_map is None:
         sil_paid_map = _lifetime_sil01_map(b1, b2, as_of)
-        for r in rows:
-            if r["is_empty"]:
-                continue
-            sil_amt, dache_amt = _month_sukum_sil_dache(
-                b1, b2, r.get("hosu"), r.get("ipju_seq"), month_start, month_end_s
-            )
-            out_d = _valid_out_dt(r.get("out_dt"))
-            out_adj_exists = False
-            out_adj_amt = 0
-            out_adj_desc = ""
-            if out_d and month_start <= out_d <= month_end:
-                out_adj_exists, out_adj_amt, out_adj_desc = _month_out_adjustment(
-                    b1, b2, r.get("hosu"), r.get("ipju_seq"), month_start, month_end_s
-                )
-            r["sil_amt"] = sil_amt
-            if not (out_d and month_start <= out_d <= month_end):
-                tk = (_hosu_key(r.get("hosu")), _seq_key(r.get("ipju_seq")))
-                r["misu_amt"] = _jungsan_calendar_misu_amt(
-                    r.get("rent_amt"),
-                    r.get("manage_amt"),
-                    r.get("ipju_dt"),
-                    as_of,
-                    r.get("napbu_gb") or "B",
-                    paid_sil=sil_paid_map.get(tk) or 0,
-                )
-            rent_for_cap = _to_int_amt(
-                r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
-            )
-            due_for_cap = rent_for_cap + _to_int_amt(r.get("manage_amt"))
-            r["dache_amt_raw"] = dache_amt
-            r["dache_amt"] = _cap_dache_to_rent_shortfall(due_for_cap, sil_amt, dache_amt)
-            dache_amt = r["dache_amt"]
-            r["out_dt"] = out_d
-            r["is_exit"] = bool(out_d and month_start <= out_d <= month_end)
-            # 퇴실정산 금액을 월정산 입금액에 다시 더하지 않는다.
-            r["out_settle_amt"] = None
-            r["ipkum_amt"] = sil_amt + dache_amt
-            if out_d and month_start <= out_d <= month_end:
-                exit_tenant = db.query_one(
-                    """SELECT ipju_dt, rent_amt, manage_amt, napbu_gb
-                         FROM bd03_det
-                        WHERE bunji1=%s AND bunji2=%s AND UPPER(TRIM(hosu))=%s
-                          AND ipju_seq=%s""",
-                    (
-                        b1, b2, (r.get("hosu") or "").strip().upper(),
-                        str(r.get("ipju_seq") or "").zfill(2),
-                    ),
-                ) or {
-                    "ipju_dt": r.get("ipju_dt"),
-                    "rent_amt": r.get("rent_amt"),
-                    "manage_amt": r.get("manage_amt"),
-                    "napbu_gb": r.get("napbu_gb"),
-                }
-                exit_misu = _exit_settlement_misu(
-                    b1, b2, r.get("hosu"), r.get("ipju_seq"), exit_tenant, out_d
-                )
-                if exit_misu is not None or out_adj_exists:
-                    # 퇴실자는 누적 미수가 아니라 당월 퇴실정산 수금(종류 06)을
-                    # 입금액으로 표시한다. 기존 누적 미수는 퇴실정산에서 정리된다.
-                    exit_parts = _month_sukum_breakdown(
-                        b1, b2, r.get("hosu"), str(r.get("ipju_seq") or "").zfill(2),
-                        month_start, month_end_s,
-                    )
-                    exit_part = exit_parts.get("06", {})
-                    exit_paid = _to_int_amt(exit_part.get("sil")) + _to_int_amt(exit_part.get("dache"))
-                    exit_balance = _to_int_amt(exit_misu)
-                    # 퇴실정산 잔액은 일반 월정산 미수가 아니라 입금액으로 표시한다.
-                    # 실입+대체가 상계되어 0원인 경우도 저장 전표 금액을 보존한다.
-                    r["ipkum_amt"] = exit_paid if "06" in exit_parts else (_to_int_amt(out_adj_amt) if out_adj_exists else exit_balance)
-                    r["misu_amt"] = 0
-                    r["out_settle_amt"] = r["ipkum_amt"]
-            if out_d and month_start <= out_d <= month_end:
-                r["manage_desc"] = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
-            else:
-                ipju_jisi = _ipju_month_jisi(r.get("ipju_dt"), month_start, month_end)
-                if ipju_jisi:
-                    r["manage_desc"] = ipju_jisi
-            rent_flag = _to_int_amt(
-                r.get("rent_calc") if r.get("rent_calc") is not None else r.get("rent_amt")
-            )
-            due_flag = rent_flag + _to_int_amt(r.get("manage_amt"))
-            if _postpaid_move_in_month(
-                r.get("napbu_gb"), r.get("ipju_dt"), month_start, month_end
-            ):
-                due_flag = 0
-                r["dache_amt"] = 0
-            r["dache_gb"] = _dache_flag(sil_amt, r.get("dache_amt"), due_flag)
-        summary = {
-            "first_amt": _to_int_amt(saved.get("first_amt")),
-            "man_cost": _to_int_amt(saved.get("man_cost")),
-            "owner_suri": _to_int_amt(saved.get("owner_suri")),
-            "jungke_cost": _to_int_amt(saved.get("jungke_cost")),
-            "pay_amt": _to_int_amt(saved.get("pay_amt")),
-            "ipkum_tot": _to_int_amt(saved.get("ipkum_tot")),
-            "rent_tot": _to_int_amt(saved.get("rent_tot")),
-            "manage_tot": _to_int_amt(saved.get("manage_tot")),
-            "bojung_tot": _to_int_amt(saved.get("bojung_tot")),
-            "misu_tot": _to_int_amt(saved.get("misu_tot")),
-            # 임대료대체는 공통 구간에서 미수 합계로 설정 (XP 결산현황)
-            "imdae_dache": 0,
-            "bojung_dache": 0,
-            "rent_manager_account": _is_item_manager_account(building, "rent"),
-            "manage_manager_account": _is_item_manager_account(building, "manage"),
-            "bojung_manager_account": _is_item_manager_account(building, "bojung"),
-            "note": (saved.get("jungke_desc") or "").strip(),
-            "jungsan_dt": fmt_date(saved.get("jungsan_dt")),
-            "jungsan_seq": saved.get("jungsan_seq"),
-        }
-    else:
-        # 라이브: 호수 + 당월 거주자(현재 입주 · 당월 퇴실)
-        rooms = preload.get("rooms")
-        if rooms is None:
-            rooms = _jungsan_month_tenants(b1, b2, month_start, month_end)
-        # N+1 제거: 당월 수금·누적실입·계약이력을 건물 단위(또는 목록 사전적재)로 로드
-        pay_map = preload.get("pay_map")
-        if pay_map is None:
-            pay_map = _month_sukum_breakdown_map(b1, b2, month_start, month_end_s)
-        # 월정산 미수는 금액 running balance (occupancy cycle calc_misu_amt 사용 안 함)
-        sil_paid_map = preload.get("sil_paid_map")
-        if sil_paid_map is None:
-            sil_paid_map = _lifetime_sil01_map(b1, b2, as_of)
-        terms_map = preload.get("terms_map")
-        if terms_map is None:
-            terms_map = _terms_hist_map(b1, b2, as_of)
-        sum_bojung = sum_rent = sum_manage = sum_ipkum = sum_misu = 0
-        tenant_cnt = 0
-        for m in rooms:
-            hosu = (m.get("hosu") or "").strip()
-            nm = (m.get("ipju_nm") or "").strip()
-            if not nm:
-                rows.append(
-                    {
-                        "hosu": hosu,
-                        "ipju_nm": "공실",
-                        "ipju_dt": None,
-                        "ipju_seq": "",
-                        "napbu_gb": "",
-                        "bojung_amt": 0,
-                        "rent_amt": 0,
-                        "manage_amt": 0,
-                        "ipkum_amt": 0,
-                        "sil_amt": 0,
-                        "manage_desc": "",
-                        "dache_gb": "",
-                        "dache_rent": 0,
-                        "dache_amt": 0,
-                        "rent_calc": 0,
-                        "claim_amt": 0,
-                        "misu_amt": 0,
-                        "is_empty": True,
-                    }
-                )
-                continue
-            tenant_cnt += 1
-            seq = str(m.get("ipju_seq") or "").zfill(2)
-            rent = _to_int_amt(m.get("rent_amt"))
-            manage = _to_int_amt(m.get("manage_amt"))
-            bojung = _bojung_disp_amt(m.get("bojung_amt"), m.get("yechi_amt"), owner_holds_bojung)
-            yechi = _to_int_amt(m.get("yechi_amt"))
-            pay_parts = _month_sukum_breakdown(
-                b1, b2, hosu, seq, month_start, month_end_s, pay_map=pay_map
-            )
-            rent_part = pay_parts.get("01", {"sil": 0, "dache": 0})
-            # XP 월정산은 퇴실정산 전체가 아니라 종류 06 수금행만
-            # 퇴실월 입금액으로 별도 반영한다.
-            exit_part = pay_parts.get("06", {"sil": 0, "dache": 0})
-            exit_paid = _to_int_amt(exit_part.get("sil")) + _to_int_amt(exit_part.get("dache"))
-            rent_sil = _to_int_amt(rent_part.get("sil"))
-            rent_dache = _to_int_amt(rent_part.get("dache"))
-            combined_paid = rent_sil + rent_dache
-            # 기존 수금 입력은 01(월세+관리비)을 한 금액으로 저장하므로,
-            # 계약 월세를 먼저 충당하고 남은 금액을 관리비로 배분한다.
-            rent_due_for_split = rent
-            rent_paid = min(combined_paid, rent_due_for_split) if rent_due_for_split > 0 else 0
-            manage_paid = min(
-                max(0, combined_paid - rent_paid), manage
-            ) if manage > 0 else 0
-            sil_amt, dache_amt = rent_sil, rent_dache
-            out_d = _valid_out_dt(m.get("out_dt"))
-            out_adj_exists = False
-            out_adj_desc = ""
-            if out_d and month_start <= out_d <= month_end:
-                out_adj_exists, out_adj_amt, out_adj_desc = _month_out_adjustment(
-                    b1, b2, hosu, seq, month_start, month_end_s, pay_map=pay_map
-                )
-            # 퇴실월에는 별도의 79,000원 추정 조정액을 입금액으로 넣지 않는다.
-            # 퇴실정산 확정액(또는 누적 미수)은 아래 exit_misu로 반영한다.
-            out_settle_amt = None
-            ipkum = sil_amt + dache_amt
-            is_exit = bool(out_d and month_start <= out_d <= month_end)
-            tk = (_hosu_key(hosu), _seq_key(seq))
-            misu = _jungsan_calendar_misu_amt(
-                rent,
-                manage,
-                m.get("ipju_dt"),
-                as_of,
-                m.get("napbu_gb") or "B",
-                paid_sil=sil_paid_map.get(tk) or 0,
-            )
-            exit_misu = None
-            if out_d and month_start <= out_d <= month_end:
-                if manager_account:
-                    # 관리실 통장: 관리실이 선불 월세를 건물주에게 이미 지급했다.
-                    # XP 종류 06은 건물주와 관리실 사이의 퇴실 조정액이다.
-                    # 선불의 음수는 건물주가 관리실에 돌려줄 환급액이다.
-                    if "06" in pay_parts:
-                        ipkum = exit_paid
-                    elif out_adj_exists:
-                        ipkum = _to_int_amt(out_adj_amt)
-                    else:
-                        ipkum = _jungsan_out_settle_amt(
-                            m.get("napbu_gb"), rent, m.get("ipju_dt"), out_d,
-                            month_start, month_end,
-                        ) or 0
-                else:
-                    # 건물주 통장: 세입자와 건물주가 직접 수금한다.
-                    # 월정산에는 퇴실정산 화면의 세입자 거주 일할을 표시한다.
-                    ipkum = _calc_checkout_day_amt(
-                        m.get("ipju_dt"), out_d, rent, manage
-                    )
-                misu = 0
-                out_settle_amt = ipkum
-            rent_calc, claim_raw = _jungsan_month_rent_split(
-                m.get("napbu_gb"), rent, m.get("ipju_dt"), m.get("out_dt"),
-                month_start, month_end,
-            )
-            # 라이브 행에서도 대체를 (월세+관리비) 부족분으로 상한 (조정 적용 전)
-            due_for_cap = rent_calc + manage
-            if _postpaid_move_in_month(m.get("napbu_gb"), m.get("ipju_dt"), month_start, month_end):
-                due_for_cap = 0
-            dache_amt_raw = dache_amt
-            dache_amt = _cap_dache_to_rent_shortfall(due_for_cap, sil_amt, dache_amt_raw)
-            # 선불 퇴실 청구는 대체금이 있을 때만. 대체 없으면 청구 없음.
-            claim_amt = min(claim_raw, dache_amt) if (claim_raw > 0 and dache_amt > 0 and sil_amt <= 0) else 0
-            dache_gb = _dache_flag(sil_amt, dache_amt, due_for_cap)
-            if out_d and month_start <= out_d <= month_end:
-                claim_amt = 0
-                jisi = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
-            elif claim_amt > 0:
-                jisi = "청구"
-            else:
-                ipju_jisi = _ipju_month_jisi(m.get("ipju_dt"), month_start, month_end)
-                if ipju_jisi:
-                    jisi = ipju_jisi
-                elif sil_amt <= 0 and rent_calc > 0:
-                    jisi = "미납"
-                elif rent_calc > 0 and sil_amt < rent_calc:
-                    jisi = "부족"
-                else:
-                    jisi = ""
+    terms_map = preload.get("terms_map")
+    if terms_map is None:
+        terms_map = _terms_hist_map(b1, b2, as_of)
+    sum_bojung = sum_rent = sum_manage = sum_ipkum = sum_misu = 0
+    tenant_cnt = 0
+    for m in rooms:
+        hosu = (m.get("hosu") or "").strip()
+        nm = (m.get("ipju_nm") or "").strip()
+        if not nm:
             rows.append(
                 {
                     "hosu": hosu,
-                    "ipju_nm": nm,
-                    "ipju_dt": m.get("ipju_dt"),
-                    "out_dt": m.get("out_dt"),
-                    "is_exit": is_exit,
-                    "ipju_seq": seq,
-                    "napbu_gb": m.get("napbu_gb") or "B",
-                    "yechi_amt": yechi,
-                    "bojung_amt": bojung,
-                    "rent_amt": rent,
-                    "manage_amt": manage,
-                    "ipkum_amt": ipkum,
-                    "sil_amt": sil_amt,
-                    "rent_sil_amt": rent_paid,
-                    "manage_sil_amt": manage_paid,
-                    "deposit_sil_amt": _to_int_amt(pay_parts.get("02", {}).get("sil"))
-                    + _to_int_amt(pay_parts.get("03", {}).get("sil")),
-                    "deposit_dache_amt": _to_int_amt(pay_parts.get("02", {}).get("dache"))
-                    + _to_int_amt(pay_parts.get("03", {}).get("dache")),
-                    "repair_sil_amt": _to_int_amt(pay_parts.get("04", {}).get("sil")),
-                    "brokerage_sil_amt": _to_int_amt(pay_parts.get("05", {}).get("sil")),
-                    "exit_rent_sil_amt": _to_int_amt(pay_parts.get("06", {}).get("sil")),
-                    "exit_manage_sil_amt": _to_int_amt(pay_parts.get("07", {}).get("sil")),
-                    "manage_desc": jisi,
-                    "dache_gb": dache_gb,
+                    "ipju_nm": "공실",
+                    "ipju_dt": None,
+                    "ipju_seq": "",
+                    "napbu_gb": "",
+                    "bojung_amt": 0,
+                    "rent_amt": 0,
+                    "manage_amt": 0,
+                    "ipkum_amt": 0,
+                    "sil_amt": 0,
+                    "manage_desc": "",
+                    "dache_gb": "",
                     "dache_rent": 0,
-                    "dache_amt_raw": dache_amt_raw,
-                    "dache_amt": dache_amt,
-                    "rent_calc": rent_calc,
-                    "claim_amt": claim_amt,
-                    "out_settle_amt": out_settle_amt,
-                    "misu_amt": misu,
-                    "is_empty": False,
+                    "dache_amt": 0,
+                    "rent_calc": 0,
+                    "claim_amt": 0,
+                    "misu_amt": 0,
+                    "is_empty": True,
                 }
             )
-            if not is_exit:
-                sum_bojung += bojung
-            sum_rent += rent
-            sum_manage += manage
-            sum_ipkum += ipkum
-            sum_misu += misu
-
-        if not list_mode:
-            _ensure_month_common_repairs(
-                b1, b2, month_end, session.get("sabun") or ""
-            )
-        if "owner_suri" in preload and "jungke_cost" in preload:
-            owner_suri = _to_int_amt(preload.get("owner_suri"))
-            jungke_cost = _to_int_amt(preload.get("jungke_cost"))
-        else:
-            suri = db.query_one(
-                """
-                SELECT COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
-                FROM bd05_suri
-                WHERE bunji1=%s AND bunji2=%s
-                  AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-                  AND YEAR(suri_dt) > 1000
-                """,
-                (b1, b2, month_start.isoformat(), month_end_s),
-            )
-            jungke = db.query_one(
-                """
-                SELECT COALESCE(SUM(COALESCE(jungke_amt,0)),0) AS a
-                FROM sjungke01
-                WHERE bunji1=%s AND bunji2=%s
-                  AND jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-                """,
-                (b1, b2, month_start.isoformat(), month_end_s),
-            )
-            owner_suri = _to_int_amt((suri or {}).get("a"))
-            jungke_cost = _to_int_amt((jungke or {}).get("a"))
-        man_cost = _to_int_amt(building.get("man_cost"))
-        # 지급액·임대료대체는 아래 공통 구간에서 XP 결산현황 규칙으로 다시 계산.
-        claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
-        pay_amt = 0
-        summary = {
-            "first_amt": _to_int_amt(building.get("first_amt")),
-            "man_cost": man_cost,
-            "owner_suri": owner_suri,
-            "jungke_cost": jungke_cost,
-            "pay_amt": pay_amt,
-            "ipkum_tot": sum_ipkum,
-            "rent_tot": sum_rent,
-            "manage_tot": sum_manage,
-            "bojung_tot": sum_bojung,
-            "misu_tot": sum_misu,
-            "imdae_dache": 0,
-            "bojung_dache": 0,
-            "rent_manager_account": _is_item_manager_account(building, "rent"),
-            "manage_manager_account": _is_item_manager_account(building, "manage"),
-            "bojung_manager_account": _is_item_manager_account(building, "bojung"),
-            "claim_tot": claim_sum,
-            "note": "",
-            "jungsan_dt": None,
-            "jungsan_seq": None,
-            "tenant_cnt": tenant_cnt,
-        }
-
-        # 수금 성격별 집계(01 월세+관리비를 계약금액 기준으로 분배).
-        summary["rent_ipkum_tot"] = sum(_to_int_amt(r.get("rent_sil_amt")) for r in rows)
-        summary["manage_ipkum_tot"] = sum(_to_int_amt(r.get("manage_sil_amt")) for r in rows)
-        summary["rent_dache_tot"] = sum(
-            min(_to_int_amt(r.get("dache_amt")), _to_int_amt(r.get("rent_amt")))
-            for r in rows if not r.get("is_empty")
+            continue
+        tenant_cnt += 1
+        seq = str(m.get("ipju_seq") or "").zfill(2)
+        rent = _to_int_amt(m.get("rent_amt"))
+        manage = _to_int_amt(m.get("manage_amt"))
+        bojung = _bojung_disp_amt(m.get("bojung_amt"), m.get("yechi_amt"), owner_holds_bojung)
+        yechi = _to_int_amt(m.get("yechi_amt"))
+        pay_parts = _month_sukum_breakdown(
+            b1, b2, hosu, seq, month_start, month_end_s, pay_map=pay_map
         )
-        summary["deposit_ipkum_tot"] = sum(_to_int_amt(r.get("deposit_sil_amt")) for r in rows)
-        summary["deposit_dache_tot"] = sum(_to_int_amt(r.get("deposit_dache_amt")) for r in rows)
+        rent_part = pay_parts.get("01", {"sil": 0, "dache": 0})
+        # XP 월정산은 퇴실정산 전체가 아니라 종류 06 수금행만
+        # 퇴실월 입금액으로 별도 반영한다.
+        exit_part = pay_parts.get("06", {"sil": 0, "dache": 0})
+        exit_paid = _to_int_amt(exit_part.get("sil")) + _to_int_amt(exit_part.get("dache"))
+        rent_sil = _to_int_amt(rent_part.get("sil"))
+        rent_dache = _to_int_amt(rent_part.get("dache"))
+        combined_paid = rent_sil + rent_dache
+        # 기존 수금 입력은 01(월세+관리비)을 한 금액으로 저장하므로,
+        # 계약 월세를 먼저 충당하고 남은 금액을 관리비로 배분한다.
+        rent_due_for_split = rent
+        rent_paid = min(combined_paid, rent_due_for_split) if rent_due_for_split > 0 else 0
+        manage_paid = min(
+            max(0, combined_paid - rent_paid), manage
+        ) if manage > 0 else 0
+        sil_amt, dache_amt = rent_sil, rent_dache
+        out_d = _valid_out_dt(m.get("out_dt"))
+        out_adj_exists = False
+        out_adj_desc = ""
+        if out_d and month_start <= out_d <= month_end:
+            out_adj_exists, out_adj_amt, out_adj_desc = _month_out_adjustment(
+                b1, b2, hosu, seq, month_start, month_end_s, pay_map=pay_map
+            )
+        # 퇴실월에는 별도의 79,000원 추정 조정액을 입금액으로 넣지 않는다.
+        # 퇴실정산 확정액(또는 누적 미수)은 아래 exit_misu로 반영한다.
+        out_settle_amt = None
+        ipkum = sil_amt + dache_amt
+        is_exit = bool(out_d and month_start <= out_d <= month_end)
+        tk = (_hosu_key(hosu), _seq_key(seq))
+        misu = _jungsan_calendar_misu_amt(
+            rent,
+            manage,
+            m.get("ipju_dt"),
+            as_of,
+            m.get("napbu_gb") or "B",
+            paid_sil=sil_paid_map.get(tk) or 0,
+        )
+        exit_misu = None
+        if out_d and month_start <= out_d <= month_end:
+            if manager_account:
+                # 관리실 통장: 관리실이 선불 월세를 건물주에게 이미 지급했다.
+                # XP 종류 06은 건물주와 관리실 사이의 퇴실 조정액이다.
+                # 선불의 음수는 건물주가 관리실에 돌려줄 환급액이다.
+                if "06" in pay_parts:
+                    ipkum = exit_paid
+                elif out_adj_exists:
+                    ipkum = _to_int_amt(out_adj_amt)
+                else:
+                    ipkum = _jungsan_out_settle_amt(
+                        m.get("napbu_gb"), rent, m.get("ipju_dt"), out_d,
+                        month_start, month_end,
+                    ) or 0
+            else:
+                # 건물주 통장: 세입자와 건물주가 직접 수금한다.
+                # 월정산에는 퇴실정산 화면의 세입자 거주 일할을 표시한다.
+                ipkum = _calc_checkout_day_amt(
+                    m.get("ipju_dt"), out_d, rent, manage
+                )
+            misu = 0
+            out_settle_amt = ipkum
+        rent_calc, claim_raw = _jungsan_month_rent_split(
+            m.get("napbu_gb"), rent, m.get("ipju_dt"), m.get("out_dt"),
+            month_start, month_end,
+        )
+        # 라이브 행에서도 대체를 (월세+관리비) 부족분으로 상한 (조정 적용 전)
+        due_for_cap = rent_calc + manage
+        if _postpaid_move_in_month(m.get("napbu_gb"), m.get("ipju_dt"), month_start, month_end):
+            due_for_cap = 0
+        dache_amt_raw = dache_amt
+        dache_amt = _cap_dache_to_rent_shortfall(due_for_cap, sil_amt, dache_amt_raw)
+        # 선불 퇴실 청구는 대체금이 있을 때만. 대체 없으면 청구 없음.
+        claim_amt = min(claim_raw, dache_amt) if (claim_raw > 0 and dache_amt > 0 and sil_amt <= 0) else 0
+        dache_gb = _dache_flag(sil_amt, dache_amt, due_for_cap)
+        if out_d and month_start <= out_d <= month_end:
+            claim_amt = 0
+            jisi = out_adj_desc or f"퇴실({out_d.strftime('%m-%d')})"
+        elif claim_amt > 0:
+            jisi = "청구"
+        else:
+            ipju_jisi = _ipju_month_jisi(m.get("ipju_dt"), month_start, month_end)
+            if ipju_jisi:
+                jisi = ipju_jisi
+            elif sil_amt <= 0 and rent_calc > 0:
+                jisi = "미납"
+            elif rent_calc > 0 and sil_amt < rent_calc:
+                jisi = "부족"
+            else:
+                jisi = ""
+        rows.append(
+            {
+                "hosu": hosu,
+                "ipju_nm": nm,
+                "ipju_dt": m.get("ipju_dt"),
+                "out_dt": m.get("out_dt"),
+                "is_exit": is_exit,
+                "ipju_seq": seq,
+                "napbu_gb": m.get("napbu_gb") or "B",
+                "yechi_amt": yechi,
+                "bojung_amt": bojung,
+                "rent_amt": rent,
+                "manage_amt": manage,
+                "ipkum_amt": ipkum,
+                "sil_amt": sil_amt,
+                "rent_sil_amt": rent_paid,
+                "manage_sil_amt": manage_paid,
+                "deposit_sil_amt": _to_int_amt(pay_parts.get("02", {}).get("sil"))
+                + _to_int_amt(pay_parts.get("03", {}).get("sil")),
+                "deposit_dache_amt": _to_int_amt(pay_parts.get("02", {}).get("dache"))
+                + _to_int_amt(pay_parts.get("03", {}).get("dache")),
+                "repair_sil_amt": _to_int_amt(pay_parts.get("04", {}).get("sil")),
+                "brokerage_sil_amt": _to_int_amt(pay_parts.get("05", {}).get("sil")),
+                "exit_rent_sil_amt": _to_int_amt(pay_parts.get("06", {}).get("sil")),
+                "exit_manage_sil_amt": _to_int_amt(pay_parts.get("07", {}).get("sil")),
+                "manage_desc": jisi,
+                "dache_gb": dache_gb,
+                "dache_rent": 0,
+                "dache_amt_raw": dache_amt_raw,
+                "dache_amt": dache_amt,
+                "rent_calc": rent_calc,
+                "claim_amt": claim_amt,
+                "out_settle_amt": out_settle_amt,
+                "misu_amt": misu,
+                "is_empty": False,
+            }
+        )
+        if not is_exit:
+            sum_bojung += bojung
+        sum_rent += rent
+        sum_manage += manage
+        sum_ipkum += ipkum
+        sum_misu += misu
+
+    if not list_mode:
+        _ensure_month_common_repairs(
+            b1, b2, month_end, session.get("sabun") or ""
+        )
+    if "owner_suri" in preload and "jungke_cost" in preload:
+        owner_suri = _to_int_amt(preload.get("owner_suri"))
+        jungke_cost = _to_int_amt(preload.get("jungke_cost"))
+    else:
+        suri = db.query_one(
+            """
+            SELECT COALESCE(SUM(COALESCE(owner_budam,0)),0) AS a
+            FROM bd05_suri
+            WHERE bunji1=%s AND bunji2=%s
+              AND suri_dt >= %s AND suri_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+              AND YEAR(suri_dt) > 1000
+            """,
+            (b1, b2, month_start.isoformat(), month_end_s),
+        )
+        jungke = db.query_one(
+            """
+            SELECT COALESCE(SUM(COALESCE(jungke_amt,0)),0) AS a
+            FROM sjungke01
+            WHERE bunji1=%s AND bunji2=%s
+              AND jungke_dt >= %s AND jungke_dt < DATE_ADD(%s, INTERVAL 1 DAY)
+            """,
+            (b1, b2, month_start.isoformat(), month_end_s),
+        )
+        owner_suri = _to_int_amt((suri or {}).get("a"))
+        jungke_cost = _to_int_amt((jungke or {}).get("a"))
+    man_cost = _to_int_amt(building.get("man_cost"))
+    # 지급액·임대료대체는 아래 공통 구간에서 XP 결산현황 규칙으로 다시 계산.
+    claim_sum = sum(_to_int_amt(r.get("claim_amt")) for r in rows)
+    pay_amt = 0
+    summary = {
+        "first_amt": _to_int_amt(building.get("first_amt")),
+        "man_cost": man_cost,
+        "owner_suri": owner_suri,
+        "jungke_cost": jungke_cost,
+        "pay_amt": pay_amt,
+        "ipkum_tot": sum_ipkum,
+        "rent_tot": sum_rent,
+        "manage_tot": sum_manage,
+        "bojung_tot": sum_bojung,
+        "misu_tot": sum_misu,
+        "imdae_dache": 0,
+        "bojung_dache": 0,
+        "rent_manager_account": _is_item_manager_account(building, "rent"),
+        "manage_manager_account": _is_item_manager_account(building, "manage"),
+        "bojung_manager_account": _is_item_manager_account(building, "bojung"),
+        "claim_tot": claim_sum,
+        "note": "",
+        "jungsan_dt": None,
+        "jungsan_seq": None,
+        "tenant_cnt": tenant_cnt,
+    }
+
+    # 수금 성격별 집계(01 월세+관리비를 계약금액 기준으로 분배).
+    summary["rent_ipkum_tot"] = sum(_to_int_amt(r.get("rent_sil_amt")) for r in rows)
+    summary["manage_ipkum_tot"] = sum(_to_int_amt(r.get("manage_sil_amt")) for r in rows)
+    summary["rent_dache_tot"] = sum(
+        min(_to_int_amt(r.get("dache_amt")), _to_int_amt(r.get("rent_amt")))
+        for r in rows if not r.get("is_empty")
+    )
+    summary["deposit_ipkum_tot"] = sum(_to_int_amt(r.get("deposit_sil_amt")) for r in rows)
+    summary["deposit_dache_tot"] = sum(_to_int_amt(r.get("deposit_dache_amt")) for r in rows)
 
     def _suri_amt_disp(s):
         won = _to_int_amt(s.get("suri_won_amt"))
@@ -1182,14 +1119,13 @@ def _jungsan_build_preview(bunji1, bunji2, as_of, *, list_mode=False, preload=No
     company_comp_tot = sum(_to_int_amt(r.get("company_comp_amt")) for r in rows)
     summary["company_comp_tot"] = company_comp_tot
     if manager_account:
-        if source != "saved" or _to_int_amt(summary.get("pay_amt")) <= 0:
-            summary["pay_amt"] = (
-                pay_base
-                - _to_int_amt(summary.get("man_cost"))
-                - _to_int_amt(summary.get("owner_suri"))
-                - _to_int_amt(summary.get("jungke_cost"))
-                - claim_sum
-            )
+        summary["pay_amt"] = (
+            pay_base
+            - _to_int_amt(summary.get("man_cost"))
+            - _to_int_amt(summary.get("owner_suri"))
+            - _to_int_amt(summary.get("jungke_cost"))
+            - claim_sum
+        )
         # 책임관리: 송금수수료 등으로 실제 송금은 천원 단위 버림 (예: 3,323,333 → 3,323,000)
         # 음수 초과금도 보존하되, 기존 표시 단위(1,000원)에 맞춰 0 방향 절삭한다.
         summary["pay_amt"] = int(_to_int_amt(summary.get("pay_amt")) / 1000) * 1000
@@ -1524,7 +1460,8 @@ def jungsan():
         filters=filters,
         ran=ran,
         data=data,
-        building_label=_building_label(bunji1, bunji2) if bunji1 and bunji2 else "",
+        building_label=(data.get("building") or {}).get("juso", "")
+        if data and not data.get("error") else (_building_label(bunji1, bunji2) if bunji1 and bunji2 else ""),
     )
 
 
@@ -1813,6 +1750,11 @@ def _jungsan_write_snapshot(b1, b2, as_of, data):
                 raise _JungsanSaveError(
                     "저장 안전성 보완이 필요합니다. 정산 테이블 전환 후 저장해 주세요."
                 )
+            cur.execute("SHOW COLUMNS FROM jungsan_m LIKE 'snapshot_json'")
+            if not cur.fetchone():
+                raise _JungsanSaveError(
+                    "저장본 보존용 DB 적용이 필요합니다(005_jungsan_snapshot_json.sql)."
+                )
             # 아직 저장본이 없는 달도 같은 건물·월의 동시 저장을 직렬화한다.
             cur.execute("SELECT GET_LOCK(%s, 5) AS acquired", (lock_name,))
             locked = _to_int_amt((cur.fetchone() or {}).get("acquired")) == 1
@@ -1841,6 +1783,7 @@ def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):
     month_start, month_end = _month_bounds(as_of)
     summary = data.get("summary") or {}
     rows = data.get("rows") or []
+    snapshot_json = _jungsan_encode_snapshot(b1, b2, as_of, data)
     uid = (session.get("sabun") or "")[:5]
     existing = _jungsan_saved_header(b1, b2, as_of, cursor=cur)
     if existing:
@@ -1851,7 +1794,7 @@ def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):
                   SET pay_amt=%s, ipkum_tot=%s, man_cost=%s, owner_suri=%s,
                       jungke_cost=%s, jungke_desc=%s, misu_tot=%s, bojung_tot=%s,
                       rent_tot=%s, manage_tot=%s, first_amt=%s,
-                      del_yn='N', uid=%s, sys_dt=NOW()
+                      snapshot_json=%s, del_yn='N', uid=%s, sys_dt=NOW()
                 WHERE bunji1=%s AND bunji2=%s AND jungsan_dt=%s AND jungsan_seq=%s""",
             (
                 _to_int_amt(summary.get("pay_amt")),
@@ -1859,12 +1802,13 @@ def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):
                 _to_int_amt(summary.get("man_cost")),
                 _to_int_amt(summary.get("owner_suri")),
                 _to_int_amt(summary.get("jungke_cost")),
-                (summary.get("jisi_text") or summary.get("note") or "")[:200],
+                (summary.get("jisi_text") or summary.get("note") or "")[:50],
                 _to_int_amt(summary.get("misu_tot")),
                 _to_int_amt(summary.get("bojung_tot")),
                 _to_int_amt(summary.get("rent_tot") or (data.get("totals") or {}).get("rent_amt")),
                 _to_int_amt(summary.get("manage_tot") or (data.get("totals") or {}).get("manage_amt")),
                 _to_int_amt(summary.get("first_amt")),
+                snapshot_json,
                 uid,
                 b1, b2, jdt, seq,
             ),
@@ -1882,12 +1826,12 @@ def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):
                    jungsan_dt, jungsan_seq, bunji1, bunji2, pay_amt, ipkum_tot,
                    man_cost, owner_suri, jungke_cost, jungke_desc, misu_tot,
                    bojung_tot, rent_tot, manage_tot, first_amt, del_yn,
-                   print_cnt, uid, sys_dt
+                   snapshot_json, print_cnt, uid, sys_dt
                ) VALUES (
                    %s,%s,%s,%s,%s,%s,
                    %s,%s,%s,%s,%s,
                    %s,%s,%s,%s,'N',
-                   0,%s,NOW()
+                   %s,0,%s,NOW()
                )""",
             (
                 jdt, seq, b1, b2,
@@ -1896,12 +1840,13 @@ def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):
                 _to_int_amt(summary.get("man_cost")),
                 _to_int_amt(summary.get("owner_suri")),
                 _to_int_amt(summary.get("jungke_cost")),
-                (summary.get("jisi_text") or summary.get("note") or "")[:200],
+                (summary.get("jisi_text") or summary.get("note") or "")[:50],
                 _to_int_amt(summary.get("misu_tot")),
                 _to_int_amt(summary.get("bojung_tot")),
                 _to_int_amt(summary.get("rent_tot") or (data.get("totals") or {}).get("rent_amt")),
                 _to_int_amt(summary.get("manage_tot") or (data.get("totals") or {}).get("manage_amt")),
                 _to_int_amt(summary.get("first_amt")),
+                snapshot_json,
                 uid,
             ),
         )
@@ -2070,22 +2015,17 @@ def jungsan_list():
             buildings.append(b_use)
 
         page_buildings, pager = _paginate(buildings)
-        page_keys = [(b.get("bunji1"), b.get("bunji2")) for b in page_buildings]
-        _ensure_month_common_repairs_many(
-            page_keys, month_end, session.get("sabun") or ""
-        )
-
         saved_rows = db.query(
             """
-            SELECT j.*, b.juso, b.owner_nm, b.mgmt_gb, b.sukum_acct_gb,
-                   b.sukum_bojung_acct_gb, b.sukum_rent_acct_gb, b.sukum_manage_acct_gb,
-                   b.man_cost AS b_man_cost,
-                   b.stair_cost, b.inet_cost, b.option_cost
+            SELECT j.bunji1, j.bunji2, j.jungsan_dt, j.jungsan_seq,
+                   j.pay_amt, j.first_amt, j.bojung_tot, j.rent_tot, j.manage_tot,
+                   j.ipkum_tot, j.owner_suri, j.jungke_cost, j.misu_tot, j.man_cost,
+                   b.juso, b.owner_nm
             FROM jungsan_m j
             LEFT JOIN bd01 b ON b.bunji1=j.bunji1 AND b.bunji2=j.bunji2
             WHERE (j.del_yn IS NULL OR j.del_yn='N' OR j.del_yn='')
               AND j.jungsan_dt >= %s AND j.jungsan_dt < DATE_ADD(%s, INTERVAL 1 DAY)
-            ORDER BY j.bunji1, j.bunji2, j.jungsan_seq
+            ORDER BY j.bunji1, j.bunji2, j.jungsan_dt, j.jungsan_seq
             """,
             (month_start.isoformat(), month_end.isoformat()),
         )
@@ -2098,6 +2038,10 @@ def jungsan_list():
             for b in page_buildings
             if (b.get("bunji1"), b.get("bunji2")) not in saved_by
         ]
+        # 저장본 조회는 공용 수리 자료를 새로 생성하지 않는다.
+        _ensure_month_common_repairs_many(
+            live_keys, month_end, session.get("sabun") or ""
+        )
         tenants_all = pay_all = sil_paid_all = terms_all = {}
         suri_all = jungke_all = {}
         if live_keys:
@@ -2116,21 +2060,8 @@ def jungsan_list():
             key = (b1, b2)
             r = saved_by.get(key)
             if r:
-                mgmt_gb = (r.get("mgmt_gb") or "").strip().upper()
-                is_resp = (
-                    mgmt_gb == "R" if mgmt_gb in ("R", "G")
-                    else _to_int_amt(r.get("b_man_cost")) > 0
-                )
-                manager_account = _is_item_manager_account(r, "rent")
-                if manager_account:
-                    pay = _to_int_amt(r.get("pay_amt"))
-                    pay = (pay // 1000) * 1000
-                else:
-                    pay = (
-                        _to_int_amt(r.get("man_cost"))
-                        + _to_int_amt(r.get("owner_suri"))
-                        + _to_int_amt(r.get("jungke_cost"))
-                    )
+                # 통장 주체가 바뀌어도 저장 합계를 다시 계산/천원 절사하지 않는다.
+                pay = _to_int_amt(r.get("pay_amt"))
                 sum_pay += pay
                 results.append(
                     {

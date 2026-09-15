@@ -37,35 +37,20 @@ class ExitVoucherTests(unittest.TestCase):
 
     def preview(self, parts, *, saved=False):
         self.preload['pay_map'] = {self.key: parts}
-        if saved:
-            self.preload['skip_saved'] = False
-            header = {'jungsan_dt': datetime(2026, 5, 31), 'jungsan_seq': '01', 'pay_amt': 100000}
-            patch('jungsan._jungsan_saved_header', return_value=header).start()
-            patch('jungsan._lifetime_sil01_map', return_value={}).start()
-            patch('jungsan._month_sukum_sil_dache', return_value=(0, 0)).start()
-            patch('jungsan._exit_settlement_misu', return_value=888888).start()
-
-            def query(sql, args=None):
-                if 'FROM jungsan_det' in sql:
-                    return [dict(self.tenant)]
-                if 'FROM sukum01' in sql and 'GROUP BY sukum_char' in sql:
-                    return [dict(value, sukum_char=kind) for kind, value in parts.items()]
-                raise AssertionError('unexpected saved-view query')
-
-            def query_one(sql, args=None):
-                if 'FROM bd03_det' in sql:
-                    return dict(self.tenant)
-                if 'COUNT(*) AS cnt' in sql and 'FROM sukum01' in sql:
-                    return {'cnt': int('06' in parts), 'amt': parts.get('06', {}).get('sil', 0),
-                            'manage_desc': ''}
-                raise AssertionError('unexpected saved-view query_one')
-
-            self.query.side_effect = query
-            self.query_one.side_effect = query_one
-        return jungsan._jungsan_build_preview(
+        self.preload['skip_saved'] = True
+        current = jungsan._jungsan_build_preview(
             '0508', '0088', date(2026, 5, 31), list_mode=True,
-            preload=self.preload, prefer_saved=saved,
+            preload=self.preload, prefer_saved=False,
         )
+        if not saved:
+            return current
+        # 새 저장본은 그 당시 전표 반영 결과를 보존하며 최신 전표를 다시 읽지 않는다.
+        payload = jungsan._jungsan_encode_snapshot('0508', '0088', date(2026, 5, 31), current)
+        header = {'jungsan_dt': datetime(2026, 5, 31), 'jungsan_seq': '01', 'snapshot_json': payload}
+        with patch('jungsan._jungsan_saved_header', return_value=header):
+            return jungsan._jungsan_build_preview(
+                '0508', '0088', date(2026, 5, 31), prefer_saved=True,
+            )
 
     def test_presence_matches_direct_query_for_negative_zero_positive_and_missing(self):
         for amount in (None, -206667, 0, 206667):

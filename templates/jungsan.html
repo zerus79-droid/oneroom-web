@@ -60,7 +60,8 @@
         {% endif %}
       </div>
       <a class="btn btn-accent" id="jungsan-print-btn" target="_blank" rel="noopener"
-         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, as_of=filters.as_of, src=filters.src or none) }}"
+         data-src="{{ data.source if data and not data.error else filters.src }}"
+         href="{{ url_for('jungsan_print', q=1, bunji1=filters.bunji1|bunji if filters.bunji1 else none, bunji2=filters.bunji2|bunji if filters.bunji2 else none, as_of=filters.as_of, src=data.source if data and not data.error else (filters.src or none)) }}"
          title="결산현황 인쇄">인쇄</a>
     </div>
   </form>
@@ -112,13 +113,13 @@
       <div class="jungsan-meta-line">
         기준일 <strong>{{ data.as_of }}</strong>
         · 대상월 <strong>{{ data.month_start[:7] }}</strong>
-        · 입금통장 <strong>{{ '관리주체 통장' if data.manager_account else '건물주 통장' }}</strong>
+        · 입금통장 <strong>{{ '저장 당시 구분 미기록' if data.manager_account is none else ('관리주체 통장' if data.manager_account else '건물주 통장') }}</strong>
       </div>
     </div>
   </div>
 
   {# 요약 (XP 상단 필드) #}
-  {% set can_dache_edit = current_user and (current_user.grade or '')|upper != 'C' %}
+  {% set can_dache_edit = data.source != 'saved' and current_user and (current_user.grade or '')|upper != 'C' %}
   {% if can_dache_edit %}
   <form method="post" action="{{ url_for('jungsan_dache') }}" id="js-dache-form"
         onsubmit="return false;">
@@ -191,7 +192,7 @@
       </thead>
       <tbody>
         {% for r in data.rows %}
-        <tr class="{% if r.is_empty %}row-empty{% elif r.misu_amt > 0 %}row-misu{% endif %}">
+        <tr class="{% if r.is_empty %}row-empty{% elif (r.misu_amt or 0) > 0 %}row-misu{% endif %}">
           <td class="tc col-nowrap"><strong>{{ r.hosu }}</strong></td>
           <td>{% if r.is_empty %}<span class="muted">공실</span>{% else %}{{ r.ipju_nm }}{% endif %}</td>
           <td class="tc col-nowrap">{% if not r.is_empty %}{{ r.ipju_dt|fmt_date }}{% endif %}</td>
@@ -213,7 +214,7 @@
             {% else %}{{ r.dache_gb }}{% endif %}
             {% elif r.dache_gb %}{{ r.dache_gb }}{% endif %}
           </td>
-          <td class="num {% if r.misu_amt > 0 %}text-warn{% endif %}">
+          <td class="num {% if (r.misu_amt or 0) > 0 %}text-warn{% endif %}">
             {% if not r.is_empty %}{{ r.misu_amt|money }}{% endif %}
           </td>
         </tr>
@@ -287,7 +288,11 @@
   {% endif %}
   <p class="muted jungsan-note no-print">
     {% if data.source == 'saved' %}
-    저장본입니다. 입금액은 해당 월 수금으로 보강합니다. 「현재계산」을 누르면 지금 자료와 비교합니다.
+    저장본입니다. 다시 저장하기 전까지 금액은 바뀌지 않습니다. 수정·대체·관리지시는 「현재계산」에서 처리한 뒤 저장하세요.
+    {% if data.snapshot_legacy %}
+    이 옛 저장본에는 호실별 입금액·통장 구분·지불수리비·대체금액·상세 내역이 기록되지 않아 빈칸으로 표시합니다.
+    계약금액(옛 관리비 복사 오류 포함)과 합계도 저장된 값 그대로이며 현재 자료로 보정하지 않습니다.
+    {% endif %}
     {% else %}
     현재계산(실시간)입니다.{% if data.has_saved %} 「저장본」을 누르면 저장된 정산서와 비교합니다.{% endif %}
     체크하면 바로 대체되고, 빼면 바로 해제됩니다. 대체는 임대료+관리비. 세입자 미수에서는 빼지 않습니다.
@@ -593,6 +598,7 @@ function restoreJungsanScroll() {
     if (b1 && b1.value) q.set("bunji1", b1.value);
     if (b2 && b2.value) q.set("bunji2", b2.value);
     if (asOf && asOf.value) q.set("as_of", asOf.value);
+    if (btn.dataset.src) q.set("src", btn.dataset.src);
     btn.href = "{{ url_for('jungsan_print') }}?" + q.toString();
   });
 })();
