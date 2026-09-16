@@ -13,7 +13,8 @@ from decimal import Decimal
 from flask import flash, redirect, render_template, request, session, url_for
 
 import db
-from app_instance import app
+from app_instance import app, cache
+from query_cache import invalidate_building_cache
 from utils import (
     building_label as _building_label,
     calc_checkout_day_amt as _calc_checkout_day_amt,
@@ -1728,40 +1729,94 @@ class _JungsanSaveError(RuntimeError):
     """데이터 변경 전에 확인한 저장 불가 사유."""
 
 
+def _jungsan_sync_first_amt(cur, b1, b2, as_of, data):
+    """월정산과 같은 트랜잭션에서 건물주 보관 보증금 기준액만 동기화한다."""
+    if data.get("source") != "live" or data.get("error"):
+        raise _JungsanSaveError("현재계산을 조회한 뒤 저장해 주세요.")
+    cur.execute(
+        """SELECT first_amt, sukum_acct_gb, sukum_bojung_acct_gb
+             FROM bd01 WHERE bunji1=%s AND bunji2=%s FOR UPDATE""",
+        (b1, b2),
+    )
+    building = cur.fetchone()
+    if not building:
+        raise _JungsanSaveError("건물등록을 찾을 수 없습니다. 다시 조회해 주세요.")
+    preview = data.get("building") or {}
+    account = (building.get("sukum_bojung_acct_gb") or building.get("sukum_acct_gb") or "").strip().upper()
+    preview_account = (preview.get("sukum_bojung_acct_gb") or preview.get("sukum_acct_gb") or "").strip().upper()
+    before = _to_int_amt(building.get("first_amt"))
+    if account not in ("M", "O"):
+        raise _JungsanSaveError("건물등록의 보증금 수금통장을 먼저 확인해 주세요.")
+    if account != preview_account or before != _to_int_amt(preview.get("first_amt")):
+        raise _JungsanSaveError("계산 중 건물 최초보증금 또는 보증금 통장이 변경되었습니다. 다시 조회해 주세요.")
+    summary = data["summary"]
+    info = {"status": "manager", "before": before, "after": before}
+    summary["first_amt_sync"] = info
+    if account == "M":
+        # 최초보증금은 관리실 보증금대체의 기준이다. 합계로 덮으면 차액이 사라진다.
+        return
+    target = sum(_row_bojung_for_tot(r) for r in data["rows"])
+    if target < 0 or target != _to_int_amt(summary.get("bojung_tot")) or target != _to_int_amt(summary.get("first_amt")):
+        raise _JungsanSaveError("정산서 최초보증금과 호실별 보증금 합계가 다릅니다. 다시 조회해 주세요.")
+    cur.execute(
+        """SELECT MAX(jungsan_dt) AS latest_dt FROM jungsan_m
+            WHERE bunji1=%s AND bunji2=%s AND jungsan_dt < %s""",
+        (b1, b2, _month_bounds(date.today())[1] + timedelta(days=1)),
+    )
+    latest = _as_date((cur.fetchone() or {}).get("latest_dt"))
+    month_start, month_end = _month_bounds(as_of)
+    if month_start > date.today():
+        info["status"] = "future"
+    elif latest and latest > month_end:
+        info["status"] = "historical"
+    elif before == target:
+        info["status"] = "unchanged"
+    else:
+        cur.execute(
+            "UPDATE bd01 SET first_amt=%s, uid=%s, sys_dt=NOW() WHERE bunji1=%s AND bunji2=%s",
+            (target, (session.get("sabun") or "")[:5], b1, b2),
+        )
+        info.update(status="updated", after=target)
+
+
 def _jungsan_write_snapshot(b1, b2, as_of, data):
-    """합계·상세를 같은 연결에서 저장하고 실패하면 모두 되돌린다."""
-    _, month_end = _month_bounds(as_of)
-    lock_name = f"jungsan-save:{b1}:{b2}:{month_end:%Y-%m}"
+    """정산 합계·상세·건물 최초보증금을 함께 저장하고 실패하면 모두 되돌린다."""
+    # 다른 달의 동시 저장도 건물 기준액을 공유하므로 건물 단위로 직렬화한다.
+    lock_name = f"jungsan-save:{b1}:{b2}"
     conn = db.get_conn()
     locked = False
     started = False
     try:
         with conn.cursor() as cur:
-            # MyISAM은 rollback을 무시한다. 두 테이블 모두 전환되기 전에는
-            # 합계 UPDATE나 기존 상세 DELETE를 시작하지 않는다.
+            # MyISAM은 rollback을 무시한다. 건물등록까지 되돌릴 수 있어야 한다.
             cur.execute(
                 """SELECT TABLE_NAME AS table_name, ENGINE AS engine
                      FROM information_schema.TABLES
                     WHERE TABLE_SCHEMA=DATABASE()
-                      AND TABLE_NAME IN ('jungsan_m','jungsan_det')"""
+                      AND TABLE_NAME IN ('jungsan_m','jungsan_det','bd01')"""
             )
             engines = {r["table_name"]: str(r["engine"]).upper() for r in cur.fetchall()}
             if any(engines.get(t) != "INNODB" for t in ("jungsan_m", "jungsan_det")):
                 raise _JungsanSaveError(
                     "저장 안전성 보완이 필요합니다. 정산 테이블 전환 후 저장해 주세요."
                 )
+            if engines.get("bd01") != "INNODB":
+                raise _JungsanSaveError(
+                    "최초보증금 연동용 DB 적용이 필요합니다(006_bd01_transaction.sql)."
+                )
             cur.execute("SHOW COLUMNS FROM jungsan_m LIKE 'snapshot_json'")
             if not cur.fetchone():
                 raise _JungsanSaveError(
                     "저장본 보존용 DB 적용이 필요합니다(005_jungsan_snapshot_json.sql)."
                 )
-            # 아직 저장본이 없는 달도 같은 건물·월의 동시 저장을 직렬화한다.
+            # 아직 저장본이 없는 건물도 같은 건물의 동시 저장을 직렬화한다.
             cur.execute("SELECT GET_LOCK(%s, 5) AS acquired", (lock_name,))
             locked = _to_int_amt((cur.fetchone() or {}).get("acquired")) == 1
             if not locked:
-                raise _JungsanSaveError("같은 달 정산서를 저장 중입니다. 잠시 후 다시 시도해 주세요.")
+                raise _JungsanSaveError("같은 건물의 정산서를 저장 중입니다. 잠시 후 다시 시도해 주세요.")
             conn.begin()
             started = True
+            _jungsan_sync_first_amt(cur, b1, b2, as_of, data)
             _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data)
             conn.commit()
             started = False
@@ -1776,6 +1831,12 @@ def _jungsan_write_snapshot(b1, b2, as_of, data):
                     cur.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
         finally:
             conn.close()
+    if (data["summary"].get("first_amt_sync") or {}).get("status") == "updated":
+        try:
+            invalidate_building_cache(cache, b1, b2)
+        except Exception:
+            # 이미 commit된 저장을 캐시 문제 때문에 실패로 안내하지 않는다.
+            app.logger.warning("건물 캐시 초기화 실패 (%s-%s)", b1, b2, exc_info=True)
 
 
 def _jungsan_write_snapshot_rows(cur, b1, b2, as_of, data):

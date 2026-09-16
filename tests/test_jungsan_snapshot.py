@@ -23,18 +23,20 @@ class SnapshotSaveTests(unittest.TestCase):
         self.cur.fetchall.return_value = [
             {"table_name": "jungsan_m", "engine": "InnoDB"},
             {"table_name": "jungsan_det", "engine": "InnoDB"},
-        ]
-        self.cur.fetchone.side_effect = [
-            {"Field": "snapshot_json"},
-            {"acquired": 1},
-            {"jungsan_dt": datetime(2026, 5, 31), "jungsan_seq": "01"},
+            {"table_name": "bd01", "engine": "InnoDB"},
         ]
         self.addCleanup(patch.stopall)
         patch("jungsan.db.get_conn", return_value=self.conn).start()
         # 저장 처리가 별도 연결의 자동 커밋으로 돌아가면 즉시 실패시킨다.
         patch("jungsan.db.execute", side_effect=AssertionError("separate connection")).start()
         patch("jungsan.db.query_one", side_effect=AssertionError("separate connection")).start()
+        self.invalidate = patch("jungsan.invalidate_building_cache").start()
         self.data = snapshot_data()
+        self.cur.fetchone.side_effect = [
+            {"Field": "snapshot_json"}, {"acquired": 1}, self.data["building"],
+            {"latest_dt": date(2026, 5, 31)},
+            {"jungsan_dt": datetime(2026, 5, 31), "jungsan_seq": "01"},
+        ]
 
     def save(self):
         jungsan._jungsan_write_snapshot("1139", "0004", date(2026, 5, 31), self.data)
@@ -53,6 +55,8 @@ class SnapshotSaveTests(unittest.TestCase):
         sql = self.statements()
         self.assertTrue(any(s.startswith("UPDATE jungsan_m") for s in sql))
         self.assertTrue(any(s.startswith("DELETE FROM jungsan_det") for s in sql))
+        self.assertTrue(any(s.startswith("UPDATE bd01") for s in sql))
+        self.invalidate.assert_called_once()
         self.assertIn("RELEASE_LOCK", sql[-1])
         self.conn.close.assert_called_once()
 
@@ -70,11 +74,15 @@ class SnapshotSaveTests(unittest.TestCase):
         self.assertEqual(inserts, 2)
         self.conn.commit.assert_not_called()
         self.conn.rollback.assert_called_once()
+        self.invalidate.assert_not_called()
         self.assertIn("RELEASE_LOCK", self.statements()[-1])
         self.conn.close.assert_called_once()
 
     def test_failed_new_snapshot_rolls_back_header_too(self):
-        self.cur.fetchone.side_effect = [{"Field": "snapshot_json"}, {"acquired": 1}, None]
+        self.cur.fetchone.side_effect = [
+            {"Field": "snapshot_json"}, {"acquired": 1}, self.data["building"],
+            {"latest_dt": None}, None,
+        ]
         def fail_insert(sql, args=None):
             if sql.lstrip().startswith("INSERT INTO jungsan_det"):
                 raise RuntimeError("new snapshot failed")
@@ -112,11 +120,40 @@ class SnapshotSaveTests(unittest.TestCase):
         self.assertFalse(any("RELEASE_LOCK" in s for s in self.statements()))
         self.conn.close.assert_called_once()
 
+    def test_myisam_building_prevents_partial_master_update(self):
+        self.cur.fetchall.return_value[-1]["engine"] = "MyISAM"
+        with self.assertRaisesRegex(jungsan._JungsanSaveError, "006_bd01_transaction.sql"):
+            self.save()
+        self.conn.begin.assert_not_called()
+        self.assertFalse(any(s.startswith(("UPDATE", "DELETE", "INSERT")) for s in self.statements()))
+
+    def test_building_update_failure_rolls_back_without_replacing_report(self):
+        def fail_master(sql, args=None):
+            if sql.lstrip().startswith("UPDATE bd01"):
+                raise RuntimeError("building update failed")
+        self.cur.execute.side_effect = fail_master
+        with self.assertRaisesRegex(RuntimeError, "building update failed"):
+            self.save()
+        self.conn.rollback.assert_called_once()
+        self.conn.commit.assert_not_called()
+        self.invalidate.assert_not_called()
+        self.assertFalse(any(s.startswith(("UPDATE jungsan_m", "DELETE", "INSERT")) for s in self.statements()))
+
+    def test_different_months_share_building_lock(self):
+        for month in (5, 6):
+            self.cur.execute.reset_mock()
+            self.cur.fetchone.side_effect = [{"Field": "snapshot_json"}, {"acquired": 0}]
+            with self.assertRaises(jungsan._JungsanSaveError):
+                jungsan._jungsan_write_snapshot("1139", "0004", date(2026, month, 1), self.data)
+            lock = next(c for c in self.cur.execute.call_args_list if "GET_LOCK" in c.args[0])
+            self.assertEqual(lock.args[1], ("jungsan-save:1139:0004",))
+
     def test_failed_commit_attempts_rollback_and_releases_lock(self):
         self.conn.commit.side_effect = RuntimeError("commit failed")
         with self.assertRaisesRegex(RuntimeError, "commit failed"):
             self.save()
         self.conn.rollback.assert_called_once()
+        self.invalidate.assert_not_called()
         self.assertIn("RELEASE_LOCK", self.statements()[-1])
         self.conn.close.assert_called_once()
 
@@ -136,6 +173,7 @@ class SnapshotSaveTests(unittest.TestCase):
         payload = next(v for v in update.args[1] if isinstance(v, str) and v.startswith('{"version":'))
         data = jungsan._jungsan_decode_snapshot("1139", "0004", date(2026, 5, 31), payload)
         self.assertEqual(data["summary"]["jisi_text"], "가" * 200)
+        self.assertEqual(data["summary"]["first_amt_sync"]["status"], "updated")
 
     @patch("jungsan._jungsan_build_preview")
     @patch("jungsan._jungsan_write_snapshot")

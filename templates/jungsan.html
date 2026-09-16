@@ -140,6 +140,7 @@
     <div class="js-item"><span class="js-lab">선불청구</span><span class="js-val">{{ data.summary.claim_tot|money }}</span></div>
     {% endif %}
     <div class="js-item"><span class="js-lab">임대료대체</span><span class="js-val">{{ data.summary.imdae_dache|money }}</span></div>
+    <div class="js-item"><span class="js-lab">보증금대체</span><span class="js-val">{{ data.summary.bojung_dache|money }}</span></div>
     <div class="js-item"><span class="js-lab">지불수리비</span><span class="js-val">{{ data.summary.paid_suri|money }}</span></div>
     <div class="js-item"><span class="js-lab">입금</span><span class="js-val">{{ data.summary.ipkum_tot|money }}</span></div>
     <div class="js-item warn"><span class="js-lab">미수 합계</span><span class="js-val">{{ data.summary.misu_tot|money }}</span></div>
@@ -298,6 +299,28 @@
     체크하면 바로 대체되고, 빼면 바로 해제됩니다. 대체는 임대료+관리비. 세입자 미수에서는 빼지 않습니다.
     {% endif %}
   </p>
+  {% set first_sync = data.summary.get('first_amt_sync') or {} %}
+  {% if data.source != 'saved' or first_sync %}
+  <p class="muted jungsan-note no-print">
+    {% if data.source != 'saved' and data.summary.bojung_manager_account == false %}
+    보증금 건물주 보관: 건물등록 최초보증금 {{ (data.building.get('first_amt') or 0)|money }}원 → 정산 보증금 합계 {{ data.summary.bojung_tot|money }}원.
+    저장할 때 최신 정산월에 한해 건물등록도 반영합니다. 더 최신 정산 기록이 있는 과거 월·미래 월 저장은 건물등록을 변경하지 않습니다.
+    {% elif data.source != 'saved' and data.summary.bojung_manager_account == true %}
+    보증금 관리실 보관: 보증금대체 = 보증금 합계 {{ data.summary.bojung_tot|money }}원 − 건물 최초보증금 {{ data.summary.first_amt|money }}원.
+    건물 최초보증금은 저장해도 유지됩니다.
+    {% elif first_sync.get('status') == 'updated' %}
+    이 정산서 저장 시 건물 최초보증금도 {{ first_sync.before|money }}원 → {{ first_sync.after|money }}원으로 반영했습니다.
+    {% elif first_sync.get('status') == 'historical' %}
+    더 최신 월의 정산 기록이 있어, 이 과거 월 저장으로 건물 최초보증금은 변경하지 않았습니다.
+    {% elif first_sync.get('status') == 'future' %}
+    미래 월 정산 저장이므로 건물 최초보증금은 변경하지 않았습니다.
+    {% elif first_sync.get('status') == 'unchanged' %}
+    저장 당시 건물 최초보증금과 보증금 합계가 일치했습니다.
+    {% elif first_sync.get('status') == 'manager' %}
+    보증금 관리실 보관: 저장 당시 건물 최초보증금은 유지하고, 차액을 보증금대체로 보존했습니다.
+    {% endif %}
+  </p>
+  {% endif %}
 </div>
 {% endif %}
 
