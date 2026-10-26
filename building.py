@@ -10,6 +10,7 @@ from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app, cache
+from building_access import scoped_cache_key
 from query_cache import CACHE_TIMEOUT_BUILDING, CACHE_TIMEOUT_ROOM, invalidate_building_cache
 from utils import (
     CURRENT_TENANT_SQL as _CURRENT_TENANT_SQL,
@@ -718,13 +719,8 @@ def _load_buildings_by_keys(keys):
 
 
 def _building_cache_key():
-    """쿼리 파라미터를 포함하는 캐시 키 생성 함수"""
-    q = request.args.get('q', '')
-    page = request.args.get('page', '')
-    dong = request.args.get('dong', '')
-    select = request.args.get('select', '')
-    next_mode = request.args.get('next', '')
-    return f"buildings_{q}_{page}_{dong}_{select}_{next_mode}"
+    """사용자 권한 범위와 쿼리 파라미터를 포함하는 캐시 키 생성 함수"""
+    return scoped_cache_key("buildings")
 
 
 @app.route("/buildings")
@@ -871,13 +867,8 @@ def buildings():
 
 
 def _vacancies_cache_key():
-    """vacancies 페이지의 view 파라미터를 포함한 캐시 키"""
-    bunji1 = request.args.get('bunji1', '')
-    bunji2 = request.args.get('bunji2', '')
-    q = request.args.get('q', '')
-    view = request.args.get('view', '')
-    page = request.args.get('page', '')
-    return f"vacancies_{bunji1}_{bunji2}_{q}_{view}_{page}"
+    """사용자 권한 범위와 쿼리 파라미터를 포함한 vacancies 캐시 키"""
+    return scoped_cache_key("vacancies")
 
 
 @app.route("/vacancies")

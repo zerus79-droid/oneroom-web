@@ -10,7 +10,15 @@ from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
-from utils import building_dong, clean_building_juso, login_required, require_admin, sort_dong_labels
+from utils import (
+    building_dong,
+    check_stored_password,
+    clean_building_juso,
+    hash_password,
+    login_required,
+    require_admin,
+    sort_dong_labels,
+)
 
 _SABUN_RE = re.compile(r"^[0-9A-Za-z가-힣]+$")
 
@@ -118,8 +126,11 @@ def users():
             if not target:
                 flash("비밀번호를 초기화할 사용자를 목록에서 선택하세요.", "err")
                 return redirect(url_for("users"))
-            temporary = secrets.token_urlsafe(4)[:4]
-            db.execute("UPDATE sawon_m SET pass_wd=%s, sys_dt=NOW() WHERE sabun=%s", (temporary, target))
+            temporary = secrets.token_urlsafe(8)[:10]
+            db.execute(
+                "UPDATE sawon_m SET pass_wd=%s, sys_dt=NOW() WHERE sabun=%s",
+                (hash_password(temporary), target),
+            )
             flash(f"임시 비밀번호: {temporary}", "ok")
             return redirect(url_for("users", sabun=target))
         if action == "delete":
@@ -160,7 +171,13 @@ def users():
                         SET sabun=%s, s_name=%s, grade=%s, pass_wd=%s, sys_dt=NOW()
                         WHERE sabun=%s
                         """,
-                        (form["sabun"], form["s_name"][:50], form["grade"], form["password"][:10], form["orig_sabun"]),
+                        (
+                            form["sabun"],
+                            form["s_name"][:50],
+                            form["grade"],
+                            hash_password(form["password"][:10]),
+                            form["orig_sabun"],
+                        ),
                     )
                 else:
                     db.execute(
@@ -184,16 +201,20 @@ def users():
                 if exists:
                     flash("이미 등록된 사용자 ID입니다.", "err")
                     return redirect(url_for("users"))
-                temporary = "0000"
+                generated = not form["password"]
+                temporary = secrets.token_urlsafe(8)[:10] if generated else form["password"][:10]
                 db.execute(
                     """
                     INSERT INTO sawon_m (sabun, s_name, grade, pass_wd, sys_dt)
                     VALUES (%s, %s, %s, %s, NOW())
                     """,
-                    (form["sabun"], form["s_name"][:50], form["grade"], temporary),
+                    (form["sabun"], form["s_name"][:50], form["grade"], hash_password(temporary)),
                 )
                 _save_user_buildings("", form["sabun"], form["buildings"])
-                flash(f"등록했습니다. ({form['sabun']}) / 임시 비밀번호: {temporary}", "ok")
+                if generated:
+                    flash(f"등록했습니다. ({form['sabun']}) / 임시 비밀번호: {temporary}", "ok")
+                else:
+                    flash(f"등록했습니다. ({form['sabun']})", "ok")
         except Exception as e:
             flash(f"저장 실패: {e}", "err")
         return redirect(url_for("users"))
@@ -297,7 +318,7 @@ def password_change():
         if not old_pw:
             flash("기존 비밀번호를 입력하세요.", "err")
             return redirect(url_for("password_change"))
-        if old_pw != cur_pw:
+        if not check_stored_password(old_pw, cur_pw):
             flash("기존 비밀번호가 올바르지 않습니다.", "err")
             return redirect(url_for("password_change"))
         if not new_pw:
@@ -319,7 +340,7 @@ def password_change():
         try:
             db.execute(
                 "UPDATE sawon_m SET pass_wd=%s, sys_dt=NOW() WHERE sabun=%s",
-                (new_pw[:10], sabun),
+                (hash_password(new_pw[:10]), sabun),
             )
             flash("비밀번호를 변경했습니다. 다음 로그인부터 새 비밀번호를 사용하세요.", "ok")
         except Exception as e:

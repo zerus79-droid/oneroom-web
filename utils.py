@@ -69,6 +69,21 @@ def verify_password(password, hashed):
     return bcrypt.checkpw(password, hashed)
 
 
+def check_stored_password(password, stored):
+    """bcrypt 해시 또는 레거시 평문 저장값과 비밀번호를 상수 시간으로 비교한다."""
+    import hmac
+
+    stored = (stored or "").strip()
+    if not stored:
+        return False
+    if stored.startswith("$2"):
+        try:
+            return bool(verify_password(password, stored))
+        except ValueError:
+            return False
+    return hmac.compare_digest(str(password).encode("utf-8"), stored.encode("utf-8"))
+
+
 def _get_building_cache():
     """건물 정보 캐시를 가져오거나 갱신한다."""
     global _BUILDING_CACHE, _BUILDING_CACHE_TIME

@@ -10,6 +10,7 @@ from flask import jsonify, request, session
 
 import db
 from app_instance import app, cache
+from building_access import building_allowed, scoped_cache_key
 from query_cache import CACHE_TIMEOUT_BUILDING, CACHE_TIMEOUT_TENANT, invalidate_building_cache, invalidate_payment_cache
 from utils import (
     calc_misu_amt as _calc_misu_amt,
@@ -148,10 +149,12 @@ def api_building():
 
 @app.route("/api/current_tenant")
 @login_required
-@cache.cached(timeout=CACHE_TIMEOUT_TENANT)
+@cache.cached(timeout=CACHE_TIMEOUT_TENANT, key_prefix=lambda: scoped_cache_key("current_tenant"))
 def api_current_tenant():
     """수금 등록: 호실 입력 시 현재 입주 순번 조회"""
     bunji1, bunji2 = _parse_bunji_src(request.args)
+    if not building_allowed(bunji1, bunji2):
+        return jsonify({"ok": False, "message": "권한이 없는 건물입니다."}), 403
     hosu = (request.args.get("hosu") or "").strip().upper()
     row = _lookup_current_tenant(bunji1, bunji2, hosu)
     if not row:
@@ -275,6 +278,9 @@ def api_payments_delete():
                     hosu = str(it.get("hosu") or "").strip().upper()
                     if not (sukum_dt and sukum_seq and bunji1 and bunji2 and hosu):
                         errors.append("키 누락")
+                        continue
+                    if not building_allowed(bunji1, bunji2):
+                        errors.append("권한이 없는 건물")
                         continue
                     n = cur.execute(
                         """

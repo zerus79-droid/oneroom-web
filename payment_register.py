@@ -5,10 +5,11 @@
 """
 from datetime import date, timedelta
 
-from flask import flash, make_response, redirect, render_template, request, session, url_for
+from flask import abort, flash, make_response, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
+from building_access import building_allowed
 from utils import (
     building_label as _building_label,
     buildings_and_rooms as _buildings_and_rooms,
@@ -298,6 +299,11 @@ def payment_new():
             and orig_bunji2
             and orig_hosu
         )
+
+        if is_edit and not (
+            building_allowed(orig_bunji1, orig_bunji2) and building_allowed(bunji1, bunji2)
+        ):
+            abort(403)
 
         if is_edit:
             new_seq = orig_sukum_seq
