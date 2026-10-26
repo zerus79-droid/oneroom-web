@@ -16,6 +16,7 @@ from flask import flash, redirect, render_template, request, session, url_for
 
 import db
 from app_instance import app
+from building_access import building_allowed
 from utils import (
     account_digits as _account_digits,
     building_label as _building_label,
@@ -23,6 +24,7 @@ from utils import (
     calc_misu_amt as _calc_misu_amt,
     fmt_bunji_pair as _fmt_bunji_pair,
     login_required,
+    lookup_current_tenant as _lookup_current_tenant,
     make_pager as _make_pager,
     next_sukum_seq as _next_sukum_seq,
     pad_bunji as _pad_bunji,
@@ -1666,6 +1668,10 @@ def _insert_sukum(bunji1, bunji2, hosu, ipju_seq, sukum_dt, amount, name, pay_ki
     hosu = (hosu or "").strip().upper()
     ipju_seq = str(ipju_seq or "").zfill(2)
     if not (hosu and ipju_seq) or int(amount or 0) <= 0:
+        return False
+    if not building_allowed(bunji1, bunji2):
+        return False
+    if not _lookup_current_tenant(bunji1, bunji2, hosu):
         return False
     sukum_seq = _next_sukum_seq(sukum_dt, bunji1, bunji2, hosu)
     is_etc = (pay_kind or "rent") == "etc"

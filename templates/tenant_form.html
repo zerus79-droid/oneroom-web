@@ -908,6 +908,12 @@ window.onTenantDeleteClick = function (e) {
     return ('0000' + v).slice(-4);
   }
 
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   function refreshBuilding() {
     var p1 = (b1.value || '').trim();
     var p2 = (b2.value || '').trim();
@@ -922,10 +928,10 @@ window.onTenantDeleteClick = function (e) {
         if (!hint) return;
         if (d.found && d.label) {
           hint.hidden = false;
-          hint.innerHTML = '<strong>' + d.label + '</strong>';
+          hint.innerHTML = '<strong>' + escapeHtml(d.label) + '</strong>';
         } else if (d.message) {
           hint.hidden = false;
-          hint.innerHTML = '<span style="color:#991b1b">' + (d.label || '미등록') + '</span>';
+          hint.innerHTML = '<span style="color:#991b1b">' + escapeHtml(d.label || '미등록') + '</span>';
         } else {
           hint.hidden = true;
         }

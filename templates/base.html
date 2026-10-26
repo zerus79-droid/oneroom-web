@@ -524,7 +524,10 @@
           var hint = document.getElementById('building-hint');
           if (hint && item) {
             var label = (item.juso || '').trim() || '이름 없음';
-            hint.innerHTML = '<strong>' + label + '</strong>';
+            var strongEl = document.createElement('strong');
+            strongEl.textContent = label;
+            hint.textContent = '';
+            hint.appendChild(strongEl);
             hint.classList.add('is-ok');
             hint.classList.remove('is-warn');
             hint.hidden = false;
@@ -1423,7 +1426,10 @@
       }
       if (!hint) return;
       hint.hidden = false;
-      hint.innerHTML = '<strong>' + text + '</strong>';
+      var strongText = document.createElement('strong');
+      strongText.textContent = text;
+      hint.textContent = '';
+      hint.appendChild(strongText);
       hint.style.color = ok === false ? '#991b1b' : '';
       try {
         hint.classList.toggle('is-ok', !!ok);
